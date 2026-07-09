@@ -1,0 +1,378 @@
+diff --git a/core/src/CMakeLists.txt b/core/src/CMakeLists.txt
+index 64527aa..d0ca2ee 100644
+--- a/core/src/CMakeLists.txt
++++ b/core/src/CMakeLists.txt
+@@ -54,6 +54,7 @@ add_executable(plc_main
+ )
+ 
+ # Link against shared library
++target_link_directories(plc_main PRIVATE ${PYTHON_LIBRARY_DIRS})
+ target_link_libraries(plc_main
+     dl
+     pthread
+@@ -84,7 +85,11 @@ endif()
+ 
+ # Export symbols from the executable so that dlopen'd PLC shared libraries
+ # can resolve functions provided by the runtime (e.g. TCP communication blocks)
+-target_link_options(plc_main PRIVATE -rdynamic)
++if(APPLE)
++    target_link_options(plc_main PRIVATE -Wl,-export_dynamic)
++else()
++    target_link_options(plc_main PRIVATE -rdynamic)
++endif()
+ 
+ # Ensure executable can find shared library at runtime
+ set_target_properties(plc_main PROPERTIES
+diff --git a/core/src/plc_app/plc_state_manager.cpp b/core/src/plc_app/plc_state_manager.cpp
+index a4c976c..dc341a7 100644
+--- a/core/src/plc_app/plc_state_manager.cpp
++++ b/core/src/plc_app/plc_state_manager.cpp
+@@ -1,4 +1,10 @@
+ // plc_state_manager.cpp
++// macOS: suppress deprecation warnings for sem_init/sem_destroy
++// (macOS deprecated POSIX unnamed semaphores but they still work)
++#ifdef __APPLE__
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wdeprecated-declarations"
++#endif
+ //
+ // Walks the loaded program's ConfigurationInstance via virtual dispatch
+ // (Phase 5), spawns one SCHED_FIFO pthread per IEC TASK (Phase 6), and
+@@ -22,7 +28,9 @@
+ #include <exception>
+ 
+ #include <pthread.h>
++#ifndef __APPLE__
+ #include <sched.h>
++#endif
+ 
+ extern "C" {
+ #include "../drivers/plugin_driver.h"
+@@ -105,7 +113,9 @@ static void init_done_cond(void)
+ {
+     pthread_condattr_t cattr;
+     pthread_condattr_init(&cattr);
++#ifndef __APPLE__
+     pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);
++#endif
+     pthread_cond_init(&done_cond, &cattr);
+     pthread_condattr_destroy(&cattr);
+ }
+@@ -192,8 +202,13 @@ static void *plc_task_thread(void *arg)
+     PlcTaskCtx *ctx = static_cast<PlcTaskCtx *>(arg);
+     current_task_ctx = ctx;
+ 
++#ifdef __APPLE__
++    pthread_setname_np(ctx->name);
++#else
+     pthread_setname_np(pthread_self(), ctx->name);
++#endif
+ 
++#ifndef __APPLE__
+     int rt = ctx->priority;
+     if (rt < 1)  rt = 1;
+     if (rt > 99) rt = 99;
+@@ -208,6 +223,9 @@ static void *plc_task_thread(void *arg)
+     {
+         log_info("[task %s] SCHED_FIFO priority %d", ctx->name, rt);
+     }
++#else
++    log_info("[task %s] Real-time scheduling not available on macOS", ctx->name);
++#endif
+ 
+     if (ctx->cpu_affinity_mask != 0)
+     {
+@@ -324,6 +342,18 @@ static void *plc_task_thread(void *arg)
+                 task->programs[p]->located_range(&off, &cnt);
+                 if (cnt) image_tables_threaded_copy_out(off, cnt);
+             }
++
++#ifdef __APPLE__
++            /* macOS: SCHED_FIFO unavailable; task bodies often overrun the
++             * 20ms tick, meaning the dispatcher's g_tasks_running==0 drain
++             * window never opens.  Drain the debug-write journal here — inside
++             * the task body, after copy-out — so debugger forces and writes land
++             * within one scan even under persistent overrun.  image_lock is
++             * not required: GlobalVar<T> accesses use per-variable mutexes;
++             * the drain touches only program-local IECVar<T> objects that the
++             * scan body just finished using. */
++            debug_write_journal_drain();
++#endif
+         }
+         catch (const std::exception &e)
+         {
+@@ -726,12 +756,14 @@ void *plc_cycle_thread(void *arg)
+      * Run at SCHED_FIFO 99 — above every worker — so the tick is never delayed
+      * by a busy worker on a shared CPU.
+      * --------------------------------------------------------------------- */
++#ifndef __APPLE__
+     {
+         sched_param dsp{};
+         dsp.sched_priority = 99;
+         if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &dsp) != 0)
+             log_warn("dispatcher SCHED_FIFO(99) failed: %s", strerror(errno));
+     }
++#endif
+ 
+     /* Completion-signal condvar shares the CLOCK_MONOTONIC timeline with the
+      * tick deadline (init-once). Reset the in-flight count so a STOP-time
+@@ -746,7 +778,14 @@ void *plc_cycle_thread(void *arg)
+     uint64_t master_tick      = 0;
+     bool     cycle_end_pending = false;   /* a frame's cycle_end not yet fired */
+     timespec next_tick;
++#ifdef __APPLE__
++    /* On macOS, pthread_cond_timedwait uses CLOCK_REALTIME (the condvar was
++     * initialized without pthread_condattr_setclock, which macOS doesn't
++     * support for CLOCK_MONOTONIC).  Use CLOCK_REALTIME here to match. */
++    clock_gettime(CLOCK_REALTIME, &next_tick);
++#else
+     clock_gettime(CLOCK_MONOTONIC, &next_tick);
++#endif
+ 
+     while (plc_get_state() == PLC_STATE_RUNNING)
+     {
+diff --git a/core/src/plc_app/plcapp_manager.c b/core/src/plc_app/plcapp_manager.c
+index e8090af..d31621e 100644
+--- a/core/src/plc_app/plcapp_manager.c
++++ b/core/src/plc_app/plcapp_manager.c
+@@ -27,7 +27,8 @@ char *find_libplc_file(const char *build_dir)
+ 
+     while ((entry = readdir(dir)) != NULL)
+     {
+-        if (strncmp(entry->d_name, "libplc_", 7) == 0 && strstr(entry->d_name, ".so") != NULL)
++        if (strncmp(entry->d_name, "libplc_", 7) == 0 &&
++            (strstr(entry->d_name, ".so") != NULL || strstr(entry->d_name, ".dylib") != NULL))
+         {
+             size_t path_len = strlen(build_dir) + strlen(entry->d_name) + 2;
+             found_path      = malloc(path_len);
+@@ -43,7 +44,7 @@ char *find_libplc_file(const char *build_dir)
+ 
+     if (!found_path)
+     {
+-        log_error("No libplc_*.so file found in %s", build_dir);
++        log_error("No libplc_*.so/.dylib file found in %s", build_dir);
+     }
+ 
+     return found_path;
+diff --git a/core/src/plc_app/unix_socket.h b/core/src/plc_app/unix_socket.h
+index 08c98f3..d48a4ac 100644
+--- a/core/src/plc_app/unix_socket.h
++++ b/core/src/plc_app/unix_socket.h
+@@ -5,7 +5,7 @@
+ 
+ #include "plc_state_manager.h"
+ 
+-#define SOCKET_PATH "/run/runtime/plc_runtime.socket"
++#define SOCKET_PATH "/tmp/plc_runtime.socket"
+ #define COMMAND_BUFFER_SIZE 8192
+ #define MAX_RESPONSE_SIZE 65536
+ #define MAX_CLIENTS 1
+diff --git a/core/src/plc_app/utils/log.h b/core/src/plc_app/utils/log.h
+index bac71fd..287ec7b 100644
+--- a/core/src/plc_app/utils/log.h
++++ b/core/src/plc_app/utils/log.h
+@@ -7,7 +7,7 @@
+ extern "C" {
+ #endif
+ 
+-#define LOG_SOCKET_PATH "/run/runtime/log_runtime.socket"
++#define LOG_SOCKET_PATH "/tmp/log_runtime.socket"
+ 
+ typedef enum {
+     LOG_LEVEL_DEBUG,
+diff --git a/core/src/plc_app/utils/utils.c b/core/src/plc_app/utils/utils.c
+index bebba3a..bb115e6 100644
+--- a/core/src/plc_app/utils/utils.c
++++ b/core/src/plc_app/utils/utils.c
+@@ -12,7 +12,7 @@
+ 
+ // MSYS2/Cygwin does not support mlockall or real-time scheduling
+ // These features are only available on Linux
+-#if !defined(__CYGWIN__) && !defined(__MSYS__)
++#if !defined(__APPLE__) && !defined(__CYGWIN__) && !defined(__MSYS__)
+ #include <sched.h>
+ #include <sys/mman.h>
+ #include <sys/prctl.h>
+@@ -177,11 +177,10 @@ size_t parse_hex_string(const char *hex_string, uint8_t *data)
+ 
+         data[count++] = (uint8_t)value;
+ 
+-        // Move past the parsed value (2 hex chars)
+-        while (*ptr != '\0' && *ptr != ' ')
+-        {
+-            ptr++;
+-        }
++        // Move past the 2 parsed hex chars (compact or space-separated input)
++        for (int _i = 0; _i < 2 && *ptr != '\0'; _i++) ptr++;
++        // Skip optional space separator (space-separated format)
++        if (*ptr == ' ') ptr++;
+     }
+ 
+     return count;
+diff --git a/core/src/plc_app/utils/utils.h b/core/src/plc_app/utils/utils.h
+index 6994fbd..8229ed7 100644
+--- a/core/src/plc_app/utils/utils.h
++++ b/core/src/plc_app/utils/utils.h
+@@ -3,11 +3,15 @@
+ 
+ #include <dlfcn.h>
+ #include <pthread.h>
+-#include <sched.h>
+-#include <sys/mman.h>
+ #include <time.h>
+ #include <stdint.h>
+ 
++// Real-time scheduling headers — Linux only (not macOS/MSYS2/Cygwin)
++#if !defined(__APPLE__) && !defined(__CYGWIN__) && !defined(__MSYS__)
++#include <sched.h>
++#include <sys/mman.h>
++#endif
++
+ #include "log.h"
+ 
+ #ifdef __cplusplus
+diff --git a/scripts/Makefile.strucpp b/scripts/Makefile.strucpp
+index c2de33d..9b6cfe1 100644
+--- a/scripts/Makefile.strucpp
++++ b/scripts/Makefile.strucpp
+@@ -79,20 +79,20 @@ PYTHON_OBJ    := $(if $(wildcard $(PYTHON_LOADER)),$(BUILD_DIR)/python_loader.o,
+ CBLOCKS_CPP   := $(wildcard $(GENERATED_DIR)/c_blocks_code.cpp)
+ CBLOCKS_OBJ   := $(patsubst $(GENERATED_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(CBLOCKS_CPP))
+ 
+-LIBPLC := $(BUILD_DIR)/new_libplc.so
++# Platform detection — must be before LIBPLC_EXT
++UNAME_S    := $(shell uname -s)
++IS_WINDOWS := $(if $(filter CYGWIN_NT-% MSYS_NT-% MINGW64_NT-% MINGW32_NT-%,$(UNAME_S)),1,)
++IS_MACOS   := $(if $(filter Darwin,$(UNAME_S)),1,)
++COMM_STUB_OBJ := $(if $(IS_WINDOWS),$(BUILD_DIR)/comm_stubs.o,)
++
++# macOS uses .dylib; Linux uses .so
++LIBPLC_EXT := $(if $(IS_MACOS),.dylib,.so)
++LIBPLC := $(BUILD_DIR)/new_libplc$(LIBPLC_EXT)
+ 
+ # Auto-generated header-dependency files (one .d per .o, emitted by -MMD).
+-# -include (leading dash) ignores them on the first build when they don't
+-# exist yet; once present, they make `make` header-change aware.
+ ALL_OBJS := $(GEN_OBJ) $(SHIM_OBJ) $(CBLOCKS_OBJ) $(PYTHON_OBJ)
+ DEPS     := $(ALL_OBJS:.o=.d)
+ 
+-# Cygwin/MSYS2: TCP/UDP communication blocks aren't supported, fall
+-# back to no-op stubs so blocks-using programs still link.
+-UNAME_S := $(shell uname -s)
+-IS_WINDOWS := $(if $(filter CYGWIN_NT-% MSYS_NT-% MINGW64_NT-% MINGW32_NT-%,$(UNAME_S)),1,)
+-COMM_STUB_OBJ := $(if $(IS_WINDOWS),$(BUILD_DIR)/comm_stubs.o,)
+-
+ EXTRA_OBJS := $(CBLOCKS_OBJ) $(PYTHON_OBJ) $(COMM_STUB_OBJ)
+ 
+ .PHONY: all clean
+@@ -104,7 +104,11 @@ all: $(LIBPLC)
+ # objects are interchangeable. -lpthread / -lrt match the historical
+ # compile.sh.
+ $(LIBPLC): $(GEN_OBJ) $(SHIM_OBJ) $(EXTRA_OBJS) | $(BUILD_DIR)
+-	g++ -shared -fPIC -o $@ $^ -lpthread -lrt
++ifeq ($(IS_MACOS),1)
++	$(CXX) -dynamiclib -fPIC -o $@ $^ -lpthread
++else
++	$(CXX) -shared -fPIC -o $@ $^ -lpthread -lrt
++endif
+ 	@echo "[INFO] Build complete: $@"
+ 
+ # Generated TUs from the editor's upload. Force-include iec_python.h
+diff --git a/scripts/compile-clean.sh b/scripts/compile-clean.sh
+index f8ad8fe..d0d96c9 100755
+--- a/scripts/compile-clean.sh
++++ b/scripts/compile-clean.sh
+@@ -3,17 +3,24 @@ set -euo pipefail
+ 
+ BUILD_DIR="build"
+ 
++# Determine shared library extension for the current platform
++if [ "$(uname -s)" = "Darwin" ]; then
++    LIB_EXT=".dylib"
++else
++    LIB_EXT=".so"
++fi
++
+ # Remove old object files from root (if any left from older builds)
+ find . -maxdepth 1 -name "*.o" -type f -exec rm -f {} \;
+ 
+ # Clean extra .o files from build dir if needed
+ rm -f "$BUILD_DIR"/*.o
+ 
+-# Remove old libplc_*.so files to ensure only one exists
+-rm -f "$BUILD_DIR"/libplc_*.so
++# Remove old libplc_* files to ensure only one exists
++rm -f "$BUILD_DIR"/libplc_*"$LIB_EXT"
+ 
+ TIMESTAMP=$(date +%s%N)
+-UNIQUE_LIBPLC="libplc_${TIMESTAMP}.so"
++UNIQUE_LIBPLC="libplc_${TIMESTAMP}${LIB_EXT}"
+ 
+ # Move resulting shared library to unique name
+-mv "$BUILD_DIR/new_libplc.so" "$BUILD_DIR/$UNIQUE_LIBPLC"
++mv "$BUILD_DIR/new_libplc${LIB_EXT}" "$BUILD_DIR/$UNIQUE_LIBPLC"
+diff --git a/scripts/compile.sh b/scripts/compile.sh
+index 90609b7..7fdb34b 100755
+--- a/scripts/compile.sh
++++ b/scripts/compile.sh
+@@ -88,9 +88,14 @@ check_required_files
+ #   Pi 4 8 GB (nproc=4): cpu=3, mem=8 → -j3
+ #   1 GB / 1 core VM:    cpu=1, mem=1 → -j1
+ #   Workstation 8c/16GB: cpu=7, mem=16 → -j7
+-CPU_JOBS=$(nproc)
++CPU_JOBS=$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
+ [ "$CPU_JOBS" -gt 1 ] && CPU_JOBS=$((CPU_JOBS - 1))
+-MEM_KB=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
++# /proc/meminfo is Linux-only; on macOS use sysctl
++if [ -f /proc/meminfo ]; then
++    MEM_KB=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
++else
++    MEM_KB=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 4294967296) / 1024 ))
++fi
+ MEM_MB=$((MEM_KB / 1024))
+ MEM_JOBS=$(( (MEM_MB + 512) / 1024 ))
+ [ "$MEM_JOBS" -lt 1 ] && MEM_JOBS=1
+diff --git a/webserver/app.py b/webserver/app.py
+index 557b9a7..6d4cb8b 100644
+--- a/webserver/app.py
++++ b/webserver/app.py
+@@ -54,8 +54,8 @@ login_manager.init_app(app)
+ 
+ runtime_manager = RuntimeManager(
+     runtime_path="./build/plc_main",
+-    plc_socket="/run/runtime/plc_runtime.socket",
+-    log_socket="/run/runtime/log_runtime.socket",
++    plc_socket="/tmp/plc_runtime.socket",
++    log_socket="/tmp/log_runtime.socket",
+     print_debug=_print_debug,
+ )
+ 
+diff --git a/webserver/config.py b/webserver/config.py
+index 752be4e..fdc3d57 100644
+--- a/webserver/config.py
++++ b/webserver/config.py
+@@ -57,7 +57,7 @@ def get_runtime_dir():
+     On native Linux, use /var/run/runtime for ephemeral data (sockets).
+     """
+     if platform.system() != "Linux":
+-        runtime_dir = Path("/run/runtime")
++        runtime_dir = Path("/tmp")
+     else:
+         runtime_dir = Path("/var/run/runtime")
+ 
+@@ -73,9 +73,12 @@ def get_persistent_data_dir():
+     On native Linux, use /var/lib/openplc-runtime (survives reboot).
+     On MSYS2/Windows, use /run/runtime.
+     """
+-    if platform.system() != "Linux":
+-        # MSYS2/Windows: use /run/runtime
+-        data_dir = Path("/run/runtime")
++    if platform.system() == "Darwin":
++        # macOS: use /tmp for ephemeral runtime data
++        data_dir = Path("/tmp/openplc-runtime")
++    elif platform.system() != "Linux":
++        # MSYS2/Windows: use temp directory
++        data_dir = Path("/tmp/openplc-runtime")
+     elif is_running_in_container():
+         # Container: use /var/run/runtime (expected to be a mounted volume)
+         data_dir = Path("/var/run/runtime")
