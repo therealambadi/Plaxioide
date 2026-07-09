@@ -179,9 +179,11 @@ jobs:
           ls -lh plc_main* 2>/dev/null
 
       # ── 11. Python deps + webserver ───────────────────────────────────────
-      - name: Install Python dependencies
+      # MSYS2 Python enforces PEP 668 — must use a venv for pip installs.
+      - name: Install Python dependencies (venv)
         run: |
-          pip install flask flask-jwt-extended flask-socketio flask-cors eventlet 2>&1 | tail -8
+          python3 -m venv /tmp/plcvenv
+          /tmp/plcvenv/bin/pip install flask flask-jwt-extended flask-socketio flask-cors eventlet 2>&1 | tail -12
 
       - name: Start plc_main (background)
         run: |
@@ -194,7 +196,7 @@ jobs:
       - name: Start webserver (background)
         run: |
           cd /tmp/openplc-runtime
-          nohup python3 -m webserver.app > /tmp/webserver_win.log 2>&1 &
+          nohup /tmp/plcvenv/bin/python3 -m webserver.app > /tmp/webserver_win.log 2>&1 &
           sleep 5
           echo "=== webserver startup log ==="
           cat /tmp/webserver_win.log
