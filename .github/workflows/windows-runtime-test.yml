@@ -179,6 +179,15 @@ jobs:
           echo "=== app.py patch verification ==="
           grep -n "_zip_path\|upload_tmp\|analyze_zip\|safe_extract\|_os.unlink" webserver/app.py
 
+      - name: "[W7] Instrument upload handler for per-step diagnostics"
+        run: |
+          set -e
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w7_instrument_app.py" /tmp/w7_instrument_app.py
+          cd /tmp/openplc-runtime
+          python3 /tmp/w7_instrument_app.py
+          echo "=== W7 instrumentation lines ==="
+          grep -n '\[W7\]' webserver/app.py
+
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
         id: build_with_w
