@@ -172,26 +172,21 @@ jobs:
       # right after the content_length check, before analyze_zip/safe_extract.
       # Dump the exact bytes around analyze_zip so we can write a precise anchor
       - name: "[W6-diag] Dump app.py analyze_zip call site (repr)"
+        shell: pwsh
         run: |
-          cd /tmp/openplc-runtime
-          python3 -c "
-import sys
-src = open('webserver/app.py').read()
-idx = src.find('analyze_zip')
-if idx < 0:
-    print('analyze_zip NOT FOUND in app.py')
-    sys.exit(0)
-chunk = src[max(0,idx-300):idx+300]
-print('=== RAW REPR ===')
-print(repr(chunk))
-print('=== PLAIN ===')
-print(chunk)
-idx2 = src.find('safe_extract')
-if idx2 >= 0:
-    chunk2 = src[max(0,idx2-100):idx2+300]
-    print('=== safe_extract RAW REPR ===')
-    print(repr(chunk2))
-"
+          $p = "C:\msys64\tmp\openplc-runtime\webserver\app.py"
+          $src = [System.IO.File]::ReadAllText($p)
+          $idx = $src.IndexOf("analyze_zip")
+          if ($idx -lt 0) { Write-Host "analyze_zip NOT FOUND"; exit 0 }
+          $chunk = $src.Substring([Math]::Max(0,$idx-300), [Math]::Min(600,$src.Length-[Math]::Max(0,$idx-300)))
+          Write-Host "=== analyze_zip context ==="
+          Write-Host $chunk
+          $idx2 = $src.IndexOf("safe_extract")
+          if ($idx2 -ge 0) {
+            $chunk2 = $src.Substring([Math]::Max(0,$idx2-100), [Math]::Min(400,$src.Length-[Math]::Max(0,$idx2-100)))
+            Write-Host "=== safe_extract context ==="
+            Write-Host $chunk2
+          }
 
       - name: "[W6] Convert FileStorage to BytesIO before zipfile ops in app.py"
         shell: pwsh
