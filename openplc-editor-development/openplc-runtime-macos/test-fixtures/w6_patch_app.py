@@ -3,83 +3,82 @@ import sys
 path = 'webserver/app.py'
 src = open(path).read()
 
-# Dump the upload handler context for diagnostics
-for marker in ('request.files', 'analyze_zip', 'safe_extract'):
+# Dump upload handler context
+for marker in ('content_length', 'analyze_zip(zip_file)', 'safe_extract(zip_file,'):
     idx = src.find(marker)
     if idx >= 0:
-        print('=== %s context ===' % marker)
-        print(repr(src[max(0, idx-100):idx+150]))
+        print('=== %s ===' % marker)
+        print(repr(src[max(0, idx-80):idx+80]))
 
-# The fix: write the uploaded bytes to a real temp file on disk and pass
-# the file PATH string to analyze_zip + safe_extract.  A path makes
-# zipfile.ZipFile open its own fresh OS file descriptor from byte 0 on
-# every call — completely immune to stream-position bugs.
+# Fix: inject NamedTemporaryFile write BETWEEN the content_length check and
+# analyze_zip. The anchor is 'analyze_zip(zip_file)' which is always present
+# after the check and before safe_extract.
 #
-# We replace the single line that reads zip_file from the request and
-# inject two lines: write to NamedTemporaryFile, rebind zip_file to path.
+# We replace:
+#   safe, valid_files = analyze_zip(zip_file)
+# with:
+#   import tempfile as _tf, os as _os
+#   _ztmp = _tf.NamedTemporaryFile(delete=False, suffix=".zip")
+#   _ztmp.write(zip_file.stream.read()); _ztmp.flush(); _ztmp.close()
+#   _zip_path = _ztmp.name
+#   safe, valid_files = analyze_zip(_zip_path)
+#
+# Then replace safe_extract(zip_file, with safe_extract(_zip_path,
+# and inject _os.unlink(_ztmp.name) before apply_vpp_plugin_conf.
 
-# Find the request.files["file"] assignment line
-old_zip_line = None
-for candidate in (
-    'zip_file = flask.request.files["file"]',
-    "zip_file = flask.request.files['file']",
-    'zip_file = request.files["file"]',
-    "zip_file = request.files['file']",
-):
-    if candidate in src:
-        old_zip_line = candidate
-        break
-
-if old_zip_line is None:
-    print('W6 ERROR: cannot find zip_file = request.files[...] line', file=sys.stderr)
-    idx2 = src.find('request.files')
-    print('request.files context:', repr(src[max(0,idx2-50):idx2+100]) if idx2 >= 0 else '(not found)')
+OLD1 = 'safe, valid_files = analyze_zip(zip_file)'
+if OLD1 not in src:
+    print('W6 ERROR: anchor %r not found' % OLD1, file=sys.stderr)
+    idx = src.find('analyze_zip')
+    print('analyze_zip context:', repr(src[max(0,idx-100):idx+200]) if idx >= 0 else '(not found)')
     sys.exit(1)
 
-# Detect the indentation of that line
-line_start = src.rfind('\n', 0, src.index(old_zip_line)) + 1
-indent = src[line_start:src.index(old_zip_line)]
-print('indent detected: %r (%d chars)' % (indent, len(indent)))
+# Detect indentation of the analyze_zip call
+line_start = src.rfind('\n', 0, src.index(OLD1)) + 1
+indent = src[line_start:src.index(OLD1)]
 
-# Build replacement block
-new_block = (
-    old_zip_line + '\n' +
-    indent + 'import tempfile as _tf, os as _os\n' +
+NEW1 = (
+    'import tempfile as _tf, os as _os\n' +
     indent + '_ztmp = _tf.NamedTemporaryFile(delete=False, suffix=".zip")\n' +
-    indent + '_ztmp.write(zip_file.read()); _ztmp.flush(); _ztmp.close()\n' +
-    indent + 'zip_file = _ztmp.name  # real path: ZipFile opens fresh fd from byte 0'
+    indent + '_ztmp.write(zip_file.stream.read()); _ztmp.flush(); _ztmp.close()\n' +
+    indent + '_zip_path = _ztmp.name\n' +
+    indent + 'safe, valid_files = analyze_zip(_zip_path)'
 )
 
-src = src.replace(old_zip_line, new_block, 1)
-print('W6 fix1: injected temp-file write + rebind after zip_file assignment')
+src = src.replace(OLD1, NEW1, 1)
+print('W6 fix1 applied (indent=%r)' % indent)
 
-# Normalise any remaining zip_data references back to zip_file
-for old in ('analyze_zip(zip_data)', 'safe_extract(zip_data,',
-            'import io as _io\n', 'zip_data = _io.BytesIO(zip_file.read())\n',
-            'zip_data.seek(0)  # rewind after analyze_zip consumed the stream\n'):
-    if old in src:
-        if old.startswith('analyze_zip') or old.startswith('safe_extract'):
-            src = src.replace(old, old.replace('zip_data', 'zip_file'), 1)
-            print('W6: renamed zip_data -> zip_file in %s call' % old.split('(')[0])
-        else:
-            src = src.replace(old, '', 1)
-            print('W6: removed stale line: %r' % old[:60])
+# Replace safe_extract(zip_file, -> safe_extract(_zip_path,
+OLD2 = 'safe_extract(zip_file,'
+if OLD2 not in src:
+    print('W6 ERROR: anchor %r not found' % OLD2, file=sys.stderr)
+    sys.exit(1)
+src = src.replace(OLD2, 'safe_extract(_zip_path,', 1)
+print('W6 fix2 applied')
 
-# Add cleanup: delete the temp file after safe_extract finishes.
-# Anchor: the line calling apply_vpp_plugin_conf (always right after safe_extract).
-cleanup_anchor = 'apply_vpp_plugin_conf(extract_dir)'
-if cleanup_anchor in src:
-    idx_ca = src.index(cleanup_anchor)
+# Inject cleanup before apply_vpp_plugin_conf
+CLEANUP_ANCHOR = 'apply_vpp_plugin_conf(extract_dir)'
+if CLEANUP_ANCHOR in src:
+    idx_ca = src.index(CLEANUP_ANCHOR)
     ls = src.rfind('\n', 0, idx_ca) + 1
     ind_ca = src[ls:idx_ca]
     src = src.replace(
-        ind_ca + cleanup_anchor,
-        ind_ca + '_os.unlink(_ztmp.name)\n' + ind_ca + cleanup_anchor,
+        ind_ca + CLEANUP_ANCHOR,
+        ind_ca + '_os.unlink(_ztmp.name)\n' + ind_ca + CLEANUP_ANCHOR,
         1
     )
-    print('W6 fix2: temp-file cleanup injected before apply_vpp_plugin_conf')
+    print('W6 fix3: cleanup injected')
 else:
-    print('W6 WARNING: apply_vpp_plugin_conf not found — temp file leaks (non-fatal for CI)')
+    print('W6 WARNING: cleanup anchor not found (non-fatal)')
 
 open(path, 'w').write(src)
+
+# Verify
+print('=== verification ===')
+for line in open(path):
+    n = 0
+for i, line in enumerate(open(path), 1):
+    if any(k in line for k in ('_ztmp', '_zip_path', 'analyze_zip', 'safe_extract', '_os.unlink')):
+        print('%d: %s' % (i, line.rstrip()))
+
 print('W6 DONE')
