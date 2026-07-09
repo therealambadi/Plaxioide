@@ -202,24 +202,6 @@ jobs:
           print('W6 applied (2 seek fixes in plcapp_management.py)')
           PYEOF
 
-          # Also patch app.py call site: seek between analyze_zip and safe_extract
-          python3 - <<'PYEOF'
-          import sys
-          path = 'webserver/app.py'
-          src = open(path).read()
-          # Find the call site pattern: safe, valid_files = analyze_zip(zip_file)
-          # followed by safe_extract(zip_file, ...)
-          old = '    safe, valid_files = analyze_zip(zip_file)\n'
-          new = '    safe, valid_files = analyze_zip(zip_file)\n    # Rewind stream exhausted by analyze_zip before safe_extract\n    if hasattr(zip_file, "stream"): zip_file.stream.seek(0)\n    elif hasattr(zip_file, "seek"): zip_file.seek(0)\n'
-          if old not in src:
-              print("W6 app.py anchor not found — skipping (may not be needed)", file=sys.stderr)
-              idx = src.find("analyze_zip")
-              print("context:", src[max(0,idx-50):idx+200] if idx >= 0 else "(not found)")
-          else:
-              open(path, 'w').write(src.replace(old, new, 1))
-              print('W6 app.py seek fix applied')
-          PYEOF
-
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
         id: build_with_w
@@ -266,24 +248,24 @@ jobs:
           # Also stage the AF_UNIX script at a clean MSYS2 path for the test below
           Copy-Item "$fixtures\plc_af_unix.py"        "C:\msys64\tmp\plc_af_unix.py"
 
-      - name: Start plc_main (background)
+      - name: Start plc_main and run AF_UNIX test
+        id: af_unix_test
+        continue-on-error: true
         run: |
           cd /tmp/openplc-runtime
+          # Copy AF_UNIX script to MSYS2 /tmp/ now (inside msys2 shell = correct path)
+          cp /c/plc_af_unix.py /tmp/plc_af_unix.py
+          # Start plc_main in background THEN immediately test AF_UNIX.
+          # MUST NOT start webserver nohup before this msys2 step — two nohup
+          # processes cause the CMD wrapper to hang.
           nohup ./build/plc_main > /tmp/plc_main_win.log 2>&1 &
           sleep 10
           echo "=== plc_main startup log ==="
           cat /tmp/plc_main_win.log
           echo "=== socket file check ==="
           ls -la /tmp/plc_runtime.socket 2>/dev/null || echo "socket not yet present"
-
-      # ── 12. AF_UNIX socket connectivity test ─────────────────────────────
-      # MUST run before the webserver nohup launch — any msys2 shell step
-      # after a nohup hangs under the Windows CMD wrapper. The script was
-      # pre-staged to /tmp/ (C:\msys64\tmp\) by the pwsh copy step above.
-      - name: "[STEP 2] AF_UNIX socket connectivity test"
-        id: af_unix_test
-        continue-on-error: true
-        run: python3 /tmp/plc_af_unix.py
+          echo "=== [STEP 2] AF_UNIX socket test ==="
+          python3 /tmp/plc_af_unix.py
 
       - name: Start webserver (background)
         run: |
