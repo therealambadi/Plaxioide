@@ -194,19 +194,10 @@ jobs:
             flask flask-login flask-sqlalchemy flask-jwt-extended flask-socketio flask-cors eventlet python-dotenv 2>&1
           echo "PYTHONPATH=/tmp/plcvenv/lib/python3.12/site-packages" >> $GITHUB_ENV
 
-      - name: Start plc_main (background)
-        run: |
-          cd /tmp/openplc-runtime
-          nohup ./build/plc_main > /tmp/plc_main_win.log 2>&1 &
-          sleep 5
-          echo "=== plc_main startup log ==="
-          cat /tmp/plc_main_win.log
-          echo "=== socket file check ==="
-          ls -la /tmp/plc_runtime.socket 2>/dev/null || echo "socket not yet present"
-
       # Scripts are checked in as test fixtures — copy them to C:\ so pwsh
-      # can call them directly. Avoids heredoc/here-string quoting which
-      # breaks YAML parsing when Python single-quotes appear in the content.
+      # can call them directly. MUST happen before any nohup launches because
+      # any msys2 shell step after a nohup background process hangs under the
+      # Windows CMD wrapper signal handling.
       - name: Copy Python test scripts from repo
         shell: pwsh
         run: |
@@ -217,6 +208,27 @@ jobs:
           Copy-Item "$fixtures\plc_login.py"          C:\plc_login.py
           Copy-Item "$fixtures\plc_upload.py"         C:\plc_upload.py
           Copy-Item "$fixtures\plc_start.py"          C:\plc_start.py
+          # Also stage the AF_UNIX script at a clean MSYS2 path for the test below
+          Copy-Item "$fixtures\plc_af_unix.py"        "C:\msys64\tmp\plc_af_unix.py"
+
+      - name: Start plc_main (background)
+        run: |
+          cd /tmp/openplc-runtime
+          nohup ./build/plc_main > /tmp/plc_main_win.log 2>&1 &
+          sleep 5
+          echo "=== plc_main startup log ==="
+          cat /tmp/plc_main_win.log
+          echo "=== socket file check ==="
+          ls -la /tmp/plc_runtime.socket 2>/dev/null || echo "socket not yet present"
+
+      # ── 12. AF_UNIX socket connectivity test ─────────────────────────────
+      # MUST run before the webserver nohup launch — any msys2 shell step
+      # after a nohup hangs under the Windows CMD wrapper. The script was
+      # pre-staged to /tmp/ (C:\msys64\tmp\) by the pwsh copy step above.
+      - name: "[STEP 2] AF_UNIX socket connectivity test"
+        id: af_unix_test
+        continue-on-error: true
+        run: python3 /tmp/plc_af_unix.py
 
       - name: Start webserver (background)
         run: |
@@ -229,17 +241,6 @@ jobs:
       - name: Wait for webserver ready
         shell: pwsh
         run: python C:\plc_wait_webserver.py
-
-      # ── 12. AF_UNIX socket connectivity test ─────────────────────────────
-      # Must run under MSYS2 python3 — Cygwin AF_UNIX sockets at /tmp/ paths
-      # are not visible to Windows Python. Copy script to /tmp/ first to avoid
-      # $GITHUB_WORKSPACE backslash expansion mangling the path in MSYS2 shell.
-      - name: "[STEP 2] AF_UNIX socket connectivity test"
-        id: af_unix_test
-        continue-on-error: true
-        run: |
-          cp /c/plc_af_unix.py /tmp/plc_af_unix.py
-          python3 /tmp/plc_af_unix.py
 
       # ── 12b. Create first user (no-auth endpoint when DB is empty) ────────
       # The upstream webserver has no seeded default credentials. On first run
