@@ -210,15 +210,24 @@ jobs:
           nohup /tmp/plcvenv/bin/python3 -m webserver.app > /tmp/webserver_win.log 2>&1 &
           WBPID=$!
           echo "webserver PID: $WBPID"
-          # Poll for up to 30s — webserver generates SSL cert on first boot
-          for i in $(seq 1 30); do
+          # SSL cert generation on first boot can take 60-120s on Windows.
+          # Poll until "Running on" appears (server ready) or up to 3 minutes.
+          for i in $(seq 1 180); do
             sleep 1
-            echo "--- webserver log at ${i}s ---"
-            cat /tmp/webserver_win.log 2>/dev/null || echo "(empty)"
-            # Stop polling once the server appears to be listening
-            if grep -q "Running on\|Serving on\|ssl_context\|Traceback\|Error\|error" /tmp/webserver_win.log 2>/dev/null; then
-              echo "--- webserver settled at ${i}s ---"
+            if grep -q "Running on\|Serving on" /tmp/webserver_win.log 2>/dev/null; then
+              echo "--- webserver READY at ${i}s ---"
+              cat /tmp/webserver_win.log
               break
+            fi
+            if grep -q "Traceback\|ModuleNotFoundError\|ImportError" /tmp/webserver_win.log 2>/dev/null; then
+              echo "--- webserver CRASHED at ${i}s ---"
+              cat /tmp/webserver_win.log
+              exit 1
+            fi
+            # Print progress every 15s
+            if [ $((i % 15)) -eq 0 ]; then
+              echo "--- waiting for webserver... ${i}s elapsed ---"
+              tail -3 /tmp/webserver_win.log 2>/dev/null || echo "(no log yet)"
             fi
           done
           echo "=== final webserver log ==="
