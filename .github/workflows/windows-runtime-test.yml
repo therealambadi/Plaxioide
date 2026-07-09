@@ -170,55 +170,53 @@ jobs:
       # to EOF; subsequent ZipFile() calls fail with "negative seek value -1".
       # Fix: read the FileStorage into io.BytesIO (fully seekable in-memory bytes)
       # right after the content_length check, before analyze_zip/safe_extract.
-      # Dump the exact bytes around analyze_zip so we can write a precise anchor
-      - name: "[W6-diag] Dump app.py analyze_zip call site (repr)"
-        shell: pwsh
-        run: |
-          $p = "C:\msys64\tmp\openplc-runtime\webserver\app.py"
-          $src = [System.IO.File]::ReadAllText($p)
-          $idx = $src.IndexOf("analyze_zip")
-          if ($idx -lt 0) { Write-Host "analyze_zip NOT FOUND"; exit 0 }
-          $chunk = $src.Substring([Math]::Max(0,$idx-300), [Math]::Min(600,$src.Length-[Math]::Max(0,$idx-300)))
-          Write-Host "=== analyze_zip context ==="
-          Write-Host $chunk
-          $idx2 = $src.IndexOf("safe_extract")
-          if ($idx2 -ge 0) {
-            $chunk2 = $src.Substring([Math]::Max(0,$idx2-100), [Math]::Min(400,$src.Length-[Math]::Max(0,$idx2-100)))
-            Write-Host "=== safe_extract context ==="
-            Write-Host $chunk2
-          }
-
       - name: "[W6] Convert FileStorage to BytesIO before zipfile ops in app.py"
-        shell: pwsh
         run: |
-          $p = "C:\msys64\tmp\openplc-runtime\webserver\app.py"
-          $src = [System.IO.File]::ReadAllText($p)
+          cd /tmp/openplc-runtime
+          cat > /tmp/w6_patch.py << 'PYEOF'
+import sys
+path = 'webserver/app.py'
+src = open(path).read()
 
-          # Anchor: analyze_zip(zip_file) call — replace with BytesIO conversion + call
-          $old = "        safe, valid_files = analyze_zip(zip_file)"
-          $new = "        import io as _io`n        zip_data = _io.BytesIO(zip_file.read())`n        safe, valid_files = analyze_zip(zip_data)"
-          if ($src -notlike "*$old*") {
-            Write-Host "W6 anchor 'analyze_zip(zip_file)' not found — checking actual content:"
-            $idx = $src.IndexOf("analyze_zip")
-            if ($idx -ge 0) { Write-Host $src.Substring([Math]::Max(0,$idx-200), 400) }
-            else { Write-Host "analyze_zip not found at all" }
-            exit 1
-          }
-          $src = $src.Replace($old, $new)
+# Always dump the call site for visibility
+idx = src.find('analyze_zip')
+if idx >= 0:
+    print('=== analyze_zip context (repr) ===')
+    print(repr(src[max(0,idx-300):idx+200]))
+idx2 = src.find('safe_extract(zip_')
+if idx2 >= 0:
+    print('=== safe_extract call context (repr) ===')
+    print(repr(src[max(0,idx2-100):idx2+200]))
 
-          # Also patch safe_extract call
-          $old2 = "        safe_extract(zip_file,"
-          $new2 = "        safe_extract(zip_data,"
-          if ($src -notlike "*$old2*") {
-            Write-Host "W6 anchor 'safe_extract(zip_file,' not found"
-            $idx2 = $src.IndexOf("safe_extract")
-            if ($idx2 -ge 0) { Write-Host $src.Substring([Math]::Max(0,$idx2-100), 300) }
-            exit 1
-          }
-          $src = $src.Replace($old2, $new2)
+# Patch: insert BytesIO conversion before analyze_zip call.
+# Try both 8-space and 4-space indentation to handle any formatting.
+patched = False
+for indent in ('        ', '    '):
+    old = indent + 'safe, valid_files = analyze_zip(zip_file)'
+    if old in src:
+        new = (indent + 'import io as _io\n' +
+               indent + 'zip_data = _io.BytesIO(zip_file.read())\n' +
+               indent + 'safe, valid_files = analyze_zip(zip_data)')
+        src = src.replace(old, new, 1)
+        patched = True
+        print(f'W6 fix1 applied (indent={len(indent)})')
+        break
+if not patched:
+    print('W6 fix1: anchor not found', file=sys.stderr)
+    sys.exit(1)
 
-          [System.IO.File]::WriteAllText($p, $src)
-          Write-Host "W6 applied (FileStorage -> BytesIO in app.py)"
+# Patch: replace safe_extract(zip_file, -> safe_extract(zip_data,
+old2 = 'safe_extract(zip_file,'
+if old2 not in src:
+    print('W6 fix2: safe_extract(zip_file, not found', file=sys.stderr)
+    sys.exit(1)
+src = src.replace(old2, 'safe_extract(zip_data,', 1)
+print('W6 fix2 applied')
+
+open(path, 'w').write(src)
+print('W6 done')
+PYEOF
+          python3 /tmp/w6_patch.py
 
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
