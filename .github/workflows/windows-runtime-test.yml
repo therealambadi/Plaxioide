@@ -170,44 +170,60 @@ jobs:
       # to EOF; subsequent ZipFile() calls fail with "negative seek value -1".
       # Fix: read the FileStorage into io.BytesIO (fully seekable in-memory bytes)
       # right after the content_length check, before analyze_zip/safe_extract.
-      - name: "[W6] Convert FileStorage to BytesIO before zipfile ops in app.py"
+      # Dump the exact bytes around analyze_zip so we can write a precise anchor
+      - name: "[W6-diag] Dump app.py analyze_zip call site (repr)"
         run: |
           cd /tmp/openplc-runtime
-          python3 - <<'PYEOF'
-          import sys
-          path = 'webserver/app.py'
-          src = open(path).read()
+          python3 -c "
+import sys
+src = open('webserver/app.py').read()
+idx = src.find('analyze_zip')
+if idx < 0:
+    print('analyze_zip NOT FOUND in app.py')
+    sys.exit(0)
+chunk = src[max(0,idx-300):idx+300]
+print('=== RAW REPR ===')
+print(repr(chunk))
+print('=== PLAIN ===')
+print(chunk)
+idx2 = src.find('safe_extract')
+if idx2 >= 0:
+    chunk2 = src[max(0,idx2-100):idx2+300]
+    print('=== safe_extract RAW REPR ===')
+    print(repr(chunk2))
+"
 
-          # The upload handler receives: zip_file = flask.request.files["file"]
-          # then immediately calls analyze_zip(zip_file) and safe_extract(zip_file,...).
-          # We intercept right after the file is retrieved and convert to BytesIO.
-          # Anchor: the analyze_zip call (always present, always at 8-space indent)
-          old = '        safe, valid_files = analyze_zip(zip_file)'
-          new = (
-              '        import io as _io\n'
-              '        zip_data = _io.BytesIO(zip_file.read())\n'
-              '        safe, valid_files = analyze_zip(zip_data)'
-          )
-          if old not in src:
-              print("W6 anchor 'analyze_zip(zip_file)' not found", file=sys.stderr)
-              idx = src.find("analyze_zip")
-              print("context:", src[max(0,idx-200):idx+300] if idx >= 0 else "(not found)")
-              sys.exit(1)
-          src = src.replace(old, new, 1)
+      - name: "[W6] Convert FileStorage to BytesIO before zipfile ops in app.py"
+        shell: pwsh
+        run: |
+          $p = "C:\msys64\tmp\openplc-runtime\webserver\app.py"
+          $src = [System.IO.File]::ReadAllText($p)
 
-          # Also replace safe_extract(zip_file, ...) -> safe_extract(zip_data, ...)
-          old2 = 'safe_extract(zip_file,'
-          new2 = 'safe_extract(zip_data,'
-          if old2 not in src:
-              print("W6 anchor 'safe_extract(zip_file,' not found", file=sys.stderr)
-              idx = src.find("safe_extract")
-              print("safe_extract context:", src[max(0,idx-100):idx+300] if idx >= 0 else "(not found)")
-              sys.exit(1)
-          src = src.replace(old2, new2, 1)
+          # Anchor: analyze_zip(zip_file) call — replace with BytesIO conversion + call
+          $old = "        safe, valid_files = analyze_zip(zip_file)"
+          $new = "        import io as _io`n        zip_data = _io.BytesIO(zip_file.read())`n        safe, valid_files = analyze_zip(zip_data)"
+          if ($src -notlike "*$old*") {
+            Write-Host "W6 anchor 'analyze_zip(zip_file)' not found — checking actual content:"
+            $idx = $src.IndexOf("analyze_zip")
+            if ($idx -ge 0) { Write-Host $src.Substring([Math]::Max(0,$idx-200), 400) }
+            else { Write-Host "analyze_zip not found at all" }
+            exit 1
+          }
+          $src = $src.Replace($old, $new)
 
-          open(path, 'w').write(src)
-          print('W6 applied (FileStorage -> BytesIO in app.py)')
-          PYEOF
+          # Also patch safe_extract call
+          $old2 = "        safe_extract(zip_file,"
+          $new2 = "        safe_extract(zip_data,"
+          if ($src -notlike "*$old2*") {
+            Write-Host "W6 anchor 'safe_extract(zip_file,' not found"
+            $idx2 = $src.IndexOf("safe_extract")
+            if ($idx2 -ge 0) { Write-Host $src.Substring([Math]::Max(0,$idx2-100), 300) }
+            exit 1
+          }
+          $src = $src.Replace($old2, $new2)
+
+          [System.IO.File]::WriteAllText($p, $src)
+          Write-Host "W6 applied (FileStorage -> BytesIO in app.py)"
 
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
