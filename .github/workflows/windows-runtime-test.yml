@@ -117,24 +117,15 @@ jobs:
           print('W2 applied')
           PYEOF
 
-      # ── 7. Apply W3 — pthread_setname_np 1-arg form ───────────────────────
-      - name: "[W3] pthread_setname_np 1-arg for MSYS2/Cygwin"
+      # ── 7. W3 — no-op: MSYS2/Cygwin pthread_setname_np is 2-arg (same as Linux)
+      # The macOS patch already uses #ifdef __APPLE__ for the 1-arg form.
+      # MSYS2/Cygwin winpthread declares: int pthread_setname_np(pthread_t, const char*)
+      # so the existing #else branch (2-arg) is already correct for Windows. No patch needed.
+      - name: "[W3] pthread_setname_np — verify macOS guard is correct (no-op on MSYS2)"
         run: |
           cd /tmp/openplc-runtime
-          python3 - <<'PYEOF'
-          import sys
-          path = 'core/src/plc_app/plc_state_manager.cpp'
-          src = open(path).read()
-          old = '#ifdef __APPLE__\n    pthread_setname_np(ctx->name);\n#else\n    pthread_setname_np(pthread_self(), ctx->name);\n#endif'
-          new = '#if defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)\n    pthread_setname_np(ctx->name);\n#else\n    pthread_setname_np(pthread_self(), ctx->name);\n#endif'
-          if old not in src:
-              print('W3 anchor not found', file=sys.stderr)
-              idx = src.find('pthread_setname_np')
-              print('context:', src[max(0,idx-100):idx+200] if idx >= 0 else '(not found)')
-              sys.exit(1)
-          open(path, 'w').write(src.replace(old, new, 1))
-          print('W3 applied')
-          PYEOF
+          grep -n 'pthread_setname_np' core/src/plc_app/plc_state_manager.cpp
+          echo "W3: macOS patch already uses #ifdef __APPLE__ only — correct for MSYS2 (2-arg form)"
 
       # ── 8. Apply W4 — /proc/meminfo wmic fallback ─────────────────────────
       - name: "[W4] /proc/meminfo wmic fallback in compile.sh"
