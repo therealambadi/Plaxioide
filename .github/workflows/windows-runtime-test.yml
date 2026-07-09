@@ -165,41 +165,48 @@ jobs:
           print('W5 applied')
           PYEOF
 
-      # ── W6. Fix zipfile stream exhaustion in plcapp_management.py ───────────
-      # zipfile.is_zipfile() consumes the Werkzeug FileStorage stream position.
-      # Subsequent ZipFile() calls seek backward from EOF and get "negative seek
-      # value -1" because the stream has no data left. Insert stream.seek(0)
-      # after is_zipfile() and before safe_extract() to reset the position.
-      - name: "[W6] Fix zipfile stream seek in plcapp_management.py"
+      # ── W6. Fix zipfile stream exhaustion in app.py ─────────────────────────
+      # Werkzeug FileStorage is NOT a seekable stream. zipfile.is_zipfile() reads
+      # to EOF; subsequent ZipFile() calls fail with "negative seek value -1".
+      # Fix: read the FileStorage into io.BytesIO (fully seekable in-memory bytes)
+      # right after the content_length check, before analyze_zip/safe_extract.
+      - name: "[W6] Convert FileStorage to BytesIO before zipfile ops in app.py"
         run: |
           cd /tmp/openplc-runtime
           python3 - <<'PYEOF'
           import sys
-          path = 'webserver/plcapp_management.py'
+          path = 'webserver/app.py'
           src = open(path).read()
 
-          # Fix 1: seek(0) after is_zipfile() in analyze_zip
-          old1 = '    if not zipfile.is_zipfile(zip_path):\n        build_state.log("[ERROR] Not a valid PLC Program file.\\n")\n        return False, []\n\n    with zipfile.ZipFile(zip_path, "r") as zf:'
-          new1 = '    if not zipfile.is_zipfile(zip_path):\n        build_state.log("[ERROR] Not a valid PLC Program file.\\n")\n        return False, []\n    # Rewind: is_zipfile() consumed the stream position\n    if hasattr(zip_path, "stream"): zip_path.stream.seek(0)\n    elif hasattr(zip_path, "seek"): zip_path.seek(0)\n\n    with zipfile.ZipFile(zip_path, "r") as zf:'
-          if old1 not in src:
-              print("W6 fix1 anchor not found", file=sys.stderr)
-              idx = src.find("is_zipfile")
-              print("context:", src[max(0,idx-100):idx+300] if idx >= 0 else "(not found)")
+          # The upload handler receives: zip_file = flask.request.files["file"]
+          # then immediately calls analyze_zip(zip_file) and safe_extract(zip_file,...).
+          # We intercept right after the file is retrieved and convert to BytesIO.
+          # Anchor: the analyze_zip call (always present, always at 8-space indent)
+          old = '        safe, valid_files = analyze_zip(zip_file)'
+          new = (
+              '        import io as _io\n'
+              '        zip_data = _io.BytesIO(zip_file.read())\n'
+              '        safe, valid_files = analyze_zip(zip_data)'
+          )
+          if old not in src:
+              print("W6 anchor 'analyze_zip(zip_file)' not found", file=sys.stderr)
+              idx = src.find("analyze_zip")
+              print("context:", src[max(0,idx-200):idx+300] if idx >= 0 else "(not found)")
               sys.exit(1)
-          src = src.replace(old1, new1, 1)
+          src = src.replace(old, new, 1)
 
-          # Fix 2: seek(0) at the top of safe_extract before ZipFile
-          old2 = '    build_state.status = BuildStatus.UNZIPPING\n\n    with zipfile.ZipFile(zip_path, "r") as zf:\n        # Detect roots'
-          new2 = '    build_state.status = BuildStatus.UNZIPPING\n    # Rewind: stream may be exhausted from analyze_zip\n    if hasattr(zip_path, "stream"): zip_path.stream.seek(0)\n    elif hasattr(zip_path, "seek"): zip_path.seek(0)\n\n    with zipfile.ZipFile(zip_path, "r") as zf:\n        # Detect roots'
+          # Also replace safe_extract(zip_file, ...) -> safe_extract(zip_data, ...)
+          old2 = 'safe_extract(zip_file,'
+          new2 = 'safe_extract(zip_data,'
           if old2 not in src:
-              print("W6 fix2 anchor not found", file=sys.stderr)
+              print("W6 anchor 'safe_extract(zip_file,' not found", file=sys.stderr)
               idx = src.find("safe_extract")
-              print("safe_extract context:", src[max(0,idx-50):idx+400] if idx >= 0 else "(not found)")
+              print("safe_extract context:", src[max(0,idx-100):idx+300] if idx >= 0 else "(not found)")
               sys.exit(1)
           src = src.replace(old2, new2, 1)
 
           open(path, 'w').write(src)
-          print('W6 applied (2 seek fixes in plcapp_management.py)')
+          print('W6 applied (FileStorage -> BytesIO in app.py)')
           PYEOF
 
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
