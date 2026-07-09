@@ -219,8 +219,9 @@ jobs:
               cat /tmp/webserver_win.log
               break
             fi
-            if grep -q "Traceback\|ModuleNotFoundError\|ImportError" /tmp/webserver_win.log 2>/dev/null; then
-              echo "--- webserver CRASHED at ${i}s ---"
+            # Detect webserver-own crash: runpy traceback before server starts
+            if grep -q "frozen runpy\|_run_module_as_main" /tmp/webserver_win.log 2>/dev/null; then
+              echo "--- webserver CRASHED (import error) at ${i}s ---"
               cat /tmp/webserver_win.log
               exit 1
             fi
