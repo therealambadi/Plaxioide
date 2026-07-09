@@ -180,16 +180,22 @@ jobs:
 
       # ── 11. Python deps + webserver ───────────────────────────────────────
       # MSYS2 Python enforces PEP 668 — must use a venv for pip installs.
+      # plc_main embeds libpython and scans the system path for plugins, so we
+      # set PYTHONPATH to the venv site-packages before launching it — that way
+      # pymodbus, asyncua, flask, etc. are all visible to the embedded interpreter.
       - name: Install Python dependencies (venv)
         run: |
           python3 -m venv /tmp/plcvenv
-          /tmp/plcvenv/bin/pip install flask flask-jwt-extended flask-socketio flask-cors eventlet 2>&1 | tail -12
+          /tmp/plcvenv/bin/pip install \
+            flask flask-login flask-jwt-extended flask-socketio flask-cors eventlet \
+            pymodbus asyncua 2>&1 | tail -20
+          echo "PYTHONPATH=/tmp/plcvenv/lib/python3.12/site-packages" >> $GITHUB_ENV
 
       - name: Start plc_main (background)
         run: |
           cd /tmp/openplc-runtime
           nohup ./build/plc_main > /tmp/plc_main_win.log 2>&1 &
-          sleep 3
+          sleep 5
           echo "=== plc_main startup log ==="
           cat /tmp/plc_main_win.log
 
@@ -197,7 +203,7 @@ jobs:
         run: |
           cd /tmp/openplc-runtime
           nohup /tmp/plcvenv/bin/python3 -m webserver.app > /tmp/webserver_win.log 2>&1 &
-          sleep 5
+          sleep 8
           echo "=== webserver startup log ==="
           cat /tmp/webserver_win.log
 
@@ -353,7 +359,7 @@ jobs:
       - name: Set up Node.js for debug stream test
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install socket.io-client (Node)
         shell: pwsh
