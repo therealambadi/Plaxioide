@@ -191,7 +191,7 @@ jobs:
           # pymodbus/asyncua are optional driver plugins; plc_main logs errors but continues.
           # Only install what the webserver actually needs.
           /tmp/plcvenv/bin/pip install \
-            flask flask-login flask-jwt-extended flask-socketio flask-cors eventlet 2>&1
+            flask flask-login flask-sqlalchemy flask-jwt-extended flask-socketio flask-cors eventlet python-dotenv 2>&1
           echo "PYTHONPATH=/tmp/plcvenv/lib/python3.12/site-packages" >> $GITHUB_ENV
 
       - name: Start plc_main (background)
