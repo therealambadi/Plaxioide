@@ -172,9 +172,12 @@ jobs:
       # right after the content_length check, before analyze_zip/safe_extract.
       - name: "[W6] Convert FileStorage to BytesIO before zipfile ops in app.py"
         run: |
+          set -e
           cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w6_patch_app.py" /tmp/w6_patch_app.py
           cd /tmp/openplc-runtime
           python3 /tmp/w6_patch_app.py
+          echo "=== app.py BytesIO line check ==="
+          grep -n "BytesIO\|zip_data\|analyze_zip\|safe_extract" webserver/app.py
 
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
