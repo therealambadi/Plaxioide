@@ -188,6 +188,15 @@ jobs:
           echo "=== W7 instrumentation lines ==="
           grep -n '\[W7\]' webserver/app.py
 
+      - name: "[W7b] Instrument analyze_zip internals"
+        run: |
+          set -e
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w7b_instrument_plcmgmt.py" /tmp/w7b_instrument_plcmgmt.py
+          cd /tmp/openplc-runtime
+          python3 /tmp/w7b_instrument_plcmgmt.py
+          echo "=== W7b instrumentation lines ==="
+          grep -n '\[W7b\]' webserver/plcapp_management.py
+
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
         id: build_with_w
