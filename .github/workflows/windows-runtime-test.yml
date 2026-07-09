@@ -165,6 +165,61 @@ jobs:
           print('W5 applied')
           PYEOF
 
+      # ── W6. Fix zipfile stream exhaustion in plcapp_management.py ───────────
+      # zipfile.is_zipfile() consumes the Werkzeug FileStorage stream position.
+      # Subsequent ZipFile() calls seek backward from EOF and get "negative seek
+      # value -1" because the stream has no data left. Insert stream.seek(0)
+      # after is_zipfile() and before safe_extract() to reset the position.
+      - name: "[W6] Fix zipfile stream seek in plcapp_management.py"
+        run: |
+          cd /tmp/openplc-runtime
+          python3 - <<'PYEOF'
+          import sys
+          path = 'webserver/plcapp_management.py'
+          src = open(path).read()
+
+          # Fix 1: seek(0) after is_zipfile() in analyze_zip
+          old1 = '    if not zipfile.is_zipfile(zip_path):\n        build_state.log("[ERROR] Not a valid PLC Program file.\\n")\n        return False, []\n\n    with zipfile.ZipFile(zip_path, "r") as zf:'
+          new1 = '    if not zipfile.is_zipfile(zip_path):\n        build_state.log("[ERROR] Not a valid PLC Program file.\\n")\n        return False, []\n    # Rewind: is_zipfile() consumed the stream position\n    if hasattr(zip_path, "stream"): zip_path.stream.seek(0)\n    elif hasattr(zip_path, "seek"): zip_path.seek(0)\n\n    with zipfile.ZipFile(zip_path, "r") as zf:'
+          if old1 not in src:
+              print("W6 fix1 anchor not found", file=sys.stderr)
+              idx = src.find("is_zipfile")
+              print("context:", src[max(0,idx-100):idx+300] if idx >= 0 else "(not found)")
+              sys.exit(1)
+          src = src.replace(old1, new1, 1)
+
+          # Fix 2: seek(0) at the top of safe_extract before ZipFile
+          old2 = '    build_state.status = BuildStatus.UNZIPPING\n\n    with zipfile.ZipFile(zip_path, "r") as zf:\n        # Detect roots'
+          new2 = '    build_state.status = BuildStatus.UNZIPPING\n    # Rewind: stream may be exhausted from analyze_zip\n    if hasattr(zip_path, "stream"): zip_path.stream.seek(0)\n    elif hasattr(zip_path, "seek"): zip_path.seek(0)\n\n    with zipfile.ZipFile(zip_path, "r") as zf:\n        # Detect roots'
+          if old2 not in src:
+              print("W6 fix2 anchor not found", file=sys.stderr)
+              idx = src.find("safe_extract")
+              print("safe_extract context:", src[max(0,idx-50):idx+400] if idx >= 0 else "(not found)")
+              sys.exit(1)
+          src = src.replace(old2, new2, 1)
+
+          open(path, 'w').write(src)
+          print('W6 applied (2 seek fixes in plcapp_management.py)')
+          PYEOF
+
+          # Also patch app.py call site: seek between analyze_zip and safe_extract
+          python3 - <<'PYEOF'
+          import sys
+          path = 'webserver/app.py'
+          src = open(path).read()
+          # Find the call site pattern: safe, valid_files = analyze_zip(zip_file)
+          # followed by safe_extract(zip_file, ...)
+          old = '    safe, valid_files = analyze_zip(zip_file)\n'
+          new = '    safe, valid_files = analyze_zip(zip_file)\n    # Rewind stream exhausted by analyze_zip before safe_extract\n    if hasattr(zip_file, "stream"): zip_file.stream.seek(0)\n    elif hasattr(zip_file, "seek"): zip_file.seek(0)\n'
+          if old not in src:
+              print("W6 app.py anchor not found — skipping (may not be needed)", file=sys.stderr)
+              idx = src.find("analyze_zip")
+              print("context:", src[max(0,idx-50):idx+200] if idx >= 0 else "(not found)")
+          else:
+              open(path, 'w').write(src.replace(old, new, 1))
+              print('W6 app.py seek fix applied')
+          PYEOF
+
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
         id: build_with_w
