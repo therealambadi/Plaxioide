@@ -177,7 +177,7 @@ jobs:
           cd /tmp/openplc-runtime
           python3 /tmp/w6_patch_app.py
           echo "=== app.py patch verification ==="
-          grep -n "NamedTemporaryFile\|_ztmp\|analyze_zip\|safe_extract\|_os.unlink" webserver/app.py
+          grep -n "_zip_path\|upload_tmp\|analyze_zip\|safe_extract\|_os.unlink" webserver/app.py
 
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
