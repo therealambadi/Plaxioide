@@ -213,6 +213,7 @@ jobs:
           $fixtures = "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures"
           Copy-Item "$fixtures\plc_wait_webserver.py" C:\plc_wait_webserver.py
           Copy-Item "$fixtures\plc_af_unix.py"        C:\plc_af_unix.py
+          Copy-Item "$fixtures\plc_setup_user.py"     C:\plc_setup_user.py
           Copy-Item "$fixtures\plc_login.py"          C:\plc_login.py
           Copy-Item "$fixtures\plc_upload.py"         C:\plc_upload.py
           Copy-Item "$fixtures\plc_start.py"          C:\plc_start.py
@@ -230,13 +231,22 @@ jobs:
         run: python C:\plc_wait_webserver.py
 
       # ── 12. AF_UNIX socket connectivity test ─────────────────────────────
-      # Must run under MSYS2 python3 — the socket path /tmp/plc_runtime.socket
-      # is a Cygwin path that only MSYS2 python can resolve via AF_UNIX.
-      # Windows Python cannot connect to Cygwin AF_UNIX sockets at /tmp/ paths.
+      # Must run under MSYS2 python3 — Cygwin AF_UNIX sockets at /tmp/ paths
+      # are not visible to Windows Python. Copy script to /tmp/ first to avoid
+      # $GITHUB_WORKSPACE backslash expansion mangling the path in MSYS2 shell.
       - name: "[STEP 2] AF_UNIX socket connectivity test"
         id: af_unix_test
         continue-on-error: true
-        run: python3 "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/plc_af_unix.py"
+        run: |
+          cp /c/plc_af_unix.py /tmp/plc_af_unix.py
+          python3 /tmp/plc_af_unix.py
+
+      # ── 12b. Create first user (no-auth endpoint when DB is empty) ────────
+      # The upstream webserver has no seeded default credentials. On first run
+      # /create-user is open (no auth required) when no users exist yet.
+      - name: Create volt user via /create-user
+        shell: pwsh
+        run: python C:\plc_setup_user.py
 
       # ── 13. API login + status ────────────────────────────────────────────
       - name: API login + runtime status

@@ -23,8 +23,12 @@ for attempt in range(15):
         r2 = urllib.request.urlopen(req2, context=ctx, timeout=8)
         print("Status:", json.loads(r2.read()))
         sys.exit(0)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        print(f"Attempt {attempt+1}: HTTP {e.code}: {body}")
+        time.sleep(2)
     except Exception as e:
-        print(f"Attempt {attempt+1}: {e}")
+        print(f"Attempt {attempt+1}: {type(e).__name__}: {e}")
         time.sleep(2)
 
 sys.exit(1)
