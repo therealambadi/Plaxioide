@@ -2,7 +2,7 @@ import socket, sys, time
 
 SOCK = '/tmp/plc_runtime.socket'
 print(f'Testing AF_UNIX connect to {SOCK}')
-for attempt in range(8):
+for attempt in range(15):
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(2)

@@ -215,7 +215,7 @@ jobs:
         run: |
           cd /tmp/openplc-runtime
           nohup ./build/plc_main > /tmp/plc_main_win.log 2>&1 &
-          sleep 5
+          sleep 10
           echo "=== plc_main startup log ==="
           cat /tmp/plc_main_win.log
           echo "=== socket file check ==="
