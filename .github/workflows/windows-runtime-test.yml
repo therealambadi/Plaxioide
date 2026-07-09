@@ -186,9 +186,10 @@ jobs:
       - name: Install Python dependencies (venv)
         run: |
           python3 -m venv /tmp/plcvenv
+          /tmp/plcvenv/bin/pip install --upgrade pip
           /tmp/plcvenv/bin/pip install \
             flask flask-login flask-jwt-extended flask-socketio flask-cors eventlet \
-            pymodbus asyncua 2>&1 | tail -20
+            pymodbus asyncua 2>&1
           echo "PYTHONPATH=/tmp/plcvenv/lib/python3.12/site-packages" >> $GITHUB_ENV
 
       - name: Start plc_main (background)
