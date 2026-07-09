@@ -1,6 +1,8 @@
-import time, sys
+import time, sys, os
 
-log = '/tmp/webserver_win.log'
+# Webserver nohup redirects to /c/webserver_win.log (MSYS2 path for C:\).
+# Windows Python reads it as C:\webserver_win.log directly.
+log = os.environ.get('WEBSERVER_LOG', r'C:\webserver_win.log')
 for i in range(180):
     time.sleep(1)
     try:
@@ -19,5 +21,8 @@ for i in range(180):
         lines = txt.strip().splitlines()
         print(f'waiting... {i+1}s, last line: {lines[-1] if lines else "(empty)"}')
 print('webserver did not become ready in 180s')
-print(open(log).read())
+try:
+    print(open(log).read())
+except OSError as e:
+    print(f'(could not read log: {e})')
 sys.exit(1)

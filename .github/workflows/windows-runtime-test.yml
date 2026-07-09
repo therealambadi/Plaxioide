@@ -220,7 +220,9 @@ jobs:
       - name: Start webserver (background)
         run: |
           cd /tmp/openplc-runtime
-          nohup /tmp/plcvenv/bin/python3 -m webserver.app > /tmp/webserver_win.log 2>&1 &
+          # Write log to C:\webserver_win.log (Windows path) so Windows Python
+          # in subsequent pwsh steps can read it without /tmp/ path translation.
+          nohup /tmp/plcvenv/bin/python3 -m webserver.app > /c/webserver_win.log 2>&1 &
           echo "webserver started"
 
       - name: Wait for webserver ready
@@ -228,11 +230,13 @@ jobs:
         run: python C:\plc_wait_webserver.py
 
       # ── 12. AF_UNIX socket connectivity test ─────────────────────────────
+      # Must run under MSYS2 python3 — the socket path /tmp/plc_runtime.socket
+      # is a Cygwin path that only MSYS2 python can resolve via AF_UNIX.
+      # Windows Python cannot connect to Cygwin AF_UNIX sockets at /tmp/ paths.
       - name: "[STEP 2] AF_UNIX socket connectivity test"
         id: af_unix_test
         continue-on-error: true
-        shell: pwsh
-        run: python C:\plc_af_unix.py
+        run: python3 "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/plc_af_unix.py"
 
       # ── 13. API login + status ────────────────────────────────────────────
       - name: API login + runtime status
@@ -285,12 +289,12 @@ jobs:
       # ── 17. Dump all logs (always) ────────────────────────────────────────
       - name: Dump process logs
         if: always()
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          echo "=== plc_main log ==="
-          cat /tmp/plc_main_win.log 2>/dev/null || echo "(empty)"
-          echo "=== webserver log ==="
-          cat /tmp/webserver_win.log 2>/dev/null || echo "(empty)"
+          Write-Host "=== plc_main log ==="
+          Get-Content "C:\msys64\tmp\plc_main_win.log" -ErrorAction SilentlyContinue | Write-Host
+          Write-Host "=== webserver log ==="
+          Get-Content "C:\webserver_win.log" -ErrorAction SilentlyContinue | Write-Host
 
       # ── 18. Save AF_UNIX verdict to summary ───────────────────────────────
       - name: Write job summary
