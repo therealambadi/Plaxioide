@@ -39,9 +39,10 @@ indent = src[line_start:src.index(OLD1)]
 
 NEW1 = (
     'import tempfile as _tf, os as _os\n' +
-    indent + '_ztmp = _tf.NamedTemporaryFile(delete=False, suffix=".zip")\n' +
-    indent + '_ztmp.write(zip_file.read()); _ztmp.flush(); _ztmp.close()\n' +
-    indent + '_zip_path = _ztmp.name\n' +
+    indent + '_ztmp_dir = _os.environ.get("TEMP") or _os.environ.get("TMP") or _os.getcwd()\n' +
+    indent + '_ztmp_fd, _ztmp_path = _tf.mkstemp(suffix=".zip", dir=_ztmp_dir)\n' +
+    indent + '_os.write(_ztmp_fd, zip_file.read()); _os.close(_ztmp_fd)\n' +
+    indent + '_zip_path = _ztmp_path\n' +
     indent + 'safe, valid_files = analyze_zip(_zip_path)'
 )
 
@@ -64,7 +65,7 @@ if CLEANUP_ANCHOR in src:
     ind_ca = src[ls:idx_ca]
     src = src.replace(
         ind_ca + CLEANUP_ANCHOR,
-        ind_ca + '_os.unlink(_ztmp.name)\n' + ind_ca + CLEANUP_ANCHOR,
+        ind_ca + '_os.unlink(_ztmp_path)\n' + ind_ca + CLEANUP_ANCHOR,
         1
     )
     print('W6 fix3: cleanup injected')
