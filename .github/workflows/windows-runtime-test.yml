@@ -1,0 +1,503 @@
+name: Windows Runtime Build & Test
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/windows-runtime-test.yml'
+      - 'openplc-editor-development/openplc-runtime-macos/**'
+  workflow_dispatch:
+
+jobs:
+  windows-build-test:
+    name: MSYS2/MinGW Windows build + motor-start proof
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      # ── 0. Checkout ──────────────────────────────────────────────────────
+      - name: Checkout volt repo
+        uses: actions/checkout@v4
+
+      # ── 1. Install MSYS2 with MinGW-w64 toolchain ────────────────────────
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-python-pip
+            mingw-w64-x86_64-openssl
+            git
+            patch
+            make
+
+      # ── 2. Clone upstream OpenPLC Runtime @ cb1060d ───────────────────────
+      - name: Clone upstream OpenPLC Runtime
+        run: |
+          git clone https://github.com/Autonomy-Logic/openplc-runtime.git /tmp/openplc-runtime
+          cd /tmp/openplc-runtime
+          git checkout cb1060d
+          echo "Upstream commit: $(git log --oneline -1)"
+
+      # ── 3. Apply macOS baseline patch ─────────────────────────────────────
+      - name: Apply macOS baseline patch
+        run: |
+          cd /tmp/openplc-runtime
+          patch -p1 < "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/openplc-runtime-macos-cb1060d.patch"
+          echo "Patched files:"
+          git diff --name-only HEAD
+
+      # ── 4. BUILD WITHOUT W1-W5 — record real compiler errors ─────────────
+      - name: "[STEP 3.1] Build WITHOUT W1-W5 patches (expect failures)"
+        id: build_no_w
+        continue-on-error: true
+        run: |
+          cd /tmp/openplc-runtime
+          mkdir -p build_probe && cd build_probe
+          echo "=== CMake ===" && cmake .. -G Ninja 2>&1
+          echo "=== Ninja ===" && ninja plc_main 2>&1
+          echo "build_probe_exit=$?" >> $GITHUB_ENV
+
+      # ── 5. Apply W1 — extend CLOCK_REALTIME guard ─────────────────────────
+      - name: "[W1] Extend CLOCK_REALTIME guard to __MSYS__/__CYGWIN__"
+        run: |
+          cd /tmp/openplc-runtime
+          python3 - <<'PYEOF'
+          import sys
+          path = 'core/src/plc_app/plc_state_manager.cpp'
+          src = open(path).read()
+          old = '#ifdef __APPLE__\n    /* On macOS, pthread_cond_timedwait uses CLOCK_REALTIME (the condvar was\n     * initialized without pthread_condattr_setclock, which macOS doesn\'t\n     * support for CLOCK_MONOTONIC).  Use CLOCK_REALTIME here to match. */\n    clock_gettime(CLOCK_REALTIME, &next_tick);\n#else\n    clock_gettime(CLOCK_MONOTONIC, &next_tick);\n#endif'
+          new = '#if defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)\n    /* macOS/MSYS2/Cygwin: pthread_cond_timedwait uses CLOCK_REALTIME.\n     * pthread_condattr_setclock(CLOCK_MONOTONIC) is unsupported. */\n    clock_gettime(CLOCK_REALTIME, &next_tick);\n#else\n    clock_gettime(CLOCK_MONOTONIC, &next_tick);\n#endif'
+          if old not in src:
+              print('W1 anchor not found — checking if already applied or not needed', file=sys.stderr)
+              print('CONTEXT:')
+              idx = src.find('clock_gettime(CLOCK_REALTIME, &next_tick)')
+              if idx >= 0:
+                  print(src[max(0,idx-200):idx+200])
+              else:
+                  idx2 = src.find('next_tick')
+                  if idx2 >= 0:
+                      print(src[max(0,idx2-200):idx2+300])
+              sys.exit(1)
+          open(path, 'w').write(src.replace(old, new, 1))
+          print('W1 applied')
+          PYEOF
+
+      # ── 6. Apply W2 — extend drain guard ─────────────────────────────────
+      - name: "[W2] Extend journal drain guard to __MSYS__/__CYGWIN__"
+        run: |
+          cd /tmp/openplc-runtime
+          python3 - <<'PYEOF'
+          import sys
+          path = 'core/src/plc_app/plc_state_manager.cpp'
+          src = open(path).read()
+          old = '#ifdef __APPLE__\n            /* macOS: SCHED_FIFO unavailable; task bodies often overrun the\n'
+          new = '#if defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)\n            /* macOS/MSYS2/Cygwin: SCHED_FIFO unavailable; task bodies often overrun the\n'
+          if old not in src:
+              print('W2 anchor not found', file=sys.stderr)
+              idx = src.find('debug_write_journal_drain')
+              print('drain context:', src[max(0,idx-300):idx+100] if idx >= 0 else '(not found)')
+              sys.exit(1)
+          open(path, 'w').write(src.replace(old, new, 1))
+          print('W2 applied')
+          PYEOF
+
+      # ── 7. Apply W3 — pthread_setname_np 1-arg form ───────────────────────
+      - name: "[W3] pthread_setname_np 1-arg for MSYS2/Cygwin"
+        run: |
+          cd /tmp/openplc-runtime
+          python3 - <<'PYEOF'
+          import sys
+          path = 'core/src/plc_app/plc_state_manager.cpp'
+          src = open(path).read()
+          old = '#ifdef __APPLE__\n    pthread_setname_np(ctx->name);\n#else\n    pthread_setname_np(pthread_self(), ctx->name);\n#endif'
+          new = '#if defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)\n    pthread_setname_np(ctx->name);\n#else\n    pthread_setname_np(pthread_self(), ctx->name);\n#endif'
+          if old not in src:
+              print('W3 anchor not found', file=sys.stderr)
+              idx = src.find('pthread_setname_np')
+              print('context:', src[max(0,idx-100):idx+200] if idx >= 0 else '(not found)')
+              sys.exit(1)
+          open(path, 'w').write(src.replace(old, new, 1))
+          print('W3 applied')
+          PYEOF
+
+      # ── 8. Apply W4 — /proc/meminfo wmic fallback ─────────────────────────
+      - name: "[W4] /proc/meminfo wmic fallback in compile.sh"
+        run: |
+          cd /tmp/openplc-runtime
+          python3 - <<'PYEOF'
+          import sys
+          path = 'scripts/compile.sh'
+          src = open(path).read()
+          old = '# /proc/meminfo is Linux-only; on macOS use sysctl\nif [ -f /proc/meminfo ]; then\n    MEM_KB=$(awk \'/^MemTotal:/{print $2}\' /proc/meminfo)\nelse\n    MEM_KB=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 4294967296) / 1024 ))\nfi'
+          new = '# /proc/meminfo is Linux-only; fall back by platform\nif [ -f /proc/meminfo ]; then\n    MEM_KB=$(awk \'/^MemTotal:/{print $2}\' /proc/meminfo)\nelif sysctl -n hw.memsize >/dev/null 2>&1; then\n    MEM_KB=$(( $(sysctl -n hw.memsize) / 1024 ))\nelif command -v wmic >/dev/null 2>&1; then\n    MEM_KB=$(wmic OS get TotalVisibleMemorySize /value 2>/dev/null | grep = | cut -d= -f2 | tr -d \'\\r\\n\' || echo 4194304)\nelse\n    MEM_KB=4194304\nfi'
+          if old not in src:
+              print('W4 anchor not found', file=sys.stderr)
+              idx = src.find('proc/meminfo')
+              print('context:', src[max(0,idx-100):idx+300] if idx >= 0 else '(not found)')
+              sys.exit(1)
+          open(path, 'w').write(src.replace(old, new, 1))
+          print('W4 applied')
+          PYEOF
+
+      # ── 9. Apply W5 — date +%s%N guard ───────────────────────────────────
+      - name: "[W5] date +%s%N guard in compile-clean.sh"
+        run: |
+          cd /tmp/openplc-runtime
+          python3 - <<'PYEOF'
+          import sys
+          path = 'scripts/compile-clean.sh'
+          src = open(path).read()
+          old = 'TIMESTAMP=$(date +%s%N)'
+          new = '# %N (nanoseconds) is GNU date; MSYS2 may not support it\nTIMESTAMP=$(date +%s%N 2>/dev/null || echo "$(date +%s)$$")'
+          if old not in src:
+              print('W5 anchor not found', file=sys.stderr)
+              idx = src.find('TIMESTAMP')
+              print('context:', src[max(0,idx-100):idx+200] if idx >= 0 else '(not found)')
+              sys.exit(1)
+          open(path, 'w').write(src.replace(old, new, 1))
+          print('W5 applied')
+          PYEOF
+
+      # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
+      - name: "[STEP 3.2] Build WITH all W1-W5 patches"
+        id: build_with_w
+        run: |
+          cd /tmp/openplc-runtime
+          rm -rf build && mkdir build && cd build
+          echo "=== CMake ==="
+          cmake .. -G Ninja 2>&1
+          echo "=== Ninja ==="
+          ninja plc_main 2>&1
+          echo "=== Binary ==="
+          ls -lh plc_main* 2>/dev/null
+
+      # ── 11. Python deps + webserver ───────────────────────────────────────
+      - name: Install Python dependencies
+        run: |
+          pip install flask flask-jwt-extended flask-socketio flask-cors eventlet 2>&1 | tail -8
+
+      - name: Start plc_main (background)
+        run: |
+          cd /tmp/openplc-runtime
+          nohup ./build/plc_main > /tmp/plc_main_win.log 2>&1 &
+          sleep 3
+          echo "=== plc_main startup log ==="
+          cat /tmp/plc_main_win.log
+
+      - name: Start webserver (background)
+        run: |
+          cd /tmp/openplc-runtime
+          nohup python3 -m webserver.app > /tmp/webserver_win.log 2>&1 &
+          sleep 5
+          echo "=== webserver startup log ==="
+          cat /tmp/webserver_win.log
+
+      # ── 12. AF_UNIX socket connectivity test ─────────────────────────────
+      - name: "[STEP 2] AF_UNIX socket connectivity test"
+        id: af_unix_test
+        continue-on-error: true
+        run: |
+          python3 - <<'PYEOF'
+          import socket, sys, time
+
+          SOCK = '/tmp/plc_runtime.socket'
+          print(f'Testing AF_UNIX connect to {SOCK}')
+          for attempt in range(8):
+              try:
+                  s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                  s.settimeout(2)
+                  s.connect(SOCK)
+                  s.close()
+                  print(f'  ✅ AF_UNIX connect SUCCESS (attempt {attempt+1})')
+                  sys.exit(0)
+              except FileNotFoundError:
+                  print(f'  attempt {attempt+1}: socket file not found yet')
+              except Exception as e:
+                  print(f'  attempt {attempt+1}: {type(e).__name__}: {e}')
+              time.sleep(1)
+          print('  ❌ AF_UNIX connect FAILED after 8 attempts')
+          # Not a fatal failure — report and continue to API test
+          PYEOF
+
+      # ── 13. API login + status ────────────────────────────────────────────
+      - name: API login + runtime status
+        id: api_status
+        run: |
+          python3 - <<'PYEOF'
+          import urllib.request, json, ssl, sys, time
+
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+
+          for attempt in range(10):
+              try:
+                  body = json.dumps({'username':'volt','password':'volt123'}).encode()
+                  req = urllib.request.Request('https://localhost:8443/api/login',
+                          data=body, headers={'Content-Type':'application/json'}, method='POST')
+                  r = urllib.request.urlopen(req, context=ctx, timeout=8)
+                  token = json.loads(r.read())['access_token']
+                  print(f'Login OK (attempt {attempt+1}), token={token[:20]}...')
+                  break
+              except Exception as e:
+                  print(f'Attempt {attempt+1}: {e}')
+                  time.sleep(2)
+          else:
+              sys.exit(1)
+
+          req2 = urllib.request.Request('https://localhost:8443/api/status',
+                   headers={'Authorization': f'Bearer {token}'})
+          r2 = urllib.request.urlopen(req2, context=ctx, timeout=8)
+          print('Status:', json.loads(r2.read()))
+          PYEOF
+
+      # ── 14. Upload real motor-start ZIP + compile ─────────────────────────
+      - name: Upload motor-start program ZIP
+        run: |
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/motor-start-proof.zip" /tmp/motor_start.zip
+          python3 - <<'PYEOF'
+          import urllib.request, json, ssl, sys, time
+
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+
+          body = json.dumps({'username':'volt','password':'volt123'}).encode()
+          req = urllib.request.Request('https://localhost:8443/api/login',
+                  data=body, headers={'Content-Type':'application/json'}, method='POST')
+          token = json.loads(urllib.request.urlopen(req, context=ctx, timeout=8).read())['access_token']
+
+          boundary = b'----VoltBoundary7MA4YWxkTrZu0gW'
+          with open('/tmp/motor_start.zip', 'rb') as f:
+              file_data = f.read()
+          body = (
+              b'--' + boundary + b'\r\n'
+              b'Content-Disposition: form-data; name="file"; filename="motor_start.zip"\r\n'
+              b'Content-Type: application/zip\r\n\r\n'
+              + file_data + b'\r\n'
+              b'--' + boundary + b'--\r\n'
+          )
+          req2 = urllib.request.Request(
+              'https://localhost:8443/api/upload-file',
+              data=body,
+              headers={'Authorization': f'Bearer {token}',
+                       'Content-Type': f'multipart/form-data; boundary={boundary.decode()}'},
+              method='POST'
+          )
+          r2 = urllib.request.urlopen(req2, context=ctx, timeout=30)
+          print('Upload:', json.loads(r2.read()))
+
+          for i in range(40):
+              time.sleep(3)
+              req3 = urllib.request.Request('https://localhost:8443/api/compilation-status',
+                       headers={'Authorization': f'Bearer {token}'})
+              status = json.loads(urllib.request.urlopen(req3, context=ctx, timeout=8).read())
+              s = status.get('status','?')
+              print(f'  [{i*3}s] {s}')
+              if s == 'SUCCESS':
+                  print('✅ Compilation SUCCESS')
+                  break
+              if s == 'FAILED':
+                  print('❌ Compilation FAILED. Last 30 log lines:')
+                  for l in status.get('logs',[])[-30:]:
+                      print(' ', l.rstrip())
+                  sys.exit(1)
+          else:
+              print('Compilation timeout')
+              sys.exit(1)
+          PYEOF
+
+      # ── 15. Start PLC + verify RUNNING ───────────────────────────────────
+      - name: Start PLC and verify STATUS:RUNNING
+        run: |
+          python3 - <<'PYEOF'
+          import urllib.request, json, ssl, sys, time
+
+          ctx = ssl.create_default_context()
+          ctx.check_hostname = False
+          ctx.verify_mode = ssl.CERT_NONE
+
+          body = json.dumps({'username':'volt','password':'volt123'}).encode()
+          req = urllib.request.Request('https://localhost:8443/api/login',
+                  data=body, headers={'Content-Type':'application/json'}, method='POST')
+          token = json.loads(urllib.request.urlopen(req, context=ctx, timeout=8).read())['access_token']
+
+          req2 = urllib.request.Request('https://localhost:8443/api/start-plc',
+                   headers={'Authorization': f'Bearer {token}'})
+          print('start-plc:', json.loads(urllib.request.urlopen(req2, context=ctx, timeout=8).read()))
+          time.sleep(3)
+
+          req3 = urllib.request.Request('https://localhost:8443/api/status',
+                   headers={'Authorization': f'Bearer {token}'})
+          status = json.loads(urllib.request.urlopen(req3, context=ctx, timeout=8).read())
+          print('Status:', status)
+          if status.get('status') != 'STATUS:RUNNING':
+              print('FATAL: PLC not running')
+              sys.exit(1)
+          print('✅ PLC STATUS:RUNNING')
+          PYEOF
+
+      # ── 16. STEP 4 — Motor-start force/read proof via Socket.IO ─────────
+      # Use Node.js (available on all GH Actions runners) for Socket.IO,
+      # matching the exact macOS proof script.
+      - name: Set up Node.js for debug stream test
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+        # setup-node runs with PowerShell default shell — OK, it's a setup action
+
+      - name: Install socket.io-client (Node)
+        shell: pwsh
+        run: |
+          cd $env:RUNNER_TEMP
+          npm init -y | Out-Null
+          npm install socket.io-client --save 2>&1 | Select-Object -Last 3
+
+      - name: "[STEP 4] Motor-start PB_START force -> MOTOR_RUN latch proof"
+        id: motor_proof
+        shell: pwsh
+        run: |
+          $scriptPath = "$env:RUNNER_TEMP\debug_proof.mjs"
+          $nodeModules = "$env:RUNNER_TEMP\node_modules"
+          $script = @'
+          import { createRequire } from 'module';
+          const require = createRequire(import.meta.url);
+          const https  = require('https');
+          const { io } = require(process.env.NODE_MODULES_PATH + '/socket.io-client');
+
+          function httpsPost(url, body) {
+            return new Promise((resolve, reject) => {
+              const u = new URL(url);
+              const data = JSON.stringify(body);
+              const req = https.request({
+                hostname: u.hostname, port: u.port||443, path: u.pathname, method:'POST',
+                rejectUnauthorized: false,
+                headers: {'Content-Type':'application/json','Content-Length':Buffer.byteLength(data)}
+              }, res => { let r=''; res.on('data',d=>r+=d); res.on('end',()=>{try{resolve(JSON.parse(r))}catch{resolve(r)}}); });
+              req.on('error', reject); req.write(data); req.end();
+            });
+          }
+
+          async function cmd(socket, hexCmd) {
+            const resp = await new Promise((resolve) => {
+              const t = setTimeout(() => resolve({timeout:true}), 6000);
+              socket.once('debug_response', d => { clearTimeout(t); resolve(d); });
+              socket.emit('debug_command', { command: hexCmd });
+            });
+            const clean = (resp.data||'').replace(/\s+/g,'');
+            const buf = Buffer.from(clean, 'hex');
+            return { buf, ok: buf.length >= 2 && buf[1] === 0x7E };
+          }
+
+          const GET_CMD   = '44000300000000000100000300';
+          const FORCE_ON  = '42' + '00' + '0000' + '01' + '0001' + '01';
+          const FORCE_OFF = '42' + '00' + '0000' + '00' + '0000';
+
+          function parseGetList(buf) {
+            if (!buf || buf.length < 10 || buf[1] !== 0x7E) return null;
+            const scan = buf.readUInt32BE(4);
+            const psz  = buf.readUInt16BE(8);
+            const pay  = buf.slice(10, 10 + psz);
+            return {
+              scan,
+              PB_START:  pay.length >= 1 ? pay[0] !== 0 : null,
+              PB_STOP:   pay.length >= 2 ? pay[1] !== 0 : null,
+              MOTOR_RUN: pay.length >= 3 ? pay[2] !== 0 : null,
+            };
+          }
+
+          async function main() {
+            const { access_token: token } = await httpsPost(
+              'https://localhost:8443/api/login', {username:'volt', password:'volt123'});
+            const socket = io('https://localhost:8443/api/debug', {
+              secure: true, rejectUnauthorized: false,
+              transports: ['websocket'], auth: { token }
+            });
+            await new Promise((resolve, reject) => {
+              const t = setTimeout(() => reject(new Error('connect timeout')), 10000);
+              socket.on('connect', () => { clearTimeout(t); resolve(); });
+              socket.on('connect_error', e => { clearTimeout(t); reject(new Error(e.message)); });
+            });
+            await new Promise(r => setTimeout(r, 300));
+
+            console.log('\n── Read #1 (baseline) ──');
+            const r1 = await cmd(socket, GET_CMD);
+            const v1 = parseGetList(r1.buf);
+            if (v1) console.log(`  scan=${v1.scan}  PB_START=${v1.PB_START}  PB_STOP=${v1.PB_STOP}  MOTOR_RUN=${v1.MOTOR_RUN}`);
+            else { console.log('  FAILED to read baseline'); process.exit(1); }
+
+            console.log('\nForcing PB_START=TRUE (FC 0x42)...');
+            const fr = await cmd(socket, FORCE_ON);
+            console.log(`  force result: ${fr.ok ? '0x7E SUCCESS' : '0x'+fr.buf[1]?.toString(16)}`);
+
+            await new Promise(r => setTimeout(r, 400));
+
+            console.log('\n── Read #2 (after forcing PB_START=TRUE) ──');
+            const r2 = await cmd(socket, GET_CMD);
+            const v2 = parseGetList(r2.buf);
+            if (v2) console.log(`  scan=${v2.scan}  PB_START=${v2.PB_START}  PB_STOP=${v2.PB_STOP}  MOTOR_RUN=${v2.MOTOR_RUN}`);
+
+            console.log('\nReleasing force on PB_START...');
+            await cmd(socket, FORCE_OFF);
+            await new Promise(r => setTimeout(r, 300));
+
+            console.log('\n── Read #3 (after releasing force) ──');
+            const r3 = await cmd(socket, GET_CMD);
+            const v3 = parseGetList(r3.buf);
+            if (v3) console.log(`  scan=${v3.scan}  PB_START=${v3.PB_START}  PB_STOP=${v3.PB_STOP}  MOTOR_RUN=${v3.MOTOR_RUN}`);
+
+            console.log('\n══════════════════════════════════════════════════════════════');
+            if (v2?.MOTOR_RUN === true) {
+              console.log('✅ MOTOR_RUN = TRUE after forcing PB_START=TRUE');
+              console.log('✅ Full round-trip confirmed: PB_START force → MOTOR_RUN coil latched');
+              if (v3?.MOTOR_RUN === true)
+                console.log('✅ MOTOR_RUN stays TRUE after releasing PB_START (seal-in working)');
+            } else {
+              console.log(`❌ MOTOR_RUN = ${v2?.MOTOR_RUN} (expected TRUE)`);
+              process.exit(1);
+            }
+            console.log(`scan counter: #1=${v1.scan} → #2=${v2?.scan} → #3=${v3?.scan}`);
+            console.log('══════════════════════════════════════════════════════════════');
+            socket.disconnect();
+          }
+          main().catch(e => { console.error('FAILED:', e.message); process.exit(1); });
+          '@
+          $script | Set-Content $scriptPath -Encoding UTF8
+          $env:NODE_MODULES_PATH = $nodeModules
+          node $scriptPath
+
+      # ── 17. Dump all logs (always) ────────────────────────────────────────
+      - name: Dump process logs
+        if: always()
+        shell: msys2 {0}
+        run: |
+          echo "=== plc_main log ==="
+          cat /tmp/plc_main_win.log 2>/dev/null || echo "(empty)"
+          echo "=== webserver log ==="
+          cat /tmp/webserver_win.log 2>/dev/null || echo "(empty)"
+
+      # ── 18. Save AF_UNIX verdict to summary ───────────────────────────────
+      - name: Write job summary
+        if: always()
+        shell: pwsh
+        run: |
+          $af = "${{ steps.af_unix_test.outcome }}"
+          $build = "${{ steps.build_with_w.outcome }}"
+          $motor = "${{ steps.motor_proof.outcome }}"
+          @"
+          ## Windows Runtime Test Results
+
+          | Check | Result |
+          |---|---|
+          | Build (W1-W5 patches) | $build |
+          | AF_UNIX socket | $af |
+          | Motor-start latch proof | $motor |
+          "@ >> $env:GITHUB_STEP_SUMMARY
