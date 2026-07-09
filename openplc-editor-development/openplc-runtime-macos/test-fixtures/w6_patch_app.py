@@ -40,7 +40,7 @@ indent = src[line_start:src.index(OLD1)]
 NEW1 = (
     'import tempfile as _tf, os as _os\n' +
     indent + '_ztmp = _tf.NamedTemporaryFile(delete=False, suffix=".zip")\n' +
-    indent + '_ztmp.write(zip_file.stream.read()); _ztmp.flush(); _ztmp.close()\n' +
+    indent + '_ztmp.write(zip_file.read()); _ztmp.flush(); _ztmp.close()\n' +
     indent + '_zip_path = _ztmp.name\n' +
     indent + 'safe, valid_files = analyze_zip(_zip_path)'
 )
