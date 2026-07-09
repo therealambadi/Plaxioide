@@ -204,33 +204,18 @@ jobs:
           echo "=== socket file check ==="
           ls -la /tmp/plc_runtime.socket 2>/dev/null || echo "socket not yet present"
 
-      - name: Write webserver poll script
+      # Scripts are checked in as test fixtures — copy them to C:\ so pwsh
+      # can call them directly. Avoids heredoc/here-string quoting which
+      # breaks YAML parsing when Python single-quotes appear in the content.
+      - name: Copy Python test scripts from repo
         shell: pwsh
         run: |
-          @'
-import time, sys
-log = '/tmp/webserver_win.log'
-for i in range(180):
-    time.sleep(1)
-    try:
-        txt = open(log).read()
-    except OSError:
-        txt = ''
-    if 'Running on' in txt or 'Serving on' in txt:
-        print(f'webserver READY at {i+1}s')
-        print(txt)
-        sys.exit(0)
-    if '_run_module_as_main' in txt:
-        print(f'webserver CRASHED at {i+1}s')
-        print(txt)
-        sys.exit(1)
-    if (i+1) % 15 == 0:
-        lines = txt.strip().splitlines()
-        print(f'waiting... {i+1}s, last line: {lines[-1] if lines else "(empty)"}')
-print('webserver did not become ready in 180s')
-print(open(log).read())
-sys.exit(1)
-'@ | Set-Content -Encoding UTF8 C:\plc_wait_webserver.py
+          $fixtures = "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures"
+          Copy-Item "$fixtures\plc_wait_webserver.py" C:\plc_wait_webserver.py
+          Copy-Item "$fixtures\plc_af_unix.py"        C:\plc_af_unix.py
+          Copy-Item "$fixtures\plc_login.py"          C:\plc_login.py
+          Copy-Item "$fixtures\plc_upload.py"         C:\plc_upload.py
+          Copy-Item "$fixtures\plc_start.py"          C:\plc_start.py
 
       - name: Start webserver (background)
         run: |
@@ -241,120 +226,6 @@ sys.exit(1)
       - name: Wait for webserver ready
         shell: pwsh
         run: python C:\plc_wait_webserver.py
-
-      # ── 12-15: Write all Python scripts to files then call them via pwsh.
-      # python3 - <<'PYEOF' heredocs in msys2 shell hang after nohup background
-      # processes — the CMD wrapper blocks on the child process group. Writing
-      # scripts to files and calling via pwsh avoids this completely.
-      - name: Write Python test scripts
-        shell: pwsh
-        run: |
-          # AF_UNIX test
-          @'
-import socket, sys, time
-SOCK = '/tmp/plc_runtime.socket'
-print(f'Testing AF_UNIX connect to {SOCK}')
-for attempt in range(8):
-    try:
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(2)
-        s.connect(SOCK)
-        s.close()
-        print(f'  AF_UNIX connect SUCCESS (attempt {attempt+1})')
-        sys.exit(0)
-    except FileNotFoundError:
-        print(f'  attempt {attempt+1}: socket file not found yet')
-    except Exception as e:
-        print(f'  attempt {attempt+1}: {type(e).__name__}: {e}')
-    time.sleep(1)
-print('  AF_UNIX connect FAILED after 8 attempts')
-'@ | Set-Content -Encoding UTF8 C:\plc_af_unix.py
-
-          # API login + status
-          @'
-import urllib.request, json, ssl, sys, time
-ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
-for attempt in range(15):
-    try:
-        body = json.dumps({"username":"volt","password":"volt123"}).encode()
-        req = urllib.request.Request("https://localhost:8443/api/login",
-                data=body, headers={"Content-Type":"application/json"}, method="POST")
-        r = urllib.request.urlopen(req, context=ctx, timeout=8)
-        token = json.loads(r.read())["access_token"]
-        print(f"Login OK attempt {attempt+1}, token={token[:20]}...")
-        req2 = urllib.request.Request("https://localhost:8443/api/status",
-                 headers={"Authorization": f"Bearer {token}"})
-        r2 = urllib.request.urlopen(req2, context=ctx, timeout=8)
-        print("Status:", json.loads(r2.read()))
-        sys.exit(0)
-    except Exception as e:
-        print(f"Attempt {attempt+1}: {e}")
-        time.sleep(2)
-sys.exit(1)
-'@ | Set-Content -Encoding UTF8 C:\plc_login.py
-
-          # Upload + compile
-          @'
-import urllib.request, json, ssl, sys, time
-ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
-body = json.dumps({"username":"volt","password":"volt123"}).encode()
-req = urllib.request.Request("https://localhost:8443/api/login",
-        data=body, headers={"Content-Type":"application/json"}, method="POST")
-token = json.loads(urllib.request.urlopen(req, context=ctx, timeout=8).read())["access_token"]
-boundary = b"----VoltBoundary7MA4YWxkTrZu0gW"
-with open("C:/motor_start.zip", "rb") as f:
-    file_data = f.read()
-body = (b"--" + boundary + b"\r\nContent-Disposition: form-data; name=\"file\"; filename=\"motor_start.zip\"\r\nContent-Type: application/zip\r\n\r\n"
-        + file_data + b"\r\n--" + boundary + b"--\r\n")
-req2 = urllib.request.Request("https://localhost:8443/api/upload-file", data=body,
-        headers={"Authorization": f"Bearer {token}",
-                 "Content-Type": f"multipart/form-data; boundary={boundary.decode()}"},
-        method="POST")
-r2 = urllib.request.urlopen(req2, context=ctx, timeout=30)
-print("Upload:", json.loads(r2.read()))
-for i in range(40):
-    time.sleep(3)
-    req3 = urllib.request.Request("https://localhost:8443/api/compilation-status",
-             headers={"Authorization": f"Bearer {token}"})
-    status = json.loads(urllib.request.urlopen(req3, context=ctx, timeout=8).read())
-    s = status.get("status","?")
-    print(f"  [{i*3}s] {s}")
-    if s == "SUCCESS":
-        print("Compilation SUCCESS")
-        sys.exit(0)
-    if s == "FAILED":
-        print("Compilation FAILED")
-        for l in status.get("logs",[])[-30:]: print(" ", l.rstrip())
-        sys.exit(1)
-print("Compilation timeout"); sys.exit(1)
-'@ | Set-Content -Encoding UTF8 C:\plc_upload.py
-
-          # Start PLC + verify RUNNING
-          @'
-import urllib.request, json, ssl, sys, time
-ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
-body = json.dumps({"username":"volt","password":"volt123"}).encode()
-req = urllib.request.Request("https://localhost:8443/api/login",
-        data=body, headers={"Content-Type":"application/json"}, method="POST")
-token = json.loads(urllib.request.urlopen(req, context=ctx, timeout=8).read())["access_token"]
-req2 = urllib.request.Request("https://localhost:8443/api/start-plc",
-         headers={"Authorization": f"Bearer {token}"})
-print("start-plc:", json.loads(urllib.request.urlopen(req2, context=ctx, timeout=8).read()))
-time.sleep(3)
-req3 = urllib.request.Request("https://localhost:8443/api/status",
-         headers={"Authorization": f"Bearer {token}"})
-status = json.loads(urllib.request.urlopen(req3, context=ctx, timeout=8).read())
-print("Status:", status)
-if status.get("status") != "STATUS:RUNNING":
-    print("FATAL: PLC not running"); sys.exit(1)
-print("PLC STATUS:RUNNING")
-'@ | Set-Content -Encoding UTF8 C:\plc_start.py
 
       # ── 12. AF_UNIX socket connectivity test ─────────────────────────────
       - name: "[STEP 2] AF_UNIX socket connectivity test"
@@ -372,6 +243,8 @@ print("PLC STATUS:RUNNING")
       # ── 14. Upload real motor-start ZIP + compile ─────────────────────────
       - name: Upload motor-start program ZIP
         shell: pwsh
+        env:
+          MOTOR_ZIP: C:\motor_start.zip
         run: |
           Copy-Item "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures\motor-start-proof.zip" C:\motor_start.zip
           python C:\plc_upload.py
