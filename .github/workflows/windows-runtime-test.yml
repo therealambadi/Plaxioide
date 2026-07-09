@@ -21,22 +21,30 @@ jobs:
       - name: Checkout volt repo
         uses: actions/checkout@v4
 
-      # ── 1. Install MSYS2 with MinGW-w64 toolchain ────────────────────────
-      - name: Set up MSYS2
+      # ── 1. Install MSYS2 with MSYS (Cygwin-compatible POSIX) toolchain ───
+      # CRITICAL: must use msystem: MSYS, NOT MINGW64.
+      # MINGW64 is a pure Win32 toolchain — it does not provide dlfcn.h,
+      # sys/socket.h, AF_UNIX sockets, or POSIX pthreads.
+      # MSYS is the Cygwin-compatible layer that provides all POSIX APIs the
+      # runtime requires. This matches upstream's own windows-installer.yml.
+      - name: Set up MSYS2 (MSYS toolchain — POSIX layer)
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: MSYS
           update: true
           install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-python-pip
-            mingw-w64-x86_64-openssl
+            base-devel
+            gcc
+            make
+            cmake
+            pkg-config
+            python
+            python-pip
+            python-setuptools
             git
             patch
-            make
+            openssl
+            openssl-devel
 
       # ── 2. Clone upstream OpenPLC Runtime @ cb1060d ───────────────────────
       - name: Clone upstream OpenPLC Runtime
@@ -61,8 +69,8 @@ jobs:
         run: |
           cd /tmp/openplc-runtime
           mkdir -p build_probe && cd build_probe
-          echo "=== CMake ===" && cmake .. -G Ninja 2>&1
-          echo "=== Ninja ===" && ninja plc_main 2>&1
+          echo "=== CMake ===" && cmake .. -G "Unix Makefiles" 2>&1
+          echo "=== Ninja ===" && make -j$(nproc) plc_main 2>&1
           echo "build_probe_exit=$?" >> $GITHUB_ENV
 
       # ── 5. Apply W1 — extend CLOCK_REALTIME guard ─────────────────────────
@@ -173,9 +181,9 @@ jobs:
           cd /tmp/openplc-runtime
           rm -rf build && mkdir build && cd build
           echo "=== CMake ==="
-          cmake .. -G Ninja 2>&1
+          cmake .. -G "Unix Makefiles" 2>&1
           echo "=== Ninja ==="
-          ninja plc_main 2>&1
+          make -j$(nproc) plc_main 2>&1
           echo "=== Binary ==="
           ls -lh plc_main* 2>/dev/null
 
