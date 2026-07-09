@@ -1,6 +1,23 @@
 # OpenPLC Runtime — Windows Build Analysis
 
-## Status: Not Yet Tested (No Windows Machine Available)
+## Status: GitHub Actions workflow submitted — awaiting real run output
+
+**Workflow:** `.github/workflows/windows-runtime-test.yml` (committed `34944c5`)
+**Trigger:** Push to main on paths matching `openplc-editor-development/openplc-runtime-macos/**`
+**Monitor at:** https://github.com/therealambadi/volt/actions
+
+The workflow implements all 5 steps from the task spec:
+- STEP 3.1: build WITHOUT W1-W5 patches (records real compiler errors)
+- W1-W5 applied one at a time as named steps
+- STEP 3.2: build WITH all patches
+- STEP 2: explicit AF_UNIX socket test (not assumed)
+- STEP 4: full motor-start PB_START force → MOTOR_RUN latch proof via Socket.IO
+
+**This section will be updated once real GitHub Actions output is available.**
+
+---
+
+## Original Analysis (pre-run predictions — replace with real results)
 
 This document records the complete pre-flight analysis of what is required to
 build and run the runtime on Windows. **No live Windows build has been attempted.**
