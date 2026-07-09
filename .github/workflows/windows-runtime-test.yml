@@ -201,13 +201,27 @@ jobs:
           sleep 5
           echo "=== plc_main startup log ==="
           cat /tmp/plc_main_win.log
+          echo "=== socket file check ==="
+          ls -la /tmp/plc_runtime.socket 2>/dev/null || echo "socket not yet present"
 
       - name: Start webserver (background)
         run: |
           cd /tmp/openplc-runtime
           nohup /tmp/plcvenv/bin/python3 -m webserver.app > /tmp/webserver_win.log 2>&1 &
-          sleep 8
-          echo "=== webserver startup log ==="
+          WBPID=$!
+          echo "webserver PID: $WBPID"
+          # Poll for up to 30s — webserver generates SSL cert on first boot
+          for i in $(seq 1 30); do
+            sleep 1
+            echo "--- webserver log at ${i}s ---"
+            cat /tmp/webserver_win.log 2>/dev/null || echo "(empty)"
+            # Stop polling once the server appears to be listening
+            if grep -q "Running on\|Serving on\|ssl_context\|Traceback\|Error\|error" /tmp/webserver_win.log 2>/dev/null; then
+              echo "--- webserver settled at ${i}s ---"
+              break
+            fi
+          done
+          echo "=== final webserver log ==="
           cat /tmp/webserver_win.log
 
       # ── 12. AF_UNIX socket connectivity test ─────────────────────────────
