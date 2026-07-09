@@ -31,13 +31,23 @@ if not patched:
     print('W6 fix1: anchor not found', file=sys.stderr)
     sys.exit(1)
 
-# Replace safe_extract(zip_file, -> safe_extract(zip_data,
+# Insert zip_data.seek(0) before safe_extract, then replace zip_file with zip_data.
+# analyze_zip() reads BytesIO to EOF; safe_extract() needs it rewound to byte 0.
 old2 = 'safe_extract(zip_file,'
 if old2 not in src:
     print('W6 fix2: safe_extract(zip_file, not found', file=sys.stderr)
     sys.exit(1)
-src = src.replace(old2, 'safe_extract(zip_data,', 1)
-print('W6 fix2 applied')
+# Detect indent used at safe_extract call site
+for indent2 in ('        ', '    '):
+    if (indent2 + 'safe_extract(zip_file,') in src:
+        break
+src = src.replace(
+    indent2 + 'safe_extract(zip_file,',
+    indent2 + 'zip_data.seek(0)  # rewind after analyze_zip consumed the stream\n' +
+    indent2 + 'safe_extract(zip_data,',
+    1
+)
+print('W6 fix2 applied (seek + safe_extract rewrite)')
 
 open(path, 'w').write(src)
 print('W6 done')
