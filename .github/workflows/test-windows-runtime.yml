@@ -80,71 +80,64 @@ jobs:
           echo Webserver started in background, waiting 10s...
 
       - name: Wait for webserver to be ready
-        shell: powershell
+        shell: cmd
         run: |
-          $maxWait = 60
-          $waited = 0
-          $ready = $false
-          Write-Host "Polling https://localhost:8443/api/status (up to ${maxWait}s)..."
-          while ($waited -lt $maxWait) {
-            Start-Sleep -Seconds 3
-            $waited += 3
-            try {
-              # ANY HTTP response (even 401/404) means Flask is up and accepting connections
-              $resp = Invoke-WebRequest -Uri "https://localhost:8443/api/status" `
-                -SkipCertificateCheck -TimeoutSec 5 -ErrorAction Stop
-              Write-Host "Webserver responded: $($resp.StatusCode)"
-              $ready = $true
-              break
-            } catch [System.Net.WebException] {
-              $code = $_.Exception.Response.StatusCode.value__
-              if ($code -gt 0) {
-                Write-Host "Webserver UP (HTTP $code) - Flask is accepting connections"
-                $ready = $true
-                break
-              }
-              Write-Host "[$waited/$maxWait s] No connection yet: $($_.Exception.Message)"
-            } catch {
-              Write-Host "[$waited/$maxWait s] $($_.Exception.Message)"
-            }
-          }
-          if (-not $ready) {
-            Write-Host "ERROR: Webserver did not start within ${maxWait}s"
-            Get-Content "$env:TEMP\webserver.log" -ErrorAction SilentlyContinue
-            exit 1
-          }
-          Write-Host "Webserver is UP on port 8443"
+          set WAITED=0
+          :loop
+          if %WAITED% GEQ 60 goto timeout
+          timeout /t 3 /nobreak >nul
+          set /a WAITED=%WAITED%+3
+          curl.exe -k -s -o nul -w "%%{http_code}" https://localhost:8443/api/status > %TEMP%\httpcode.txt 2>nul
+          set /p HTTPCODE=<%TEMP%\httpcode.txt
+          if "%HTTPCODE%"=="000" (
+            echo [%WAITED%/60 s] No connection yet...
+            goto loop
+          )
+          echo Webserver UP - HTTP %HTTPCODE% - Flask is accepting connections
+          goto done
+          :timeout
+          echo ERROR: Webserver did not start within 60s
+          type %TEMP%\webserver.log 2>nul
+          exit /b 1
+          :done
 
       - name: Test create-user endpoint
-        shell: powershell
+        shell: cmd
         run: |
-          $body = @{ login="volt-internal"; password="volt-test-pass-123" } | ConvertTo-Json
-          try {
-            $resp = Invoke-WebRequest -Uri "https://localhost:8443/api/create-user" `
-              -Method POST -Body $body -ContentType "application/json" `
-              -SkipCertificateCheck -TimeoutSec 10 -ErrorAction Stop
-            Write-Host "create-user: $($resp.StatusCode) $($resp.Content)"
-          } catch {
-            $code = $_.Exception.Response.StatusCode.value__
-            Write-Host "create-user returned $code (401 = already exists, both are OK)"
-            if ($code -ne 401) { exit 1 }
-          }
+          curl.exe -k -s -o %TEMP%\create-user.json -w "%%{http_code}" ^
+            -X POST https://localhost:8443/api/create-user ^
+            -H "Content-Type: application/json" ^
+            -d "{\"login\":\"volt-internal\",\"password\":\"volt-test-pass-123\"}" ^
+            > %TEMP%\create-user-code.txt 2>nul
+          set /p CODE=<%TEMP%\create-user-code.txt
+          type %TEMP%\create-user.json
+          echo.
+          echo create-user HTTP %CODE% (200=created, 401=already exists, both OK)
+          if "%CODE%"=="200" goto ok
+          if "%CODE%"=="401" goto ok
+          echo ERROR: Unexpected status %CODE%
+          exit /b 1
+          :ok
 
       - name: Test login and get JWT token
-        shell: powershell
+        shell: cmd
         run: |
-          $body = @{ login="volt-internal"; password="volt-test-pass-123" } | ConvertTo-Json
-          $resp = Invoke-WebRequest -Uri "https://localhost:8443/api/login" `
-            -Method POST -Body $body -ContentType "application/json" `
-            -SkipCertificateCheck -TimeoutSec 10
-          $json = $resp.Content | ConvertFrom-Json
-          if (-not $json.access_token) {
-            Write-Host "ERROR: No access_token in login response: $($resp.Content)"
-            exit 1
-          }
-          Write-Host "JWT token obtained: $($json.access_token.Substring(0,20))..."
-          # Save token for next step
-          echo "JWT=$($json.access_token)" >> $env:GITHUB_ENV
+          curl.exe -k -s -o %TEMP%\login.json ^
+            -X POST https://localhost:8443/api/login ^
+            -H "Content-Type: application/json" ^
+            -d "{\"login\":\"volt-internal\",\"password\":\"volt-test-pass-123\"}"
+          type %TEMP%\login.json
+          echo.
+          findstr "access_token" %TEMP%\login.json >nul
+          if %ERRORLEVEL% neq 0 (
+            echo ERROR: No access_token in login response
+            exit /b 1
+          )
+          echo JWT token obtained OK
+          for /f "tokens=2 delims=:, " %%a in ('findstr "access_token" %TEMP%\login.json') do (
+            set TOKEN=%%~a
+          )
+          echo JWT=%TOKEN:"=% >> %GITHUB_ENV%
 
       # ── Step 4: Upload a minimal ZIP and verify g++ compiles it ──────────
       - name: Build test ZIP (minimal ST program)
@@ -193,55 +186,52 @@ jobs:
           Write-Host "Test ZIP created: $((Get-Item "$env:TEMP\test-program.zip").Length) bytes"
 
       - name: Upload ZIP to OpenPLC
-        shell: powershell
+        shell: cmd
         run: |
-          $zipBytes = [System.IO.File]::ReadAllBytes("$env:TEMP\test-program.zip")
-          $boundary = "----VoltBoundary$(Get-Date -UFormat %s)"
-          $LF = "`r`n"
-          $bodyLines = @(
-            "--$boundary",
-            "Content-Disposition: form-data; name=`"file`"; filename=`"test-program.zip`"",
-            "Content-Type: application/octet-stream",
-            "",
-            [System.Text.Encoding]::GetEncoding("iso-8859-1").GetString($zipBytes),
-            "--$boundary--"
-          )
-          $bodyStr = $bodyLines -join $LF
-          $bodyBytes = [System.Text.Encoding]::GetEncoding("iso-8859-1").GetBytes($bodyStr)
-
-          $resp = Invoke-WebRequest -Uri "https://localhost:8443/api/upload-file" `
-            -Method POST `
-            -Body $bodyBytes `
-            -ContentType "multipart/form-data; boundary=$boundary" `
-            -Headers @{ Authorization = "Bearer $env:JWT" } `
-            -SkipCertificateCheck -TimeoutSec 30
-          Write-Host "Upload response: $($resp.StatusCode) $($resp.Content)"
-          if ($resp.StatusCode -ne 200) { exit 1 }
+          curl.exe -k -s -o %TEMP%\upload.json -w "%%{http_code}" ^
+            -X POST https://localhost:8443/api/upload-file ^
+            -H "Authorization: Bearer %JWT%" ^
+            -F "file=@%TEMP%\test-program.zip;type=application/zip" ^
+            > %TEMP%\upload-code.txt
+          set /p UPLOADCODE=<%TEMP%\upload-code.txt
+          type %TEMP%\upload.json
+          echo.
+          echo Upload HTTP %UPLOADCODE%
+          if "%UPLOADCODE%"=="200" goto ok
+          echo ERROR: Upload failed with HTTP %UPLOADCODE%
+          exit /b 1
+          :ok
+          echo Upload accepted
 
       - name: Poll compilation status until SUCCESS or ERROR
-        shell: powershell
+        shell: cmd
         run: |
-          $maxWait = 60
-          $waited = 0
-          while ($waited -lt $maxWait) {
-            Start-Sleep -Seconds 3
-            $waited += 3
-            $resp = Invoke-WebRequest -Uri "https://localhost:8443/api/compilation-status" `
-              -Headers @{ Authorization = "Bearer $env:JWT" } `
-              -SkipCertificateCheck -TimeoutSec 10
-            $json = $resp.Content | ConvertFrom-Json
-            Write-Host "[$waited/$maxWait s] Status: $($json.status)"
-            if ($json.status -eq "SUCCESS") {
-              Write-Host "g++ compile SUCCESS"
-              exit 0
-            }
-            if ($json.status -eq "ERROR") {
-              Write-Host "ERROR: g++ compile failed: $($json.message)"
-              exit 1
-            }
-          }
-          Write-Host "ERROR: Compile timed out after ${maxWait}s"
-          exit 1
+          set WAITED=0
+          :pollloop
+          if %WAITED% GEQ 90 goto polltimeout
+          timeout /t 4 /nobreak >nul
+          set /a WAITED=%WAITED%+4
+          curl.exe -k -s -o %TEMP%\status.json ^
+            -H "Authorization: Bearer %JWT%" ^
+            https://localhost:8443/api/compilation-status
+          type %TEMP%\status.json
+          echo.
+          findstr /i "SUCCESS" %TEMP%\status.json >nul
+          if %ERRORLEVEL%==0 (
+            echo g++ compile SUCCESS
+            goto polldone
+          )
+          findstr /i "ERROR" %TEMP%\status.json >nul
+          if %ERRORLEVEL%==0 (
+            echo ERROR: g++ compile failed
+            exit /b 1
+          )
+          echo [%WAITED%/90 s] Still compiling...
+          goto pollloop
+          :polltimeout
+          echo ERROR: Compile timed out after 90s
+          exit /b 1
+          :polldone
 
       # ── Diagnostics on failure ────────────────────────────────────────────
       - name: Show webserver log on failure
