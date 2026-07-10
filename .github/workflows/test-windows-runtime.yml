@@ -99,7 +99,7 @@ jobs:
             } catch [System.Net.WebException] {
               $code = $_.Exception.Response.StatusCode.value__
               if ($code -gt 0) {
-                Write-Host "Webserver UP (HTTP $code) — Flask is accepting connections"
+                Write-Host "Webserver UP (HTTP $code) - Flask is accepting connections"
                 $ready = $true
                 break
               }
