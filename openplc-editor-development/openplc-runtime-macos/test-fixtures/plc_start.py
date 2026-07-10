@@ -15,9 +15,8 @@ token = json.loads(urllib.request.urlopen(req, context=ctx, timeout=8).read())["
 
 req2 = urllib.request.Request(
     "https://localhost:8443/api/start-plc",
-    data=b'{}',
-    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-    method="POST"
+    headers={"Authorization": f"Bearer {token}"},
+    method="GET"
 )
 print("start-plc:", json.loads(urllib.request.urlopen(req2, context=ctx, timeout=8).read()))
 time.sleep(3)
