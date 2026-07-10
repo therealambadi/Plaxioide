@@ -179,24 +179,70 @@ jobs:
           echo "=== app.py patch verification ==="
           grep -n "_zip_path\|upload_tmp\|analyze_zip\|safe_extract\|_os.unlink" webserver/app.py
 
-      # ── W8. Fix safe_extract Cygwin EINVAL on newly-created directories ────────
-      # Root cause (confirmed by W7b instrumentation):
-      # safe_extract calls open(out_path, "wb") where out_path is a POSIX path
-      # under a directory just created by os.makedirs(). On Cygwin/MSYS2, Python's
-      # open() uses CreateFileW() via Cygwin's POSIX layer. When the parent directory
-      # was JUST created, Cygwin's internal handle cache causes CreateFileW to return
-      # ERROR_INVALID_NAME (EINVAL / errno 22).
-      # Fix: use cygpath -w to get the Windows-native path before calling open(),
-      # which bypasses Cygwin's POSIX emulation layer entirely for file creation.
-      # Falls back to POSIX path on non-Cygwin platforms (Linux, macOS).
-      - name: "[W8] Fix safe_extract cygpath file-create bypass"
+      # ── ZIPFILE ISOLATION TEST ─────────────────────────────────────────────
+      # Step 1: confirm whether Cygwin zipfile.ZipFile(path_string).read() fails
+      # in isolation (case a) or only in the real request flow (case b).
+      # This runs BEFORE W8 so we can tell which fix is actually needed.
+      - name: "[DIAG] Zipfile read isolation test on Cygwin"
+        run: |
+          python3 - <<'PYEOF'
+          import zipfile, os, io, sys, tempfile
+
+          # Create a small test zip in memory
+          buf = io.BytesIO()
+          with zipfile.ZipFile(buf, "w") as zf:
+              zf.writestr("root/file1.txt", "hello world")
+              zf.writestr("root/file2.txt", "foo bar baz")
+              zf.writestr("root/sub/file3.txt", "nested content")
+
+          # Write it to a temp path (same style as W6)
+          tmp_dir = tempfile.mkdtemp()
+          zip_path = os.path.join(tmp_dir, "test_isolation.zip")
+          with open(zip_path, "wb") as f:
+              f.write(buf.getvalue())
+
+          print(f"Zip written: {zip_path} ({os.path.getsize(zip_path)} bytes)")
+
+          # Test A: open by path string (current W8 approach before fix)
+          print("=== Test A: ZipFile(path_string) ===")
+          try:
+              with zipfile.ZipFile(zip_path, "r") as zf:
+                  for info in zf.infolist():
+                      data = zf.read(info.filename)
+                      print(f"  OK: {info.filename} ({len(data)} bytes)")
+              print("Test A: PASS")
+          except OSError as e:
+              print(f"Test A: FAIL — {e}")
+
+          # Test B: open via explicit open(rb) handle (proposed fix)
+          print("=== Test B: ZipFile(open(rb)) ===")
+          try:
+              with open(zip_path, "rb") as fh, zipfile.ZipFile(fh, "r") as zf:
+                  for info in zf.infolist():
+                      data = zf.read(info.filename)
+                      print(f"  OK: {info.filename} ({len(data)} bytes)")
+              print("Test B: PASS")
+          except OSError as e:
+              print(f"Test B: FAIL — {e}")
+
+          PYEOF
+
+      # ── W8. Fix safe_extract: open zip via explicit binary handle (Cygwin seek fix) ─
+      # Root cause (confirmed by W9 traceback): zipfile.ZipFile(path_string) on
+      # Cygwin/MSYS2 Python 3.12 creates an internal file handle that fails to seek
+      # (EINVAL). The call chain is zf.read() -> zf.open() -> zef_file.read() ->
+      # self._file.seek(self._pos) -> OSError: [Errno 22].
+      # Fix: open the zip file explicitly as open(zip_path, "rb") first, then pass
+      # the file object to zipfile.ZipFile(f). Python uses the provided handle
+      # directly rather than opening internally, giving a proper seekable stream.
+      - name: "[W8] Fix safe_extract: open zip via explicit binary handle"
         run: |
           set -e
           cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w8_fix_safe_extract.py" /tmp/w8_fix_safe_extract.py
           cd /tmp/openplc-runtime
           python3 /tmp/w8_fix_safe_extract.py
           echo "=== W8 verification ==="
-          grep -n "zf.read\|abs_dest\|write_path\|_win_path" webserver/plcapp_management.py || true
+          grep -n "_zf_fh\|open(zip_path.*rb\|zf.read\|abs_dest" webserver/plcapp_management.py || true
 
       # ── W9. Add full traceback logging to exception handler (diagnostic) ────
       - name: "[W9] Add full traceback to upload exception handler"

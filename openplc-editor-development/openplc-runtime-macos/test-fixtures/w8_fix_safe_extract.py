@@ -70,7 +70,10 @@ NEW = '''def safe_extract(zip_path, dest_dir, valid_files):
 
     abs_dest = os.path.abspath(dest_dir)
 
-    with zipfile.ZipFile(zip_path, "r") as zf:
+    # On Cygwin/MSYS2, zipfile.ZipFile(path_string) creates an internal file
+    # object that fails to seek (EINVAL). Opening with an explicit binary file
+    # handle first gives Python a proper seekable stream.
+    with open(zip_path, "rb") as _zf_fh, zipfile.ZipFile(_zf_fh, "r") as zf:
         # Use infolist from THIS ZipFile instance (not from analyze_zip's closed instance)
         entries = zf.infolist()
 
