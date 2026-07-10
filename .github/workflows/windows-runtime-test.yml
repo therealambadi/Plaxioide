@@ -180,33 +180,23 @@ jobs:
           grep -n "_zip_path\|upload_tmp\|analyze_zip\|safe_extract\|_os.unlink" webserver/app.py
 
       # ── ZIPFILE ISOLATION TEST ─────────────────────────────────────────────
-      # Step 1: confirm whether Cygwin zipfile.ZipFile(path_string).read() fails
-      # in isolation (case a) or only in the real request flow (case b).
-      # This runs BEFORE W8 so we can tell which fix is actually needed.
-      - name: "[DIAG] Zipfile read isolation test on Cygwin"
+      # Test the REAL motor-start-proof.zip directly (no Flask/upload path)
+      # to isolate whether the EINVAL is in the zip file structure or the
+      # upload path. Tests all three open modes: path string, open(rb), BytesIO.
+      - name: "[DIAG] Zipfile read isolation test with real motor-start-proof.zip"
         run: |
-          python3 - <<'PYEOF'
-          import zipfile, os, io, sys, tempfile
+          REAL_ZIP="$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/motor-start-proof.zip"
+          python3 - "$REAL_ZIP" <<'PYEOF'
+          import zipfile, os, io, sys, tempfile, hashlib
 
-          # Create a small test zip in memory
-          buf = io.BytesIO()
-          with zipfile.ZipFile(buf, "w") as zf:
-              zf.writestr("root/file1.txt", "hello world")
-              zf.writestr("root/file2.txt", "foo bar baz")
-              zf.writestr("root/sub/file3.txt", "nested content")
+          real_zip = sys.argv[1]
+          print(f"Real zip: {real_zip} ({os.path.getsize(real_zip)} bytes)")
+          print(f"SHA256: {hashlib.sha256(open(real_zip,'rb').read()).hexdigest()}")
 
-          # Write it to a temp path (same style as W6)
-          tmp_dir = tempfile.mkdtemp()
-          zip_path = os.path.join(tmp_dir, "test_isolation.zip")
-          with open(zip_path, "wb") as f:
-              f.write(buf.getvalue())
-
-          print(f"Zip written: {zip_path} ({os.path.getsize(zip_path)} bytes)")
-
-          # Test A: open by path string
-          print("=== Test A: ZipFile(path_string) ===")
+          # --- Test A: open real zip by path string directly ---
+          print("\n=== Test A: ZipFile(real_path) ===")
           try:
-              with zipfile.ZipFile(zip_path, "r") as zf:
+              with zipfile.ZipFile(real_zip, "r") as zf:
                   for info in zf.infolist():
                       data = zf.read(info.filename)
                       print(f"  OK: {info.filename} ({len(data)} bytes)")
@@ -214,10 +204,14 @@ jobs:
           except OSError as e:
               print(f"Test A: FAIL — {e}")
 
-          # Test B: open via explicit open(rb) handle
-          print("=== Test B: ZipFile(open(rb)) ===")
+          # --- Test B: copy real zip to /tmp, open by path ---
+          tmp_dir = tempfile.mkdtemp()
+          tmp_zip = os.path.join(tmp_dir, "motor_test.zip")
+          with open(real_zip, "rb") as src, open(tmp_zip, "wb") as dst:
+              dst.write(src.read())
+          print(f"\n=== Test B: ZipFile(tmp_path) — copy at {tmp_zip} ===")
           try:
-              with open(zip_path, "rb") as fh, zipfile.ZipFile(fh, "r") as zf:
+              with zipfile.ZipFile(tmp_zip, "r") as zf:
                   for info in zf.infolist():
                       data = zf.read(info.filename)
                       print(f"  OK: {info.filename} ({len(data)} bytes)")
@@ -225,21 +219,47 @@ jobs:
           except OSError as e:
               print(f"Test B: FAIL — {e}")
 
-          # Test C: open via BytesIO (the approach now used in W6+W8)
-          print("=== Test C: ZipFile(BytesIO) ===")
+          # --- Test C: BytesIO of real zip — single ZipFile, zf.open() per entry ---
+          # This matches exactly what the new W8 safe_extract does.
+          print("\n=== Test C: ZipFile(BytesIO) + zf.open() per entry ===")
           try:
-              bdata = open(zip_path, "rb").read()
-              bio = io.BytesIO(bdata)
+              raw = open(real_zip, "rb").read()
+              bio = io.BytesIO(raw)
               bio.seek(0)
               with zipfile.ZipFile(bio, "r") as zf:
                   for info in zf.infolist():
-                      bio.seek(0)
-                      with zipfile.ZipFile(bio, "r") as zf2:
-                          data = zf2.read(info.filename)
+                      with zf.open(info.filename) as entry:
+                          data = entry.read()
                       print(f"  OK: {info.filename} ({len(data)} bytes)")
               print("Test C: PASS")
           except OSError as e:
               print(f"Test C: FAIL — {e}")
+
+          # --- Test D: simulate full W6 flow without Flask ---
+          # Simulate: receive bytes (as Flask would), write to BytesIO directly,
+          # pass BytesIO to analyze_zip (is_zipfile + ZipFile read), then
+          # rewind and pass to safe_extract (ZipFile + zf.open per entry).
+          print("\n=== Test D: full W6+W8 flow simulation (no Flask) ===")
+          try:
+              # Simulate FileStorage.read() returning bytes
+              raw = open(real_zip, "rb").read()
+              bio = io.BytesIO(raw)
+              # simulate analyze_zip: is_zipfile + ZipFile open
+              bio.seek(0)
+              assert zipfile.is_zipfile(bio), "not a zip"
+              bio.seek(0)
+              with zipfile.ZipFile(bio, "r") as zf:
+                  _ = zf.infolist()  # analyze_zip reads infolist
+              # simulate safe_extract: rewind, open, extract all
+              bio.seek(0)
+              with zipfile.ZipFile(bio, "r") as zf:
+                  for info in zf.infolist():
+                      with zf.open(info.filename) as entry:
+                          data = entry.read()
+                      print(f"  OK: {info.filename} ({len(data)} bytes)")
+              print("Test D: PASS")
+          except (OSError, AssertionError) as e:
+              print(f"Test D: FAIL — {e}")
 
           PYEOF
 
