@@ -40,7 +40,8 @@ indent = src[line_start:src.index(OLD1)]
 NEW1 = (
     'import os as _os\n' +
     indent + '_zip_path = _os.path.join(_os.getcwd(), "upload_tmp.zip")\n' +
-    indent + 'open(_zip_path, "wb").write(zip_file.read())\n' +
+    indent + 'with open(_zip_path, "wb") as _zf_out:\n' +
+    indent + '    _zf_out.write(zip_file.read())\n' +
     indent + 'safe, valid_files = analyze_zip(_zip_path)'
 )
 
