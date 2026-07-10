@@ -1,70 +1,50 @@
-import sys
+import sys, re
 
 # W12: On MSYS2/Cygwin, pthread_condattr_setclock(CLOCK_MONOTONIC) is silently
-# ignored by winpthread — the condvar still uses CLOCK_REALTIME. When next_tick
-# is set with CLOCK_MONOTONIC, the timedwait deadline never fires (clock mismatch)
-# and the scan cycle hangs forever, causing the watchdog to kill the PLC.
+# ignored by winpthread — the condvar stays on CLOCK_REALTIME. When next_tick
+# uses CLOCK_MONOTONIC the timedwait deadline never fires, the scan cycle hangs,
+# and the watchdog kills the PLC after 2 seconds.
 #
-# Fix: guard the CLOCK_MONOTONIC condattr_setclock with the same __APPLE__ guard
-# as the original macOS patch, extending it to also skip __CYGWIN__/__MSYS__.
-# On MSYS2, fall through to the default CLOCK_REALTIME condvar.
-# Also update the next_tick initialization to use CLOCK_REALTIME on MSYS2
-# (already done by W1, but the done_cond init needs the matching fix too).
+# The macOS base patch already guards setclock with #ifndef __APPLE__ and chooses
+# CLOCK_REALTIME for next_tick on Apple. W12 extends both guards to also cover
+# __CYGWIN__ and __MSYS__ (MSYS2 predefined macros).
 
 path = 'core/src/plc_app/plc_state_manager.cpp'
 src = open(path).read()
 
-# Patch 1: guard CLOCK_MONOTONIC condattr_setclock to skip on Cygwin/MSYS2
-OLD1 = '''static void init_done_cond(void)
-{
-    pthread_condattr_t cattr;
-    pthread_condattr_init(&cattr);
-    pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);
-    pthread_cond_init(&done_cond, &cattr);
-    pthread_condattr_destroy(&cattr);
-}'''
-
-NEW1 = '''static void init_done_cond(void)
-{
-    pthread_condattr_t cattr;
-    pthread_condattr_init(&cattr);
-#if !defined(__APPLE__) && !defined(__CYGWIN__) && !defined(__MSYS__)
-    /* CLOCK_MONOTONIC condvar supported on Linux only.
-     * macOS/Cygwin/MSYS2 winpthread does not support CLOCK_MONOTONIC for
-     * condvars — setclock is either unavailable or silently ignored.
-     * Leave the default CLOCK_REALTIME on those platforms. */
-    pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);
-#endif
-    pthread_cond_init(&done_cond, &cattr);
-    pthread_condattr_destroy(&cattr);
-}'''
+# Patch 1: extend existing #ifndef __APPLE__ guard around setclock call
+OLD1 = '#ifndef __APPLE__\n    pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);\n#endif'
+NEW1 = '#if !defined(__APPLE__) && !defined(__CYGWIN__) && !defined(__MSYS__)\n    pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);\n#endif'
 
 if OLD1 not in src:
-    print('W12 ERROR: init_done_cond anchor not found', file=sys.stderr)
-    idx = src.find('init_done_cond')
+    print('W12 ERROR: condattr setclock __APPLE__ guard not found', file=sys.stderr)
+    idx = src.find('pthread_condattr_setclock')
     if idx >= 0:
-        print('context:', repr(src[idx:idx+400]))
+        print('context:', repr(src[max(0, idx-150):idx+200]))
     sys.exit(1)
 
 src = src.replace(OLD1, NEW1, 1)
-print('W12 patch 1: init_done_cond guarded for MSYS2/Cygwin')
+print('W12 patch 1: condattr setclock guard extended to MSYS2/Cygwin')
 
-# Patch 2: the initial next_tick clock_gettime must match the condvar clock.
-# On MSYS2/Cygwin the condvar is CLOCK_REALTIME, so next_tick must also use
-# CLOCK_REALTIME. W1 may have already patched this — check.
-OLD2 = '    clock_gettime(CLOCK_MONOTONIC, &next_tick);'
-NEW2 = '''#if defined(__CYGWIN__) || defined(__MSYS__)
-    clock_gettime(CLOCK_REALTIME, &next_tick);
-#else
-    clock_gettime(CLOCK_MONOTONIC, &next_tick);
-#endif'''
+# Patch 2: extend #ifdef __APPLE__ block for next_tick to cover MSYS2/Cygwin.
+# Only the #ifdef line and the two clock_gettime lines are stable anchors;
+# the comment in between may vary. Use a regex replace on the guard header only.
+# Target: '#ifdef __APPLE__' -> '#if defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)'
+# but only if it's the one immediately before clock_gettime(CLOCK_REALTIME, &next_tick)
+pattern = r'(#ifdef __APPLE__\n)((?:.*\n)*?)(    clock_gettime\(CLOCK_REALTIME, &next_tick\);)'
+def replace_apple_guard(m):
+    return '#if defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)\n' + m.group(2) + m.group(3)
 
-# Only patch if it hasn't been patched by W1 already
-if OLD2 in src:
-    src = src.replace(OLD2, NEW2, 1)
-    print('W12 patch 2: next_tick uses CLOCK_REALTIME on MSYS2/Cygwin')
-else:
-    print('W12 patch 2: next_tick already patched (W1)')
+new_src, count = re.subn(pattern, replace_apple_guard, src, count=1)
+if count == 0:
+    print('W12 ERROR: #ifdef __APPLE__ / CLOCK_REALTIME next_tick block not found', file=sys.stderr)
+    idx = src.find('clock_gettime(CLOCK_REALTIME, &next_tick)')
+    if idx >= 0:
+        print('context:', repr(src[max(0, idx-200):idx+100]))
+    sys.exit(1)
+
+src = new_src
+print('W12 patch 2: next_tick CLOCK_REALTIME block extended to MSYS2/Cygwin')
 
 open(path, 'w').write(src)
 print('W12 DONE')

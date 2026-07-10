@@ -7,8 +7,8 @@ import sys
 path = 'scripts/Makefile.strucpp'
 src = open(path).read()
 
-OLD = '\tg++ -shared -fPIC -o $@ $^ -lpthread -lrt'
-NEW = '\tg++ -shared -fPIC -o $@ $^ -lpthread $(if $(IS_WINDOWS),,-lrt)'
+OLD = '\t$(CXX) -shared -fPIC -o $@ $^ -lpthread -lrt'
+NEW = '\t$(CXX) -shared -fPIC -o $@ $^ -lpthread $(if $(IS_WINDOWS),,-lrt)'
 
 if OLD not in src:
     print('W10 ERROR: link line anchor not found', file=sys.stderr)
@@ -19,10 +19,4 @@ if OLD not in src:
 src = src.replace(OLD, NEW, 1)
 open(path, 'w').write(src)
 print('W10 applied: -lrt made conditional on non-Windows')
-
-# Verify
-import subprocess
-result = subprocess.run(['make', '-n', '-f', path, 'GENERATED_DIR=.', 'BUILD_DIR=/tmp/build_test'],
-                       capture_output=True, text=True)
-print('W10 make -n exit:', result.returncode)
 print('W10 DONE')
