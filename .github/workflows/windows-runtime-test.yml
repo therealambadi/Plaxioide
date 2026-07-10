@@ -6,6 +6,10 @@ on:
     paths:
       - '.github/workflows/windows-runtime-test.yml'
       - 'openplc-editor-development/openplc-runtime-macos/**'
+      - 'src/vs/workbench/contrib/void/**'
+  schedule:
+    # Run every Monday at 03:00 UTC — catches any upstream drift or runner breakage
+    - cron: '0 3 * * 1'
   workflow_dispatch:
 
 jobs:
@@ -454,6 +458,20 @@ jobs:
           Write-Host "Running: node $script $nmDir"
           node $script $nmDir
 
+      # ── STEP 4b. TON timer accumulation proof ────────────────────────────
+      # The motor-start program contains a TON timer (RUN_TMR, PT=30s).
+      # This proof forces MOTOR_RUN, reads RUN_TMR.ET twice, and confirms ET
+      # accumulates — proving the scan cycle executes timing-sensitive code
+      # (CLOCK_REALTIME-based condvar path, W12 fix).
+      - name: "[STEP 4b] TON timer accumulation proof (RUN_TMR.ET)"
+        id: timer_proof
+        shell: pwsh
+        run: |
+          $script = "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures\timer-proof.mjs"
+          $nmDir  = $env:NODE_MODULES_DIR
+          Write-Host "Running: node $script $nmDir"
+          node $script $nmDir
+
       # ── 17. Dump all logs (always) ────────────────────────────────────────
       - name: Dump process logs
         if: always()
@@ -469,15 +487,222 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $af = "${{ steps.af_unix_test.outcome }}"
+          $af    = "${{ steps.af_unix_test.outcome }}"
           $build = "${{ steps.build_with_w.outcome }}"
           $motor = "${{ steps.motor_proof.outcome }}"
+          $timer = "${{ steps.timer_proof.outcome }}"
           @"
           ## Windows Runtime Test Results
 
           | Check | Result |
           |---|---|
-          | Build (W1-W5 patches) | $build |
+          | Build (W1-W12 patches) | $build |
           | AF_UNIX socket | $af |
           | Motor-start latch proof | $motor |
+          | TON timer accumulation proof | $timer |
+          "@ >> $env:GITHUB_STEP_SUMMARY
+
+  # ── 10x REPEAT RELIABILITY JOB ───────────────────────────────────────────
+  # Runs the full force/read cycle 10 times back-to-back in one job to catch
+  # intermittent failures: socket timing races, scan cycle jitter, condvar
+  # spurious wakeups. Reports real pass/fail count out of 10.
+  # Skipped on schedule to avoid doubling weekly CI cost; runs on push+dispatch.
+  windows-repeat-test:
+    name: Windows 10x repeat reliability test
+    runs-on: windows-latest
+    if: github.event_name != 'schedule'
+    needs: windows-build-test
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Disable git CRLF conversion
+        shell: pwsh
+        run: git config --global core.autocrlf false
+
+      - name: Checkout volt repo
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          update: true
+          install: >-
+            base-devel gcc make cmake pkg-config python python-pip
+            python-setuptools git patch openssl openssl-devel unzip
+
+      - name: Clone + patch OpenPLC Runtime
+        run: |
+          git clone https://github.com/Autonomy-Logic/openplc-runtime.git /tmp/openplc-runtime
+          cd /tmp/openplc-runtime
+          git checkout cb1060d
+          patch -p1 < "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/openplc-runtime-macos-cb1060d.patch"
+          # W1
+          python3 - <<'PYEOF'
+          import sys, re
+          path = 'core/src/plc_app/plc_state_manager.cpp'
+          src = open(path).read()
+          old = '#ifdef __APPLE__\n    /* On macOS, pthread_cond_timedwait uses CLOCK_REALTIME (the condvar was\n     * initialized without pthread_condattr_setclock, which macOS doesn\'t\n     * support for CLOCK_MONOTONIC).  Use CLOCK_REALTIME here to match. */\n    clock_gettime(CLOCK_REALTIME, &next_tick);\n#else\n    clock_gettime(CLOCK_MONOTONIC, &next_tick);\n#endif'
+          new = '#if defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)\n    /* macOS/MSYS2/Cygwin: pthread_cond_timedwait uses CLOCK_REALTIME.\n     * pthread_condattr_setclock(CLOCK_MONOTONIC) is unsupported. */\n    clock_gettime(CLOCK_REALTIME, &next_tick);\n#else\n    clock_gettime(CLOCK_MONOTONIC, &next_tick);\n#endif'
+          assert old in src, 'W1 anchor not found'
+          open(path, 'w').write(src.replace(old, new, 1))
+          print('W1 done')
+          PYEOF
+          # W2
+          python3 - <<'PYEOF'
+          import sys
+          path = 'core/src/plc_app/plc_state_manager.cpp'
+          src = open(path).read()
+          old = '#ifdef __APPLE__\n            /* macOS: SCHED_FIFO unavailable; task bodies often overrun the\n'
+          new = '#if defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)\n            /* macOS/MSYS2/Cygwin: SCHED_FIFO unavailable; task bodies often overrun the\n'
+          assert old in src, 'W2 anchor not found'
+          open(path, 'w').write(src.replace(old, new, 1))
+          print('W2 done')
+          PYEOF
+          # W4
+          python3 - <<'PYEOF'
+          path = 'scripts/compile.sh'
+          src = open(path).read()
+          old = '# /proc/meminfo is Linux-only; on macOS use sysctl\nif [ -f /proc/meminfo ]; then\n    MEM_KB=$(awk \'/^MemTotal:/{print $2}\' /proc/meminfo)\nelse\n    MEM_KB=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 4294967296) / 1024 ))\nfi'
+          new = '# /proc/meminfo is Linux-only; fall back by platform\nif [ -f /proc/meminfo ]; then\n    MEM_KB=$(awk \'/^MemTotal:/{print $2}\' /proc/meminfo)\nelif sysctl -n hw.memsize >/dev/null 2>&1; then\n    MEM_KB=$(( $(sysctl -n hw.memsize) / 1024 ))\nelif command -v wmic >/dev/null 2>&1; then\n    MEM_KB=$(wmic OS get TotalVisibleMemorySize /value 2>/dev/null | grep = | cut -d= -f2 | tr -d \'\\r\\n\' || echo 4194304)\nelse\n    MEM_KB=4194304\nfi'
+          assert old in src, 'W4 anchor not found'
+          open(path, 'w').write(src.replace(old, new, 1))
+          print('W4 done')
+          PYEOF
+          # W5
+          python3 - <<'PYEOF'
+          path = 'scripts/compile-clean.sh'
+          src = open(path).read()
+          old = 'TIMESTAMP=$(date +%s%N)'
+          new = 'TIMESTAMP=$(date +%s%N 2>/dev/null || echo "$(date +%s)$$")'
+          assert old in src, 'W5 anchor not found'
+          open(path, 'w').write(src.replace(old, new, 1))
+          print('W5 done')
+          PYEOF
+          # W10
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w10_makefile_lrt.py" /tmp/w10_makefile_lrt.py
+          python3 /tmp/w10_makefile_lrt.py
+          # W12
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w12_cond_clock.py" /tmp/w12_cond_clock.py
+          python3 /tmp/w12_cond_clock.py
+          # W6
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w6_patch_app.py" /tmp/w6_patch_app.py
+          python3 /tmp/w6_patch_app.py
+          # W8
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w8_fix_safe_extract.py" /tmp/w8_fix_safe_extract.py
+          python3 /tmp/w8_fix_safe_extract.py
+
+      - name: Build
+        run: |
+          cd /tmp/openplc-runtime
+          mkdir build && cd build
+          cmake .. -G "Unix Makefiles" 2>&1
+          make -j$(nproc) plc_main 2>&1
+          ls -lh plc_main
+
+      - name: Install Python deps
+        run: |
+          python3 -m venv /tmp/plcvenv
+          /tmp/plcvenv/bin/pip install -q flask flask-login flask-sqlalchemy flask-jwt-extended flask-socketio flask-cors eventlet python-dotenv
+          echo "PYTHONPATH=/tmp/plcvenv/lib/python3.12/site-packages" >> $GITHUB_ENV
+
+      - name: Copy test scripts
+        shell: pwsh
+        run: |
+          $f = "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures"
+          Copy-Item "$f\plc_wait_webserver.py" C:\plc_wait_webserver.py
+          Copy-Item "$f\plc_setup_user.py"     C:\plc_setup_user.py
+          Copy-Item "$f\plc_upload.py"         C:\plc_upload.py
+          Copy-Item "$f\plc_start.py"          C:\plc_start.py
+          Copy-Item "$f\plc_af_unix.py"        C:\plc_af_unix.py
+
+      - name: Start runtime + webserver
+        run: |
+          cd /tmp/openplc-runtime
+          cp /c/plc_af_unix.py /tmp/plc_af_unix.py
+          nohup ./build/plc_main > /tmp/plc_main_repeat.log 2>&1 &
+          sleep 10
+          nohup /tmp/plcvenv/bin/python3 -m webserver.app > /c/webserver_repeat.log 2>&1 &
+
+      - name: Wait + create user + upload program
+        shell: pwsh
+        run: |
+          python C:\plc_wait_webserver.py
+          python C:\plc_setup_user.py
+          Copy-Item "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures\motor-start-proof.zip" C:\motor_start.zip
+          python C:\plc_upload.py
+          python C:\plc_start.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install socket.io-client
+        shell: pwsh
+        run: |
+          $nmDir = "C:\npm-modules-repeat"
+          New-Item -ItemType Directory -Force -Path $nmDir | Out-Null
+          Set-Location $nmDir
+          npm init -y | Out-Null
+          npm install socket.io-client --save
+          Write-Output "REPEAT_NM=$nmDir\node_modules" >> $env:GITHUB_ENV
+
+      - name: Run 10x force/read cycle
+        id: repeat_test
+        shell: pwsh
+        run: |
+          $script  = "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures\debug-proof.mjs"
+          $nmDir   = $env:REPEAT_NM
+          $pass = 0; $fail = 0
+          for ($i = 1; $i -le 10; $i++) {
+            Write-Host "`n══ Run $i / 10 ══"
+            $result = & node $script $nmDir 2>&1
+            $result | ForEach-Object { Write-Host $_ }
+            if ($LASTEXITCODE -eq 0) { $pass++ } else { $fail++ }
+            Start-Sleep -Milliseconds 500
+          }
+          Write-Host "`n══════════════════════════════════════════"
+          Write-Host "10x repeat result: PASS=$pass  FAIL=$fail"
+          Write-Host "══════════════════════════════════════════"
+          "REPEAT_PASS=$pass" >> $env:GITHUB_ENV
+          "REPEAT_FAIL=$fail" >> $env:GITHUB_ENV
+          if ($fail -gt 0) { exit 1 }
+
+      - name: Run 10x timer proof cycle
+        id: repeat_timer
+        shell: pwsh
+        run: |
+          $script  = "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures\timer-proof.mjs"
+          $nmDir   = $env:REPEAT_NM
+          $pass = 0; $fail = 0
+          for ($i = 1; $i -le 10; $i++) {
+            Write-Host "`n══ Timer Run $i / 10 ══"
+            $result = & node $script $nmDir 2>&1
+            $result | ForEach-Object { Write-Host $_ }
+            if ($LASTEXITCODE -eq 0) { $pass++ } else { $fail++ }
+            Start-Sleep -Milliseconds 300
+          }
+          Write-Host "`n══════════════════════════════════════════"
+          Write-Host "10x timer result: PASS=$pass  FAIL=$fail"
+          Write-Host "══════════════════════════════════════════"
+          "TIMER_PASS=$pass" >> $env:GITHUB_ENV
+          "TIMER_FAIL=$fail" >> $env:GITHUB_ENV
+          if ($fail -gt 0) { exit 1 }
+
+      - name: Write repeat summary
+        if: always()
+        shell: pwsh
+        run: |
+          $rp = "${{ steps.repeat_test.outcome }}"
+          $tp = "${{ steps.repeat_timer.outcome }}"
+          @"
+          ## Windows 10x Repeat Reliability Results
+
+          | Test | Result | Pass | Fail |
+          |---|---|---|---|
+          | Motor-start latch (10x) | $rp | $env:REPEAT_PASS | $env:REPEAT_FAIL |
+          | TON timer accumulation (10x) | $tp | $env:TIMER_PASS | $env:TIMER_FAIL |
           "@ >> $env:GITHUB_STEP_SUMMARY
