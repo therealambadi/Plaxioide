@@ -89,17 +89,24 @@ jobs:
           $env:OPENPLC_RUNTIME_PATH = "$env:TEMP\plc_main"
           $out = & $pythonExe -c "import webserver.app; print('IMPORT_OK')" 2>&1
           Write-Host "Import check: $out"
-          if ($out -notmatch "IMPORT_OK") {
-            Write-Host "ERROR: webserver.app import failed — Flask or deps missing"
+          if ("$out" -notmatch "IMPORT_OK") {
+            Write-Host "ERROR: webserver.app import failed - Flask or deps missing"
             exit 1
           }
 
-          # Write a launcher .bat so Start-Process doesn't need to deal with redirect quoting
+          # Write a launcher .bat so Start-Process avoids redirect quoting issues
           $batPath = "$env:TEMP\start-webserver.bat"
           $logOut  = "$env:TEMP\webserver-stdout.log"
           $logErr  = "$env:TEMP\webserver-stderr.log"
-          "@echo off`r`nset PYTHONPATH=$runtimeDir;$sitePkgs`r`nset OPENPLC_RUNTIME_PATH=$env:TEMP\plc_main`r`nset PYTHONUNBUFFERED=1`r`ncd /d `"$runtimeDir`"`r`n`"$pythonExe`" -m webserver.app > `"$logOut`" 2> `"$logErr`"`r`n" | Out-File $batPath -Encoding ascii -NoNewline
-
+          $batContent = @"
+@echo off
+set PYTHONPATH=$runtimeDir;$sitePkgs
+set OPENPLC_RUNTIME_PATH=$env:TEMP\plc_main
+set PYTHONUNBUFFERED=1
+cd /d "$runtimeDir"
+"$pythonExe" -m webserver.app > "$logOut" 2> "$logErr"
+"@
+          [System.IO.File]::WriteAllText($batPath, $batContent, [System.Text.Encoding]::ASCII)
           Write-Host "Launching via bat: $batPath"
           $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$batPath`"" -PassThru -WindowStyle Hidden
           $proc.Id | Out-File "$env:TEMP\webserver.pid" -Encoding utf8
