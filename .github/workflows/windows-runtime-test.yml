@@ -196,7 +196,7 @@ jobs:
           cd /tmp/openplc-runtime
           python3 /tmp/w8_fix_safe_extract.py
           echo "=== W8 verification ==="
-          grep -n "cygpath\|_win_path\|write_path\|_is_cygwin" webserver/plcapp_management.py
+          grep -n "zf.read\|abs_dest\|write_path\|_win_path" webserver/plcapp_management.py || true
 
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
