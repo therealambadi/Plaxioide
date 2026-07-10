@@ -185,6 +185,7 @@ jobs:
       # to isolate whether the EINVAL is in the zip file structure or the
       # upload path. Tests all three open modes: path string, open(rb), BytesIO.
       - name: "[DIAG] Zipfile read isolation test with real motor-start-proof.zip"
+        continue-on-error: true
         run: |
           REAL_ZIP="$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/motor-start-proof.zip"
           python3 - "$REAL_ZIP" <<'PYEOF'
