@@ -198,6 +198,14 @@ jobs:
           echo "=== W8 verification ==="
           grep -n "zf.read\|abs_dest\|write_path\|_win_path" webserver/plcapp_management.py || true
 
+      # ── W9. Add full traceback logging to exception handler (diagnostic) ────
+      - name: "[W9] Add full traceback to upload exception handler"
+        run: |
+          set -e
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w9_traceback_logging.py" /tmp/w9_traceback_logging.py
+          cd /tmp/openplc-runtime
+          python3 /tmp/w9_traceback_logging.py
+
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
         id: build_with_w
@@ -337,7 +345,7 @@ jobs:
         run: |
           Write-Host "=== plc_main log ==="
           Get-Content "C:\msys64\tmp\plc_main_win.log" -ErrorAction SilentlyContinue | Write-Host
-          Write-Host "=== webserver log ==="
+          Write-Host "=== webserver log (full — includes tracebacks) ==="
           Get-Content "C:\webserver_win.log" -ErrorAction SilentlyContinue | Write-Host
 
       # ── 18. Save AF_UNIX verdict to summary ───────────────────────────────
