@@ -73,28 +73,33 @@ jobs:
       - name: Start OpenPLC webserver
         shell: powershell
         run: |
-          $env:PYTHONPATH = "$PWD\resources\plc-runtime\openplc-runtime-v4;$PWD\resources\plc-runtime\python\win32-x64\Lib\site-packages"
+          $root = (Get-Location).Path
+          $pythonExe = "$root\resources\plc-runtime\python\win32-x64\python.exe"
+          $runtimeDir = "$root\resources\plc-runtime\openplc-runtime-v4"
+          $sitePkgs = "$root\resources\plc-runtime\python\win32-x64\Lib\site-packages"
+
+          # Set env vars in current process so Start-Process inherits them
+          $env:PYTHONPATH = "$runtimeDir;$sitePkgs"
           $env:OPENPLC_RUNTIME_PATH = "$env:TEMP\plc_main"
-          $psi = New-Object System.Diagnostics.ProcessStartInfo
-          $psi.FileName = "$PWD\resources\plc-runtime\python\win32-x64\python.exe"
-          $psi.Arguments = "-m webserver.app"
-          $psi.WorkingDirectory = "$PWD\resources\plc-runtime\openplc-runtime-v4"
-          $psi.UseShellExecute = $false
-          $psi.RedirectStandardOutput = $true
-          $psi.RedirectStandardError = $true
-          $psi.EnvironmentVariables["PYTHONPATH"] = $env:PYTHONPATH
-          $psi.EnvironmentVariables["OPENPLC_RUNTIME_PATH"] = $env:OPENPLC_RUNTIME_PATH
-          $proc = [System.Diagnostics.Process]::Start($psi)
-          # Drain output to files asynchronously so buffer doesn't block Flask
-          $stdoutJob = [System.Threading.Tasks.Task]::Run([Action]{
-            $proc.StandardOutput.ReadToEnd() | Out-File "$env:TEMP\webserver-stdout.log" -Encoding utf8
-          })
-          $stderrJob = [System.Threading.Tasks.Task]::Run([Action]{
-            $proc.StandardError.ReadToEnd() | Out-File "$env:TEMP\webserver-stderr.log" -Encoding utf8
-          })
-          # Save PID for diagnostics
+          $env:PYTHONDONTWRITEBYTECODE = "1"
+          $env:PYTHONUNBUFFERED = "1"
+
+          Write-Host "Python: $pythonExe"
+          Write-Host "CWD:    $runtimeDir"
+          Write-Host "PYTHONPATH: $env:PYTHONPATH"
+
+          # Verify python and webserver/app.py exist
+          if (-not (Test-Path $pythonExe)) { Write-Host "ERROR: python.exe not found"; exit 1 }
+          if (-not (Test-Path "$runtimeDir\webserver\app.py")) { Write-Host "ERROR: webserver/app.py not found"; exit 1 }
+
+          # Start Flask — use cmd /c wrapper so stdout/stderr go to files
+          $proc = Start-Process -FilePath "cmd.exe" `
+            -ArgumentList "/c `"$pythonExe`" -m webserver.app > `"$env:TEMP\webserver-stdout.log`" 2> `"$env:TEMP\webserver-stderr.log`"" `
+            -WorkingDirectory $runtimeDir `
+            -PassThru `
+            -WindowStyle Hidden
           $proc.Id | Out-File "$env:TEMP\webserver.pid" -Encoding utf8
-          Write-Host "Webserver started (PID $($proc.Id)), waiting for Flask..."
+          Write-Host "Webserver started via cmd wrapper (PID $($proc.Id))"
 
       - name: Wait for webserver to be ready
         shell: powershell
