@@ -203,7 +203,7 @@ jobs:
 
           print(f"Zip written: {zip_path} ({os.path.getsize(zip_path)} bytes)")
 
-          # Test A: open by path string (current W8 approach before fix)
+          # Test A: open by path string
           print("=== Test A: ZipFile(path_string) ===")
           try:
               with zipfile.ZipFile(zip_path, "r") as zf:
@@ -214,7 +214,7 @@ jobs:
           except OSError as e:
               print(f"Test A: FAIL — {e}")
 
-          # Test B: open via explicit open(rb) handle (proposed fix)
+          # Test B: open via explicit open(rb) handle
           print("=== Test B: ZipFile(open(rb)) ===")
           try:
               with open(zip_path, "rb") as fh, zipfile.ZipFile(fh, "r") as zf:
@@ -224,6 +224,22 @@ jobs:
               print("Test B: PASS")
           except OSError as e:
               print(f"Test B: FAIL — {e}")
+
+          # Test C: open via BytesIO (the approach now used in W6+W8)
+          print("=== Test C: ZipFile(BytesIO) ===")
+          try:
+              bdata = open(zip_path, "rb").read()
+              bio = io.BytesIO(bdata)
+              bio.seek(0)
+              with zipfile.ZipFile(bio, "r") as zf:
+                  for info in zf.infolist():
+                      bio.seek(0)
+                      with zipfile.ZipFile(bio, "r") as zf2:
+                          data = zf2.read(info.filename)
+                      print(f"  OK: {info.filename} ({len(data)} bytes)")
+              print("Test C: PASS")
+          except OSError as e:
+              print(f"Test C: FAIL — {e}")
 
           PYEOF
 
@@ -242,7 +258,7 @@ jobs:
           cd /tmp/openplc-runtime
           python3 /tmp/w8_fix_safe_extract.py
           echo "=== W8 verification ==="
-          grep -n "_zf_fh\|open(zip_path.*rb\|zf.read\|abs_dest" webserver/plcapp_management.py || true
+          grep -n "BytesIO\|zip_src\|zip_path.*seek\|abs_dest\|zf.open" webserver/plcapp_management.py || true
 
       # ── W9. Add full traceback logging to exception handler (diagnostic) ────
       - name: "[W9] Add full traceback to upload exception handler"

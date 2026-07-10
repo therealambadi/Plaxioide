@@ -10,21 +10,21 @@ for marker in ('content_length', 'analyze_zip(zip_file)', 'safe_extract(zip_file
         print('=== %s ===' % marker)
         print(repr(src[max(0, idx-80):idx+80]))
 
-# Fix: inject NamedTemporaryFile write BETWEEN the content_length check and
-# analyze_zip. The anchor is 'analyze_zip(zip_file)' which is always present
-# after the check and before safe_extract.
+# Strategy: read the entire FileStorage into io.BytesIO once, then pass the
+# BytesIO to both analyze_zip and safe_extract. This is purely in-memory —
+# no Cygwin filesystem seeks involved after the initial read. Avoids EINVAL
+# caused by Cygwin's zipfile seek failures on disk-backed file handles inside
+# a Werkzeug/eventlet green thread.
 #
 # We replace:
 #   safe, valid_files = analyze_zip(zip_file)
 # with:
-#   import tempfile as _tf, os as _os
-#   _ztmp = _tf.NamedTemporaryFile(delete=False, suffix=".zip")
-#   _ztmp.write(zip_file.stream.read()); _ztmp.flush(); _ztmp.close()
-#   _zip_path = _ztmp.name
-#   safe, valid_files = analyze_zip(_zip_path)
+#   import io as _io
+#   _zip_bytes = io.BytesIO(zip_file.read())
+#   safe, valid_files = analyze_zip(_zip_bytes)
 #
-# Then replace safe_extract(zip_file, with safe_extract(_zip_path,
-# and inject _os.unlink(_ztmp.name) before apply_vpp_plugin_conf.
+# Then replace safe_extract(zip_file, -> safe_extract(_zip_bytes,
+# and remove the unlink (no file to delete).
 
 OLD1 = 'safe, valid_files = analyze_zip(zip_file)'
 if OLD1 not in src:
@@ -38,47 +38,34 @@ line_start = src.rfind('\n', 0, src.index(OLD1)) + 1
 indent = src[line_start:src.index(OLD1)]
 
 NEW1 = (
-    'import os as _os\n' +
-    indent + '_zip_path = _os.path.join(_os.getcwd(), "upload_tmp.zip")\n' +
-    indent + 'with open(_zip_path, "wb") as _zf_out:\n' +
-    indent + '    _zf_out.write(zip_file.read())\n' +
-    indent + 'safe, valid_files = analyze_zip(_zip_path)'
+    'import io as _io\n' +
+    indent + '_zip_bytes = _io.BytesIO(zip_file.read())\n' +
+    indent + 'safe, valid_files = analyze_zip(_zip_bytes)'
 )
 
 src = src.replace(OLD1, NEW1, 1)
 print('W6 fix1 applied (indent=%r)' % indent)
 
-# Replace safe_extract(zip_file, -> safe_extract(_zip_path,
+# Replace safe_extract(zip_file, -> safe_extract(_zip_bytes,
 OLD2 = 'safe_extract(zip_file,'
 if OLD2 not in src:
     print('W6 ERROR: anchor %r not found' % OLD2, file=sys.stderr)
     sys.exit(1)
-src = src.replace(OLD2, 'safe_extract(_zip_path,', 1)
+src = src.replace(OLD2, 'safe_extract(_zip_bytes,', 1)
 print('W6 fix2 applied')
 
-# Inject cleanup before apply_vpp_plugin_conf
-CLEANUP_ANCHOR = 'apply_vpp_plugin_conf(extract_dir)'
-if CLEANUP_ANCHOR in src:
-    idx_ca = src.index(CLEANUP_ANCHOR)
-    ls = src.rfind('\n', 0, idx_ca) + 1
-    ind_ca = src[ls:idx_ca]
-    src = src.replace(
-        ind_ca + CLEANUP_ANCHOR,
-        ind_ca + '_os.unlink(_zip_path)\n' + ind_ca + CLEANUP_ANCHOR,
-        1
-    )
-    print('W6 fix3: cleanup injected')
-else:
-    print('W6 WARNING: cleanup anchor not found (non-fatal)')
+# Remove the old _os.unlink line if present from a prior W6 run (cleanup for
+# the disk-file approach that no longer applies).
+src = src.replace(indent + '_os.unlink(_zip_bytes)\n', '')
+src = src.replace(indent + '_os.unlink(_zip_path)\n', '')
+print('W6 fix3: cleanup lines removed (in-memory — no file to delete)')
 
 open(path, 'w').write(src)
 
 # Verify
 print('=== verification ===')
-for line in open(path):
-    n = 0
 for i, line in enumerate(open(path), 1):
-    if any(k in line for k in ('_zip_path', 'upload_tmp', 'analyze_zip', 'safe_extract', '_os.unlink')):
+    if any(k in line for k in ('_zip_bytes', '_zip_path', 'analyze_zip', 'safe_extract', '_io.BytesIO')):
         print('%d: %s' % (i, line.rstrip()))
 
 print('W6 DONE')
