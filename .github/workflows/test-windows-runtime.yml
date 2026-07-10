@@ -145,14 +145,14 @@ jobs:
         shell: powershell
         run: |
           # Write JSON body to file to avoid PowerShell/curl quoting issues on Windows
-          '{"login":"volt-internal","password":"volt-test-pass-123"}' | Out-File "$env:TEMP\creds.json" -Encoding utf8 -NoNewline
+          '{"username":"volt-internal","password":"volt-test-pass-123"}' | Out-File "$env:TEMP\creds.json" -Encoding utf8 -NoNewline
           $code = & curl.exe -k -s -o "$env:TEMP\create-user.json" -w "%{http_code}" `
             -X POST https://localhost:8443/api/create-user `
             -H "Content-Type: application/json" `
             --data-binary "@$env:TEMP\creds.json"
           Get-Content "$env:TEMP\create-user.json" -ErrorAction SilentlyContinue
-          Write-Host "create-user HTTP $code (200=created, 401=already exists, both OK)"
-          if ($code -ne "200" -and $code -ne "401") {
+          Write-Host "create-user HTTP $code (201=created, 401=already exists, both OK)"
+          if ($code -ne "201" -and $code -ne "200" -and $code -ne "401") {
             Write-Host "ERROR: Unexpected status $code"
             exit 1
           }
@@ -160,7 +160,7 @@ jobs:
       - name: Test login and get JWT token
         shell: powershell
         run: |
-          '{"login":"volt-internal","password":"volt-test-pass-123"}' | Out-File "$env:TEMP\creds.json" -Encoding utf8 -NoNewline
+          '{"username":"volt-internal","password":"volt-test-pass-123"}' | Out-File "$env:TEMP\creds.json" -Encoding utf8 -NoNewline
           & curl.exe -k -s -o "$env:TEMP\login.json" `
             -X POST https://localhost:8443/api/login `
             -H "Content-Type: application/json" `
