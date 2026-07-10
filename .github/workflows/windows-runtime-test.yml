@@ -179,23 +179,24 @@ jobs:
           echo "=== app.py patch verification ==="
           grep -n "_zip_path\|upload_tmp\|analyze_zip\|safe_extract\|_os.unlink" webserver/app.py
 
-      - name: "[W7] Instrument upload handler for per-step diagnostics"
+      # ── W8. Fix safe_extract Cygwin EINVAL on newly-created directories ────────
+      # Root cause (confirmed by W7b instrumentation):
+      # safe_extract calls open(out_path, "wb") where out_path is a POSIX path
+      # under a directory just created by os.makedirs(). On Cygwin/MSYS2, Python's
+      # open() uses CreateFileW() via Cygwin's POSIX layer. When the parent directory
+      # was JUST created, Cygwin's internal handle cache causes CreateFileW to return
+      # ERROR_INVALID_NAME (EINVAL / errno 22).
+      # Fix: use cygpath -w to get the Windows-native path before calling open(),
+      # which bypasses Cygwin's POSIX emulation layer entirely for file creation.
+      # Falls back to POSIX path on non-Cygwin platforms (Linux, macOS).
+      - name: "[W8] Fix safe_extract cygpath file-create bypass"
         run: |
           set -e
-          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w7_instrument_app.py" /tmp/w7_instrument_app.py
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w8_fix_safe_extract.py" /tmp/w8_fix_safe_extract.py
           cd /tmp/openplc-runtime
-          python3 /tmp/w7_instrument_app.py
-          echo "=== W7 instrumentation lines ==="
-          grep -n '\[W7\]' webserver/app.py
-
-      - name: "[W7b] Instrument analyze_zip internals"
-        run: |
-          set -e
-          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w7b_instrument_plcmgmt.py" /tmp/w7b_instrument_plcmgmt.py
-          cd /tmp/openplc-runtime
-          python3 /tmp/w7b_instrument_plcmgmt.py
-          echo "=== W7b instrumentation lines ==="
-          grep -n '\[W7b\]' webserver/plcapp_management.py
+          python3 /tmp/w8_fix_safe_extract.py
+          echo "=== W8 verification ==="
+          grep -n "cygpath\|_win_path\|write_path\|_is_cygwin" webserver/plcapp_management.py
 
       # ── 10. BUILD WITH W1-W5 ──────────────────────────────────────────────
       - name: "[STEP 3.2] Build WITH all W1-W5 patches"
