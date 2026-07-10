@@ -45,6 +45,7 @@ jobs:
             patch
             openssl
             openssl-devel
+            unzip
 
       # ── 2. Clone upstream OpenPLC Runtime @ cb1060d ───────────────────────
       - name: Clone upstream OpenPLC Runtime
@@ -278,7 +279,7 @@ jobs:
           cd /tmp/openplc-runtime
           python3 /tmp/w8_fix_safe_extract.py
           echo "=== W8 verification ==="
-          grep -n "BytesIO\|zip_src\|zip_path.*seek\|abs_dest\|zf.open" webserver/plcapp_management.py || true
+          grep -n "subprocess\|unzip\|_is_cygwin\|zip_src\|abs_dest" webserver/plcapp_management.py || true
 
       # ── W9. Add full traceback logging to exception handler (diagnostic) ────
       - name: "[W9] Add full traceback to upload exception handler"
