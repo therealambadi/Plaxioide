@@ -170,6 +170,34 @@ jobs:
           print('W5 applied')
           PYEOF
 
+      # ── W10. Remove -lrt from Makefile.strucpp link line (MSYS2 has no librt) ─
+      - name: "[W10] Remove -lrt from Makefile.strucpp (not on MSYS2/Cygwin)"
+        run: |
+          set -e
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w10_makefile_lrt.py" /tmp/w10_makefile_lrt.py
+          cd /tmp/openplc-runtime
+          python3 /tmp/w10_makefile_lrt.py
+          echo "=== W10 verification ==="
+          grep -n "lrt\|IS_WINDOWS" scripts/Makefile.strucpp | tail -5
+
+      # ── W12. Fix condvar clock mismatch on MSYS2 (CLOCK_MONOTONIC not supported) ─
+      # Root cause: the scan cycle dispatcher's done_cond is initialized with
+      # CLOCK_MONOTONIC via pthread_condattr_setclock(). On Cygwin/MSYS2 winpthread,
+      # this call is silently ignored — the condvar stays on CLOCK_REALTIME. The
+      # timedwait deadline uses next_tick (computed with CLOCK_MONOTONIC), but the
+      # condvar compares against CLOCK_REALTIME → the deadline never triggers →
+      # the scan cycle hangs → watchdog fires → STATUS:ERROR.
+      # Fix: guard CLOCK_MONOTONIC condattr_setclock to Linux-only; on MSYS2 the
+      # condvar stays on CLOCK_REALTIME and next_tick is computed with CLOCK_REALTIME.
+      - name: "[W12] Fix condvar CLOCK_MONOTONIC mismatch on MSYS2"
+        run: |
+          set -e
+          cp "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/test-fixtures/w12_cond_clock.py" /tmp/w12_cond_clock.py
+          cd /tmp/openplc-runtime
+          python3 /tmp/w12_cond_clock.py
+          echo "=== W12 verification ==="
+          grep -n "CYGWIN\|MSYS.*REALTIME\|setclock\|next_tick" core/src/plc_app/plc_state_manager.cpp | head -10
+
       # ── W6. Fix zipfile stream exhaustion in app.py ─────────────────────────
       # Werkzeug FileStorage is NOT a seekable stream. zipfile.is_zipfile() reads
       # to EOF; subsequent ZipFile() calls fail with "negative seek value -1".
