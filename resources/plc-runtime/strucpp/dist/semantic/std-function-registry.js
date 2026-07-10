@@ -1,0 +1,820 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2025 Autonomy / OpenPLC Project
+/**
+ * STruC++ Standard Function Registry
+ *
+ * Maps IEC 61131-3 standard function names to their C++ runtime implementations.
+ * Used for type checking (argument/return type validation) and codegen name mapping.
+ */
+// =============================================================================
+// Elementary Type Names (for conversion validation)
+// =============================================================================
+const ELEMENTARY_TYPE_NAMES = new Set([
+    "BOOL",
+    "BYTE",
+    "WORD",
+    "DWORD",
+    "LWORD",
+    "SINT",
+    "INT",
+    "DINT",
+    "LINT",
+    "USINT",
+    "UINT",
+    "UDINT",
+    "ULINT",
+    "REAL",
+    "LREAL",
+    "TIME",
+    "DATE",
+    "TIME_OF_DAY",
+    "DATE_AND_TIME",
+    "STRING",
+    "WSTRING",
+    "TOD",
+    "DT",
+]);
+// =============================================================================
+// Registry Class
+// =============================================================================
+/**
+ * Registry of IEC 61131-3 standard functions.
+ * Maps function names (case-insensitive) to their descriptors.
+ */
+export class StdFunctionRegistry {
+    functions = new Map();
+    constructor() {
+        this.registerAll();
+    }
+    /**
+     * Look up a standard function by name (case-insensitive).
+     */
+    lookup(name) {
+        return this.functions.get(name.toUpperCase());
+    }
+    /**
+     * Check whether a name is a standard function.
+     */
+    isStandardFunction(name) {
+        const upper = name.toUpperCase();
+        return (this.functions.has(upper) || this.resolveConversion(upper) !== undefined);
+    }
+    /**
+     * Resolve a *_TO_* conversion function name.
+     * Returns undefined if not a valid conversion pattern.
+     */
+    resolveConversion(name) {
+        const upper = name.toUpperCase();
+        const match = upper.match(/^([A-Z_]+)_TO_([A-Z_]+)$/);
+        if (!match)
+            return undefined;
+        const fromType = match[1];
+        const toType = match[2];
+        if (!ELEMENTARY_TYPE_NAMES.has(fromType) ||
+            !ELEMENTARY_TYPE_NAMES.has(toType)) {
+            return undefined;
+        }
+        return {
+            fromType,
+            toType,
+            cppName: `TO_${toType}`,
+        };
+    }
+    /**
+     * Get all registered functions.
+     */
+    getAll() {
+        return Array.from(this.functions.values());
+    }
+    // ===========================================================================
+    // Registration
+    // ===========================================================================
+    register(desc) {
+        this.functions.set(desc.name.toUpperCase(), desc);
+    }
+    registerAll() {
+        this.registerNumericFunctions();
+        this.registerTrigFunctions();
+        this.registerArithmeticFunctions();
+        this.registerSelectionFunctions();
+        this.registerComparisonFunctions();
+        this.registerBitwiseFunctions();
+        this.registerBitshiftFunctions();
+        this.registerConversionFunctions();
+        this.registerStringFunctions();
+        this.registerTimeFunctions();
+        this.registerSystemFunctions();
+    }
+    // ---------------------------------------------------------------------------
+    // Numeric Functions
+    // ---------------------------------------------------------------------------
+    registerNumericFunctions() {
+        // ABS(ANY_NUM) -> ANY_NUM
+        this.register({
+            name: "ABS",
+            cppName: "ABS",
+            returnConstraint: "ANY_NUM",
+            returnMatchesFirstParam: true,
+            params: [{ name: "IN", constraint: "ANY_NUM", isByRef: false }],
+            isVariadic: false,
+            isConversion: false,
+            category: "numeric",
+        });
+        // NEG(ANY_NUM) -> ANY_NUM
+        this.register({
+            name: "NEG",
+            cppName: "NEG",
+            returnConstraint: "ANY_NUM",
+            returnMatchesFirstParam: true,
+            params: [{ name: "IN", constraint: "ANY_NUM", isByRef: false }],
+            isVariadic: false,
+            isConversion: false,
+            category: "numeric",
+        });
+        // Real-only functions: SQRT, LN, LOG, EXP, TRUNC, ROUND
+        for (const fn of ["SQRT", "LN", "LOG", "EXP", "TRUNC", "ROUND"]) {
+            this.register({
+                name: fn,
+                cppName: fn,
+                returnConstraint: "ANY_REAL",
+                returnMatchesFirstParam: true,
+                params: [{ name: "IN", constraint: "ANY_REAL", isByRef: false }],
+                isVariadic: false,
+                isConversion: false,
+                category: "numeric",
+            });
+        }
+        // EXPT(ANY_REAL, ANY_REAL) -> ANY_REAL
+        this.register({
+            name: "EXPT",
+            cppName: "EXPT",
+            returnConstraint: "ANY_REAL",
+            returnMatchesFirstParam: true,
+            params: [
+                { name: "IN1", constraint: "ANY_REAL", isByRef: false },
+                { name: "IN2", constraint: "ANY_REAL", isByRef: false },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "numeric",
+        });
+    }
+    // ---------------------------------------------------------------------------
+    // Trigonometric Functions
+    // ---------------------------------------------------------------------------
+    registerTrigFunctions() {
+        for (const fn of ["SIN", "COS", "TAN", "ASIN", "ACOS", "ATAN"]) {
+            this.register({
+                name: fn,
+                cppName: fn,
+                returnConstraint: "ANY_REAL",
+                returnMatchesFirstParam: true,
+                params: [{ name: "IN", constraint: "ANY_REAL", isByRef: false }],
+                isVariadic: false,
+                isConversion: false,
+                category: "trig",
+            });
+        }
+        // ATAN2(ANY_REAL, ANY_REAL) -> ANY_REAL
+        this.register({
+            name: "ATAN2",
+            cppName: "ATAN2",
+            returnConstraint: "ANY_REAL",
+            returnMatchesFirstParam: true,
+            params: [
+                { name: "IN1", constraint: "ANY_REAL", isByRef: false },
+                { name: "IN2", constraint: "ANY_REAL", isByRef: false },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "trig",
+        });
+    }
+    // ---------------------------------------------------------------------------
+    // Arithmetic Functions
+    // ---------------------------------------------------------------------------
+    registerArithmeticFunctions() {
+        // ADD, MUL are variadic (2+)
+        for (const fn of ["ADD", "MUL"]) {
+            this.register({
+                name: fn,
+                cppName: fn,
+                returnConstraint: "ANY_NUM",
+                returnMatchesFirstParam: true,
+                params: [
+                    { name: "IN1", constraint: "ANY_NUM", isByRef: false },
+                    { name: "IN2", constraint: "ANY_NUM", isByRef: false },
+                ],
+                isVariadic: true,
+                minArgs: 2,
+                isConversion: false,
+                category: "arithmetic",
+            });
+        }
+        // SUB, DIV, MOD are binary
+        for (const fn of ["SUB", "DIV", "MOD"]) {
+            this.register({
+                name: fn,
+                cppName: fn,
+                returnConstraint: "ANY_NUM",
+                returnMatchesFirstParam: true,
+                params: [
+                    { name: "IN1", constraint: "ANY_NUM", isByRef: false },
+                    { name: "IN2", constraint: "ANY_NUM", isByRef: false },
+                ],
+                isVariadic: false,
+                isConversion: false,
+                category: "arithmetic",
+            });
+        }
+    }
+    // ---------------------------------------------------------------------------
+    // Selection Functions
+    // ---------------------------------------------------------------------------
+    registerSelectionFunctions() {
+        // SEL(BOOL, ANY, ANY) -> ANY
+        this.register({
+            name: "SEL",
+            cppName: "SEL",
+            returnConstraint: "ANY",
+            returnMatchesFirstParam: false,
+            params: [
+                { name: "G", constraint: "BOOL", isByRef: false },
+                { name: "IN0", constraint: "ANY", isByRef: false },
+                { name: "IN1", constraint: "ANY", isByRef: false },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "selection",
+        });
+        // MAX, MIN are variadic (2+)
+        for (const fn of ["MAX", "MIN"]) {
+            this.register({
+                name: fn,
+                cppName: fn,
+                returnConstraint: "ANY_ELEMENTARY",
+                returnMatchesFirstParam: true,
+                params: [
+                    { name: "IN1", constraint: "ANY_ELEMENTARY", isByRef: false },
+                    { name: "IN2", constraint: "ANY_ELEMENTARY", isByRef: false },
+                ],
+                isVariadic: true,
+                minArgs: 2,
+                isConversion: false,
+                category: "selection",
+            });
+        }
+        // LIMIT(ANY_ELEMENTARY, ANY_ELEMENTARY, ANY_ELEMENTARY) -> ANY_ELEMENTARY
+        this.register({
+            name: "LIMIT",
+            cppName: "LIMIT",
+            returnConstraint: "ANY_ELEMENTARY",
+            returnMatchesFirstParam: false,
+            params: [
+                { name: "MN", constraint: "ANY_ELEMENTARY", isByRef: false },
+                { name: "IN", constraint: "ANY_ELEMENTARY", isByRef: false },
+                { name: "MX", constraint: "ANY_ELEMENTARY", isByRef: false },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "selection",
+        });
+        // MUX(INT, ANY, ANY, ...) -> ANY
+        this.register({
+            name: "MUX",
+            cppName: "MUX",
+            returnConstraint: "ANY",
+            returnMatchesFirstParam: false,
+            params: [
+                {
+                    name: "K",
+                    constraint: "specific",
+                    specificType: "INT",
+                    isByRef: false,
+                },
+                { name: "IN0", constraint: "ANY", isByRef: false },
+                { name: "IN1", constraint: "ANY", isByRef: false },
+            ],
+            isVariadic: true,
+            minArgs: 3,
+            isConversion: false,
+            category: "selection",
+        });
+        // MOVE(ANY) -> ANY
+        this.register({
+            name: "MOVE",
+            cppName: "MOVE",
+            returnConstraint: "ANY",
+            returnMatchesFirstParam: true,
+            params: [{ name: "IN", constraint: "ANY", isByRef: false }],
+            isVariadic: false,
+            isConversion: false,
+            category: "selection",
+        });
+    }
+    // ---------------------------------------------------------------------------
+    // Comparison Functions
+    // ---------------------------------------------------------------------------
+    registerComparisonFunctions() {
+        // Binary comparisons: GT, GE, EQ, LE, LT, NE
+        for (const fn of ["GT", "GE", "EQ", "LE", "LT", "NE"]) {
+            this.register({
+                name: fn,
+                cppName: fn,
+                returnConstraint: "BOOL",
+                returnMatchesFirstParam: false,
+                specificReturnType: "BOOL",
+                params: [
+                    { name: "IN1", constraint: "ANY_ELEMENTARY", isByRef: false },
+                    { name: "IN2", constraint: "ANY_ELEMENTARY", isByRef: false },
+                ],
+                isVariadic: true,
+                minArgs: 2,
+                isConversion: false,
+                category: "comparison",
+            });
+        }
+    }
+    // ---------------------------------------------------------------------------
+    // Bitwise Functions
+    // ---------------------------------------------------------------------------
+    registerBitwiseFunctions() {
+        // NOT(ANY_BIT) -> ANY_BIT (unary, but registered for function-call form)
+        this.register({
+            name: "NOT",
+            cppName: "NOT",
+            returnConstraint: "ANY_BIT",
+            returnMatchesFirstParam: true,
+            params: [{ name: "IN", constraint: "ANY_BIT", isByRef: false }],
+            isVariadic: false,
+            isConversion: false,
+            category: "bitwise",
+        });
+        // AND, OR, XOR are variadic (2+)
+        for (const fn of ["AND", "OR", "XOR"]) {
+            this.register({
+                name: fn,
+                cppName: fn,
+                returnConstraint: "ANY_BIT",
+                returnMatchesFirstParam: true,
+                params: [
+                    { name: "IN1", constraint: "ANY_BIT", isByRef: false },
+                    { name: "IN2", constraint: "ANY_BIT", isByRef: false },
+                ],
+                isVariadic: true,
+                minArgs: 2,
+                isConversion: false,
+                category: "bitwise",
+            });
+        }
+    }
+    // ---------------------------------------------------------------------------
+    // Bit Shift Functions
+    // ---------------------------------------------------------------------------
+    registerBitshiftFunctions() {
+        for (const fn of ["SHL", "SHR", "ROL", "ROR"]) {
+            this.register({
+                name: fn,
+                cppName: fn,
+                returnConstraint: "ANY_BIT",
+                returnMatchesFirstParam: true,
+                params: [
+                    { name: "IN", constraint: "ANY_BIT", isByRef: false },
+                    {
+                        name: "N",
+                        constraint: "specific",
+                        specificType: "INT",
+                        isByRef: false,
+                    },
+                ],
+                isVariadic: false,
+                isConversion: false,
+                category: "bitshift",
+            });
+        }
+    }
+    // ---------------------------------------------------------------------------
+    // Conversion Functions (TO_*)
+    // ---------------------------------------------------------------------------
+    registerConversionFunctions() {
+        const convTargets = [
+            "BOOL",
+            "SINT",
+            "INT",
+            "DINT",
+            "LINT",
+            "USINT",
+            "UINT",
+            "UDINT",
+            "ULINT",
+            "REAL",
+            "LREAL",
+            "TIME",
+            "DATE",
+            "TOD",
+            "DT",
+            "STRING",
+            "BYTE",
+            "WORD",
+            "DWORD",
+            "LWORD",
+        ];
+        for (const target of convTargets) {
+            this.register({
+                name: `TO_${target}`,
+                cppName: `TO_${target}`,
+                returnConstraint: "specific",
+                returnMatchesFirstParam: false,
+                specificReturnType: target,
+                params: [{ name: "IN", constraint: "ANY", isByRef: false }],
+                isVariadic: false,
+                isConversion: true,
+                category: "conversion",
+            });
+        }
+    }
+    // ---------------------------------------------------------------------------
+    // String Functions
+    // ---------------------------------------------------------------------------
+    registerStringFunctions() {
+        // LEN(STRING) -> INT
+        this.register({
+            name: "LEN",
+            cppName: "LEN",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "INT",
+            params: [{ name: "IN", constraint: "ANY_STRING", isByRef: false }],
+            isVariadic: false,
+            isConversion: false,
+            category: "string",
+        });
+        // LEFT(STRING, INT) -> STRING
+        this.register({
+            name: "LEFT",
+            cppName: "LEFT",
+            returnConstraint: "ANY_STRING",
+            returnMatchesFirstParam: true,
+            params: [
+                { name: "IN", constraint: "ANY_STRING", isByRef: false },
+                {
+                    name: "L",
+                    constraint: "specific",
+                    specificType: "INT",
+                    isByRef: false,
+                },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "string",
+        });
+        // RIGHT(STRING, INT) -> STRING
+        this.register({
+            name: "RIGHT",
+            cppName: "RIGHT",
+            returnConstraint: "ANY_STRING",
+            returnMatchesFirstParam: true,
+            params: [
+                { name: "IN", constraint: "ANY_STRING", isByRef: false },
+                {
+                    name: "L",
+                    constraint: "specific",
+                    specificType: "INT",
+                    isByRef: false,
+                },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "string",
+        });
+        // MID(STRING, INT, INT) -> STRING
+        this.register({
+            name: "MID",
+            cppName: "MID",
+            returnConstraint: "ANY_STRING",
+            returnMatchesFirstParam: true,
+            params: [
+                { name: "IN", constraint: "ANY_STRING", isByRef: false },
+                {
+                    name: "L",
+                    constraint: "specific",
+                    specificType: "INT",
+                    isByRef: false,
+                },
+                {
+                    name: "P",
+                    constraint: "specific",
+                    specificType: "INT",
+                    isByRef: false,
+                },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "string",
+        });
+        // CONCAT(STRING, STRING, ...) -> STRING (variadic 2+)
+        this.register({
+            name: "CONCAT",
+            cppName: "CONCAT",
+            returnConstraint: "ANY_STRING",
+            returnMatchesFirstParam: true,
+            params: [
+                { name: "IN1", constraint: "ANY_STRING", isByRef: false },
+                { name: "IN2", constraint: "ANY_STRING", isByRef: false },
+            ],
+            isVariadic: true,
+            minArgs: 2,
+            isConversion: false,
+            category: "string",
+        });
+        // INSERT(STRING, STRING, INT) -> STRING
+        this.register({
+            name: "INSERT",
+            cppName: "INSERT",
+            returnConstraint: "ANY_STRING",
+            returnMatchesFirstParam: true,
+            params: [
+                { name: "IN1", constraint: "ANY_STRING", isByRef: false },
+                { name: "IN2", constraint: "ANY_STRING", isByRef: false },
+                {
+                    name: "P",
+                    constraint: "specific",
+                    specificType: "INT",
+                    isByRef: false,
+                },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "string",
+        });
+        // DELETE(STRING, INT, INT) -> STRING  (maps to DELETE_STR in C++)
+        this.register({
+            name: "DELETE",
+            cppName: "DELETE_STR",
+            returnConstraint: "ANY_STRING",
+            returnMatchesFirstParam: true,
+            params: [
+                { name: "IN", constraint: "ANY_STRING", isByRef: false },
+                {
+                    name: "L",
+                    constraint: "specific",
+                    specificType: "INT",
+                    isByRef: false,
+                },
+                {
+                    name: "P",
+                    constraint: "specific",
+                    specificType: "INT",
+                    isByRef: false,
+                },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "string",
+        });
+        // REPLACE(STRING, STRING, INT, INT) -> STRING
+        this.register({
+            name: "REPLACE",
+            cppName: "REPLACE",
+            returnConstraint: "ANY_STRING",
+            returnMatchesFirstParam: true,
+            params: [
+                { name: "IN1", constraint: "ANY_STRING", isByRef: false },
+                { name: "IN2", constraint: "ANY_STRING", isByRef: false },
+                {
+                    name: "L",
+                    constraint: "specific",
+                    specificType: "INT",
+                    isByRef: false,
+                },
+                {
+                    name: "P",
+                    constraint: "specific",
+                    specificType: "INT",
+                    isByRef: false,
+                },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "string",
+        });
+        // FIND(STRING, STRING) -> INT
+        this.register({
+            name: "FIND",
+            cppName: "FIND",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "INT",
+            params: [
+                { name: "IN1", constraint: "ANY_STRING", isByRef: false },
+                { name: "IN2", constraint: "ANY_STRING", isByRef: false },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "string",
+        });
+        // Note: CODE, CHR, TRIM, LOWERCASE, UPPERCASE are OSCAT-defined functions
+        // (not IEC standard). They are transpiled from OSCAT ST sources, not registered here.
+        // C++ runtime provides template implementations in iec_string.hpp for use by
+        // the transpiled OSCAT code.
+    }
+    // ---------------------------------------------------------------------------
+    // Time Functions
+    // ---------------------------------------------------------------------------
+    registerTimeFunctions() {
+        // TIME() - returns absolute runtime time (elapsed since start)
+        // CODESYS-compatible: TIME() with no args returns monotonic elapsed time
+        this.register({
+            name: "TIME",
+            cppName: "TIME",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "TIME",
+            params: [],
+            isVariadic: false,
+            isConversion: false,
+            category: "time",
+        });
+        // CURRENT_DT() - wall-clock date-and-time as IEC_DT.
+        // Used by the Additional Function Blocks library's RTC FB. Distinct
+        // from TIME() (scan-cycle elapsed time): CURRENT_DT() is system clock.
+        this.register({
+            name: "CURRENT_DT",
+            cppName: "CURRENT_DT",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "DT",
+            params: [],
+            isVariadic: false,
+            isConversion: false,
+            category: "time",
+        });
+        this.register({
+            name: "TIME_FROM_MS",
+            cppName: "TIME_FROM_MS",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "TIME",
+            params: [
+                {
+                    name: "IN",
+                    constraint: "specific",
+                    specificType: "LINT",
+                    isByRef: false,
+                },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "time",
+        });
+        this.register({
+            name: "TIME_FROM_S",
+            cppName: "TIME_FROM_S",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "TIME",
+            params: [
+                {
+                    name: "IN",
+                    constraint: "specific",
+                    specificType: "LREAL",
+                    isByRef: false,
+                },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "time",
+        });
+        this.register({
+            name: "TIME_TO_MS",
+            cppName: "TIME_TO_MS",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "LINT",
+            params: [
+                {
+                    name: "IN",
+                    constraint: "specific",
+                    specificType: "TIME",
+                    isByRef: false,
+                },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "time",
+        });
+        this.register({
+            name: "TIME_TO_S",
+            cppName: "TIME_TO_S",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "LREAL",
+            params: [
+                {
+                    name: "IN",
+                    constraint: "specific",
+                    specificType: "TIME",
+                    isByRef: false,
+                },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "time",
+        });
+    }
+    // ---------------------------------------------------------------------------
+    // System Functions (CODESYS extensions)
+    // ---------------------------------------------------------------------------
+    registerSystemFunctions() {
+        // ADR(variable) -> __XWORD (pointer-width address of variable). Returning
+        // the pointer-width type lets a `_TMP : __XWORD := ADR(x)` temp round-trip
+        // the address on every target and assign to a typed POINTER TO X.
+        this.register({
+            name: "ADR",
+            cppName: "ADR",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "__XWORD",
+            params: [{ name: "IN", constraint: "ANY", isByRef: true }],
+            isVariadic: false,
+            isConversion: false,
+            category: "system",
+        });
+        // REF_LINK(variable) -> reference to the variable (CODESYS REF() exposed
+        // as a callable block, since the bare REF() is a reserved operator token
+        // and cannot be invoked with the graphical EN/IN/ENO call form). Codegen
+        // lowers REF_LINK(x) to the runtime REF(x); wire its output to a REF_TO
+        // variable to bind it (myref := REF_LINK(target)). Replaces hand-written
+        // "link a reference" function blocks.
+        this.register({
+            name: "REF_LINK",
+            cppName: "REF",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "__XWORD",
+            params: [{ name: "IN", constraint: "ANY", isByRef: true }],
+            isVariadic: false,
+            isConversion: false,
+            category: "system",
+        });
+        // SIZEOF(variable) -> UDINT (size in bytes)
+        this.register({
+            name: "SIZEOF",
+            cppName: "IEC_SIZEOF",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "UDINT",
+            params: [{ name: "IN", constraint: "ANY", isByRef: false }],
+            isVariadic: false,
+            isConversion: false,
+            category: "system",
+        });
+        // MEMCPY(dest, src, n) -> ULINT (CODESYS memcpy)
+        this.register({
+            name: "MEMCPY",
+            cppName: "MEMCPY",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "ULINT",
+            params: [
+                { name: "DEST", constraint: "ANY", isByRef: false },
+                { name: "SRC", constraint: "ANY", isByRef: false },
+                { name: "N", constraint: "ANY_INT", isByRef: false },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "system",
+        });
+        // LOWER_BOUND(arr, dim) -> DINT (lower bound of array dimension)
+        this.register({
+            name: "LOWER_BOUND",
+            cppName: "LOWER_BOUND",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "DINT",
+            params: [
+                { name: "ARR", constraint: "ANY", isByRef: true },
+                { name: "DIM", constraint: "ANY_INT", isByRef: false },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "system",
+        });
+        // UPPER_BOUND(arr, dim) -> DINT (upper bound of array dimension)
+        this.register({
+            name: "UPPER_BOUND",
+            cppName: "UPPER_BOUND",
+            returnConstraint: "specific",
+            returnMatchesFirstParam: false,
+            specificReturnType: "DINT",
+            params: [
+                { name: "ARR", constraint: "ANY", isByRef: true },
+                { name: "DIM", constraint: "ANY_INT", isByRef: false },
+            ],
+            isVariadic: false,
+            isConversion: false,
+            category: "system",
+        });
+    }
+}
+//# sourceMappingURL=std-function-registry.js.map

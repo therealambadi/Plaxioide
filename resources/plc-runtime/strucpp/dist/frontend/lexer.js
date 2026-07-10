@@ -1,0 +1,1115 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2025 Autonomy / OpenPLC Project
+/**
+ * STruC++ Lexer
+ *
+ * Tokenizes IEC 61131-3 Structured Text source code using Chevrotain.
+ * This module defines all tokens used by the ST grammar.
+ */
+import { createToken, Lexer } from "chevrotain";
+// =============================================================================
+// Token Categories
+// =============================================================================
+/**
+ * Whitespace tokens (skipped during parsing)
+ */
+export const WhiteSpace = createToken({
+    name: "WhiteSpace",
+    pattern: /\s+/,
+    group: Lexer.SKIPPED,
+});
+// =============================================================================
+// Custom Pattern Helpers
+// =============================================================================
+/**
+ * Helper to create a RegExpExecArray-compatible result for custom patterns.
+ */
+function createMatchResult(match, offset) {
+    if (match.length === 0)
+        return null;
+    const result = [match];
+    result.index = offset;
+    result.input = "";
+    return result;
+}
+// =============================================================================
+// Pragma Support
+// =============================================================================
+/**
+ * Custom pattern matcher for {external ...} pragma.
+ * Handles nested braces in C++ code correctly.
+ * Content inside is passed through AS-IS to generated code.
+ *
+ * @param text - The full source text
+ * @param startOffset - The current position in the text
+ * @returns A RegExpExecArray-compatible result or null if no match
+ */
+function matchExternalPragma(text, startOffset) {
+    // Must start with {external (case insensitive)
+    if (text.charAt(startOffset) !== "{")
+        return null;
+    // Check for "external" keyword (case insensitive)
+    const keywordStart = startOffset + 1;
+    let keywordEnd = keywordStart;
+    // Skip whitespace after {
+    while (keywordEnd < text.length && /\s/.test(text.charAt(keywordEnd))) {
+        keywordEnd++;
+    }
+    // Check for "external" keyword
+    const potentialKeyword = text.substring(keywordEnd, keywordEnd + 8);
+    if (potentialKeyword.toLowerCase() !== "external") {
+        return null;
+    }
+    // Find the matching closing brace, counting nested braces
+    let depth = 1;
+    let i = keywordEnd + 8; // After "external"
+    while (i < text.length && depth > 0) {
+        const char = text.charAt(i);
+        // Handle string literals (don't count braces inside strings)
+        if (char === '"' || char === "'") {
+            const quote = char;
+            i++;
+            while (i < text.length && text.charAt(i) !== quote) {
+                if (text.charAt(i) === "\\")
+                    i++; // Skip escape sequences
+                i++;
+            }
+            i++; // Skip closing quote
+            continue;
+        }
+        // Handle C++ comments inside external code
+        if (char === "/" && text.charAt(i + 1) === "/") {
+            // Single-line comment - skip to end of line
+            while (i < text.length && text.charAt(i) !== "\n") {
+                i++;
+            }
+            continue;
+        }
+        if (char === "/" && text.charAt(i + 1) === "*") {
+            // Block comment - skip to */
+            i += 2;
+            while (i < text.length - 1) {
+                if (text.charAt(i) === "*" && text.charAt(i + 1) === "/") {
+                    i += 2;
+                    break;
+                }
+                i++;
+            }
+            continue;
+        }
+        if (char === "{") {
+            depth++;
+        }
+        else if (char === "}") {
+            depth--;
+        }
+        i++;
+    }
+    if (depth === 0) {
+        return createMatchResult(text.substring(startOffset, i), startOffset);
+    }
+    return null; // Unclosed pragma
+}
+/**
+ * External code pragma token: {external ... }
+ * Content is passed through AS-IS to generated C++ code.
+ */
+export const ExternalPragma = createToken({
+    name: "ExternalPragma",
+    pattern: matchExternalPragma,
+    line_breaks: true, // Content can span multiple lines
+});
+// =============================================================================
+// Nested Comment Support
+// =============================================================================
+/**
+ * Custom pattern for comments with nested block comment support.
+ * Handles both // single-line and (* *) block comments.
+ * Block comments can be nested to arbitrary depth per IEC 61131-3 Ed.3.
+ *
+ * @param text - The full source text
+ * @param startOffset - The current position in the text
+ * @returns A RegExpExecArray-compatible result or null if no match
+ */
+function matchComment(text, startOffset) {
+    // Try single-line comment first: // ...
+    if (text.charAt(startOffset) === "/" &&
+        text.charAt(startOffset + 1) === "/") {
+        let end = startOffset + 2;
+        while (end < text.length &&
+            text.charAt(end) !== "\n" &&
+            text.charAt(end) !== "\r") {
+            end++;
+        }
+        return createMatchResult(text.substring(startOffset, end), startOffset);
+    }
+    // Try block comment: (* ... *) with nesting support
+    if (text.charAt(startOffset) === "(" &&
+        text.charAt(startOffset + 1) === "*") {
+        let depth = 1;
+        let i = startOffset + 2;
+        while (i < text.length && depth > 0) {
+            if (text.charAt(i) === "(" && text.charAt(i + 1) === "*") {
+                depth++;
+                i += 2;
+            }
+            else if (text.charAt(i) === "*" && text.charAt(i + 1) === ")") {
+                depth--;
+                i += 2;
+            }
+            else {
+                i++;
+            }
+        }
+        if (depth === 0) {
+            return createMatchResult(text.substring(startOffset, i), startOffset);
+        }
+        // Unclosed comment - return null, lexer will report error
+        return null;
+    }
+    return null;
+}
+/**
+ * Comment token with support for nested block comments.
+ * - Single-line: // ... (to end of line)
+ * - Block: (* ... *) with arbitrary nesting depth
+ */
+export const Comment = createToken({
+    name: "Comment",
+    pattern: matchComment,
+    line_breaks: true, // Essential for multi-line block comments
+    group: Lexer.SKIPPED,
+});
+// =============================================================================
+// Keywords
+// =============================================================================
+// Program Organization Units
+export const PROGRAM = createToken({ name: "PROGRAM", pattern: /PROGRAM/i });
+export const END_PROGRAM = createToken({
+    name: "END_PROGRAM",
+    pattern: /END_PROGRAM/i,
+});
+export const FUNCTION = createToken({ name: "FUNCTION", pattern: /FUNCTION/i });
+export const END_FUNCTION = createToken({
+    name: "END_FUNCTION",
+    pattern: /END_FUNCTION/i,
+});
+export const FUNCTION_BLOCK = createToken({
+    name: "FUNCTION_BLOCK",
+    pattern: /FUNCTION_BLOCK/i,
+});
+export const END_FUNCTION_BLOCK = createToken({
+    name: "END_FUNCTION_BLOCK",
+    pattern: /END_FUNCTION_BLOCK/i,
+});
+// Variable declarations
+export const VAR = createToken({ name: "VAR", pattern: /VAR/i });
+export const END_VAR = createToken({ name: "END_VAR", pattern: /END_VAR/i });
+export const VAR_INPUT = createToken({
+    name: "VAR_INPUT",
+    pattern: /VAR_INPUT/i,
+});
+export const VAR_OUTPUT = createToken({
+    name: "VAR_OUTPUT",
+    pattern: /VAR_OUTPUT/i,
+});
+export const VAR_IN_OUT = createToken({
+    name: "VAR_IN_OUT",
+    pattern: /VAR_IN_OUT/i,
+});
+export const VAR_EXTERNAL = createToken({
+    name: "VAR_EXTERNAL",
+    pattern: /VAR_EXTERNAL/i,
+});
+export const VAR_GLOBAL = createToken({
+    name: "VAR_GLOBAL",
+    pattern: /VAR_GLOBAL/i,
+});
+export const VAR_TEMP = createToken({ name: "VAR_TEMP", pattern: /VAR_TEMP/i });
+export const CONSTANT = createToken({ name: "CONSTANT", pattern: /CONSTANT/i });
+export const RETAIN = createToken({ name: "RETAIN", pattern: /RETAIN/i });
+export const AT = createToken({ name: "AT", pattern: /AT/i });
+// Type declarations
+export const TYPE = createToken({ name: "TYPE", pattern: /TYPE/i });
+export const END_TYPE = createToken({ name: "END_TYPE", pattern: /END_TYPE/i });
+export const STRUCT = createToken({ name: "STRUCT", pattern: /STRUCT/i });
+export const END_STRUCT = createToken({
+    name: "END_STRUCT",
+    pattern: /END_STRUCT/i,
+});
+export const ARRAY = createToken({ name: "ARRAY", pattern: /ARRAY/i });
+export const OF = createToken({ name: "OF", pattern: /OF/i });
+// Configuration
+export const CONFIGURATION = createToken({
+    name: "CONFIGURATION",
+    pattern: /CONFIGURATION/i,
+});
+export const END_CONFIGURATION = createToken({
+    name: "END_CONFIGURATION",
+    pattern: /END_CONFIGURATION/i,
+});
+export const RESOURCE = createToken({ name: "RESOURCE", pattern: /RESOURCE/i });
+export const END_RESOURCE = createToken({
+    name: "END_RESOURCE",
+    pattern: /END_RESOURCE/i,
+});
+export const TASK = createToken({ name: "TASK", pattern: /TASK/i });
+export const WITH = createToken({ name: "WITH", pattern: /WITH/i });
+export const ON = createToken({ name: "ON", pattern: /ON/i });
+// Control flow
+export const IF = createToken({ name: "IF", pattern: /IF/i });
+export const THEN = createToken({ name: "THEN", pattern: /THEN/i });
+export const ELSIF = createToken({ name: "ELSIF", pattern: /ELSIF/i });
+export const ELSE = createToken({ name: "ELSE", pattern: /ELSE/i });
+export const END_IF = createToken({ name: "END_IF", pattern: /END_IF/i });
+export const CASE = createToken({ name: "CASE", pattern: /CASE/i });
+export const END_CASE = createToken({ name: "END_CASE", pattern: /END_CASE/i });
+export const FOR = createToken({ name: "FOR", pattern: /FOR/i });
+export const TO = createToken({ name: "TO", pattern: /TO/i });
+export const BY = createToken({ name: "BY", pattern: /BY/i });
+export const DO = createToken({ name: "DO", pattern: /DO/i });
+export const END_FOR = createToken({ name: "END_FOR", pattern: /END_FOR/i });
+export const WHILE = createToken({ name: "WHILE", pattern: /WHILE/i });
+export const END_WHILE = createToken({
+    name: "END_WHILE",
+    pattern: /END_WHILE/i,
+});
+export const REPEAT = createToken({ name: "REPEAT", pattern: /REPEAT/i });
+export const UNTIL = createToken({ name: "UNTIL", pattern: /UNTIL/i });
+export const END_REPEAT = createToken({
+    name: "END_REPEAT",
+    pattern: /END_REPEAT/i,
+});
+export const EXIT = createToken({ name: "EXIT", pattern: /EXIT/i });
+export const RETURN = createToken({ name: "RETURN", pattern: /RETURN/i });
+// Boolean literals
+export const TRUE = createToken({ name: "TRUE", pattern: /TRUE/i });
+export const FALSE = createToken({ name: "FALSE", pattern: /FALSE/i });
+// Logical operators
+export const AND = createToken({ name: "AND", pattern: /AND/i });
+export const OR = createToken({ name: "OR", pattern: /OR/i });
+export const XOR = createToken({ name: "XOR", pattern: /XOR/i });
+export const NOT = createToken({ name: "NOT", pattern: /NOT/i });
+export const MOD = createToken({ name: "MOD", pattern: /MOD/i });
+// Reference types (IEC v3 and CODESYS compatibility)
+// IEC 61131-3 / CODESYS spell this as two words ("REFERENCE TO"); the
+// underscore form is also accepted for backward compatibility. The
+// whitespace between the words is consumed by this token, not skipped.
+export const REFERENCE_TO = createToken({
+    name: "REFERENCE_TO",
+    pattern: /REFERENCE(?:_|\s+)TO/i,
+});
+export const REF_TO = createToken({ name: "REF_TO", pattern: /REF_TO/i });
+export const DREF = createToken({ name: "DREF", pattern: /DREF/i });
+export const REF = createToken({ name: "REF", pattern: /REF/i });
+export const NULL = createToken({ name: "NULL", pattern: /NULL/i });
+// Pointer type (CODESYS compatibility)
+export const POINTER = createToken({ name: "POINTER", pattern: /POINTER/i });
+// Dynamic memory (extension keywords)
+export const __NEW = createToken({ name: "__NEW", pattern: /__NEW/i });
+export const __DELETE = createToken({ name: "__DELETE", pattern: /__DELETE/i });
+// Test framework keywords (only active in test file lexing)
+export const TEST = createToken({ name: "TEST", pattern: /TEST/i });
+export const END_TEST = createToken({
+    name: "END_TEST",
+    pattern: /END_TEST/i,
+});
+// Test framework assert built-in functions
+export const ASSERT_EQ = createToken({
+    name: "ASSERT_EQ",
+    pattern: /ASSERT_EQ/i,
+});
+export const ASSERT_TRUE = createToken({
+    name: "ASSERT_TRUE",
+    pattern: /ASSERT_TRUE/i,
+});
+export const ASSERT_FALSE = createToken({
+    name: "ASSERT_FALSE",
+    pattern: /ASSERT_FALSE/i,
+});
+export const ASSERT_NEQ = createToken({
+    name: "ASSERT_NEQ",
+    pattern: /ASSERT_NEQ/i,
+});
+export const ASSERT_GT = createToken({
+    name: "ASSERT_GT",
+    pattern: /ASSERT_GT/i,
+});
+export const ASSERT_LT = createToken({
+    name: "ASSERT_LT",
+    pattern: /ASSERT_LT/i,
+});
+export const ASSERT_GE = createToken({
+    name: "ASSERT_GE",
+    pattern: /ASSERT_GE/i,
+});
+export const ASSERT_LE = createToken({
+    name: "ASSERT_LE",
+    pattern: /ASSERT_LE/i,
+});
+export const ASSERT_NEAR = createToken({
+    name: "ASSERT_NEAR",
+    pattern: /ASSERT_NEAR/i,
+});
+// ADVANCE_TIME for test time simulation
+export const ADVANCE_TIME = createToken({
+    name: "ADVANCE_TIME",
+    pattern: /ADVANCE_TIME/i,
+});
+// SETUP/TEARDOWN for test organization
+export const SETUP = createToken({ name: "SETUP", pattern: /SETUP/i });
+export const END_SETUP = createToken({
+    name: "END_SETUP",
+    pattern: /END_SETUP/i,
+});
+export const TEARDOWN = createToken({
+    name: "TEARDOWN",
+    pattern: /TEARDOWN/i,
+});
+export const END_TEARDOWN = createToken({
+    name: "END_TEARDOWN",
+    pattern: /END_TEARDOWN/i,
+});
+// Mocking framework keywords (test file only)
+export const MOCK_VERIFY_CALL_COUNT = createToken({
+    name: "MOCK_VERIFY_CALL_COUNT",
+    pattern: /MOCK_VERIFY_CALL_COUNT/i,
+});
+export const MOCK_VERIFY_CALLED = createToken({
+    name: "MOCK_VERIFY_CALLED",
+    pattern: /MOCK_VERIFY_CALLED/i,
+});
+export const MOCK_FUNCTION = createToken({
+    name: "MOCK_FUNCTION",
+    pattern: /MOCK_FUNCTION/i,
+});
+export const MOCK = createToken({ name: "MOCK", pattern: /MOCK/i });
+export const RETURNS = createToken({ name: "RETURNS", pattern: /RETURNS/i });
+// OOP extensions (IEC 61131-3 Edition 3)
+export const METHOD = createToken({ name: "METHOD", pattern: /METHOD/i });
+export const END_METHOD = createToken({
+    name: "END_METHOD",
+    pattern: /END_METHOD/i,
+});
+export const INTERFACE = createToken({
+    name: "INTERFACE",
+    pattern: /INTERFACE/i,
+});
+export const END_INTERFACE = createToken({
+    name: "END_INTERFACE",
+    pattern: /END_INTERFACE/i,
+});
+export const EXTENDS = createToken({ name: "EXTENDS", pattern: /EXTENDS/i });
+export const IMPLEMENTS = createToken({
+    name: "IMPLEMENTS",
+    pattern: /IMPLEMENTS/i,
+});
+export const THIS = createToken({ name: "THIS", pattern: /THIS/i });
+export const SUPER = createToken({ name: "SUPER", pattern: /SUPER/i });
+export const PROPERTY = createToken({ name: "PROPERTY", pattern: /PROPERTY/i });
+export const END_PROPERTY = createToken({
+    name: "END_PROPERTY",
+    pattern: /END_PROPERTY/i,
+});
+export const GET = createToken({ name: "GET", pattern: /GET/i });
+export const END_GET = createToken({ name: "END_GET", pattern: /END_GET/i });
+export const SET = createToken({ name: "SET", pattern: /SET/i });
+export const END_SET = createToken({ name: "END_SET", pattern: /END_SET/i });
+export const ABSTRACT = createToken({ name: "ABSTRACT", pattern: /ABSTRACT/i });
+export const FINAL = createToken({ name: "FINAL", pattern: /FINAL/i });
+export const OVERRIDE = createToken({ name: "OVERRIDE", pattern: /OVERRIDE/i });
+export const PUBLIC = createToken({ name: "PUBLIC", pattern: /PUBLIC/i });
+export const PRIVATE = createToken({ name: "PRIVATE", pattern: /PRIVATE/i });
+export const PROTECTED = createToken({
+    name: "PROTECTED",
+    pattern: /PROTECTED/i,
+});
+export const VAR_INST = createToken({
+    name: "VAR_INST",
+    pattern: /VAR_INST/i,
+});
+// =============================================================================
+// Literals
+// =============================================================================
+// Time literal: T#1s, T#100ms, TIME#1h2m3s
+// Note: Each numeric component must have a unit suffix (ms, us, ns, d, h, m, s)
+// Longer suffixes (ms, us, ns) must come before shorter ones (m, s) in the alternation
+export const TimeLiteral = createToken({
+    name: "TimeLiteral",
+    pattern: /(?:T|TIME)#(?:[0-9_]+(?:\.[0-9_]+)?(?:ms|us|ns|d|h|m|s))+/i,
+});
+// Date literal: D#2024-01-15, D#1970-9-1 (IEC allows 1- or 2-digit month/day)
+export const DateLiteral = createToken({
+    name: "DateLiteral",
+    pattern: /(?:D|DATE)#[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}/i,
+});
+// Time of day literal: TOD#12:30:00, TOD#1:2:3 (1- or 2-digit fields; seconds optional)
+export const TimeOfDayLiteral = createToken({
+    name: "TimeOfDayLiteral",
+    pattern: /(?:TOD|TIME_OF_DAY)#[0-9]{1,2}:[0-9]{1,2}(?::[0-9]{1,2}(?:\.[0-9]+)?)?/i,
+});
+// Date and time literal: DT#2024-01-15-12:30:00, DT#1970-1-1-00:00:00
+// (1- or 2-digit month/day/time fields; seconds optional)
+export const DateTimeLiteral = createToken({
+    name: "DateTimeLiteral",
+    pattern: /(?:DT|DATE_AND_TIME)#[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}-[0-9]{1,2}:[0-9]{1,2}(?::[0-9]{1,2}(?:\.[0-9]+)?)?/i,
+});
+// Typed literal: BYTE#255, DWORD#16#FF, INT#0, BOOL#1, REAL#1.5E10, etc.
+// Must be before keyword tokens and RealLiteral/IntegerLiteral so that BYTE#255 isn't split
+export const TypedLiteral = createToken({
+    name: "TypedLiteral",
+    pattern: /(?:BYTE|WORD|DWORD|LWORD|SINT|INT|DINT|LINT|USINT|UINT|UDINT|ULINT|BOOL|REAL|LREAL)#(?:16#[0-9A-Fa-f_]+|8#[0-7_]+|2#[01_]+|[0-9][0-9_]*(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/i,
+});
+// Real number literal: 3.14, 1.0e-10
+export const RealLiteral = createToken({
+    name: "RealLiteral",
+    pattern: /[0-9]+\.[0-9]+(?:[eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+/,
+});
+// Integer literal: 123, 16#FF, 2#1010, 8#77
+export const IntegerLiteral = createToken({
+    name: "IntegerLiteral",
+    pattern: /(?:16#[0-9A-Fa-f_]+|8#[0-7_]+|2#[01_]+|[0-9][0-9_]*)/,
+});
+// String literal: 'hello world'
+export const StringLiteral = createToken({
+    name: "StringLiteral",
+    pattern: /'(?:[^'$]|\$\$|\$'|\$[LNPRTlnprt]|\$[0-9A-Fa-f]{2}|'')*'/,
+});
+// Wide string literal: "hello world"
+export const WideStringLiteral = createToken({
+    name: "WideStringLiteral",
+    pattern: /"(?:[^"$]|\$\$|\$"|\$[LNPRTlnprt]|\$[0-9A-Fa-f]{4})*"/,
+});
+// =============================================================================
+// Operators and Punctuation
+// =============================================================================
+export const RefAssign = createToken({ name: "RefAssign", pattern: /REF=/i });
+export const Assign = createToken({ name: "Assign", pattern: /:=/ });
+export const OutputAssign = createToken({
+    name: "OutputAssign",
+    pattern: /=>/,
+});
+export const Colon = createToken({ name: "Colon", pattern: /:/ });
+export const Semicolon = createToken({ name: "Semicolon", pattern: /;/ });
+export const Comma = createToken({ name: "Comma", pattern: /,/ });
+export const Dot = createToken({ name: "Dot", pattern: /\./ });
+export const DoubleDot = createToken({ name: "DoubleDot", pattern: /\.\./ });
+export const LParen = createToken({ name: "LParen", pattern: /\(/ });
+export const RParen = createToken({ name: "RParen", pattern: /\)/ });
+export const LBracket = createToken({ name: "LBracket", pattern: /\[/ });
+export const RBracket = createToken({ name: "RBracket", pattern: /\]/ });
+// Comparison operators
+export const Equal = createToken({ name: "Equal", pattern: /=/ });
+export const NotEqual = createToken({ name: "NotEqual", pattern: /<>/ });
+export const LessEqual = createToken({ name: "LessEqual", pattern: /<=/ });
+export const GreaterEqual = createToken({
+    name: "GreaterEqual",
+    pattern: />=/,
+});
+export const Less = createToken({ name: "Less", pattern: /</ });
+export const Greater = createToken({ name: "Greater", pattern: />/ });
+// Arithmetic operators
+export const Plus = createToken({ name: "Plus", pattern: /\+/ });
+export const Minus = createToken({ name: "Minus", pattern: /-/ });
+export const Star = createToken({ name: "Star", pattern: /\*/ });
+export const Slash = createToken({ name: "Slash", pattern: /\// });
+export const Power = createToken({ name: "Power", pattern: /\*\*/ });
+// Reference operators (IEC v3)
+export const Caret = createToken({ name: "Caret", pattern: /\^/ });
+export const Ampersand = createToken({ name: "Ampersand", pattern: /&/ });
+// Located variable prefix
+export const DirectAddress = createToken({
+    name: "DirectAddress",
+    pattern: /%[IQM][XBWDL]?[0-9]+(?:\.[0-9]+)*/i,
+});
+// =============================================================================
+// Identifier (must be last to avoid matching keywords)
+// =============================================================================
+export const Identifier = createToken({
+    name: "Identifier",
+    pattern: /[a-zA-Z_][a-zA-Z0-9_]*/,
+});
+// =============================================================================
+// Keyword Configuration
+// =============================================================================
+// Test-specific keyword tokens (separate from normal keywords)
+const testKeywordTokens = [
+    END_TEST,
+    TEST,
+    END_SETUP,
+    SETUP,
+    END_TEARDOWN,
+    TEARDOWN,
+    ADVANCE_TIME,
+    ASSERT_EQ,
+    ASSERT_NEQ,
+    ASSERT_TRUE,
+    ASSERT_FALSE,
+    ASSERT_GT,
+    ASSERT_LT,
+    ASSERT_GE,
+    ASSERT_LE,
+    ASSERT_NEAR,
+    MOCK_VERIFY_CALL_COUNT,
+    MOCK_VERIFY_CALLED,
+    MOCK_FUNCTION,
+    MOCK,
+    RETURNS,
+];
+// Set longer_alt for test keywords
+testKeywordTokens.forEach((token) => {
+    token.LONGER_ALT = Identifier;
+});
+// Configure all keywords to use Identifier as longer_alt
+// This ensures that 'var123' is tokenized as Identifier, not VAR + 123
+const keywordTokens = [
+    PROGRAM,
+    END_PROGRAM,
+    FUNCTION,
+    END_FUNCTION,
+    FUNCTION_BLOCK,
+    END_FUNCTION_BLOCK,
+    VAR,
+    END_VAR,
+    VAR_INPUT,
+    VAR_OUTPUT,
+    VAR_IN_OUT,
+    VAR_EXTERNAL,
+    VAR_GLOBAL,
+    VAR_TEMP,
+    CONSTANT,
+    RETAIN,
+    AT,
+    TYPE,
+    END_TYPE,
+    STRUCT,
+    END_STRUCT,
+    ARRAY,
+    OF,
+    CONFIGURATION,
+    END_CONFIGURATION,
+    RESOURCE,
+    END_RESOURCE,
+    TASK,
+    WITH,
+    ON,
+    IF,
+    THEN,
+    ELSIF,
+    ELSE,
+    END_IF,
+    CASE,
+    END_CASE,
+    FOR,
+    TO,
+    BY,
+    DO,
+    END_FOR,
+    WHILE,
+    END_WHILE,
+    REPEAT,
+    UNTIL,
+    END_REPEAT,
+    EXIT,
+    RETURN,
+    TRUE,
+    FALSE,
+    AND,
+    OR,
+    XOR,
+    NOT,
+    MOD,
+    REFERENCE_TO,
+    REF_TO,
+    POINTER,
+    DREF,
+    REF,
+    NULL,
+    __NEW,
+    __DELETE,
+    METHOD,
+    END_METHOD,
+    INTERFACE,
+    END_INTERFACE,
+    EXTENDS,
+    IMPLEMENTS,
+    THIS,
+    SUPER,
+    PROPERTY,
+    END_PROPERTY,
+    GET,
+    END_GET,
+    SET,
+    END_SET,
+    ABSTRACT,
+    FINAL,
+    OVERRIDE,
+    PUBLIC,
+    PRIVATE,
+    PROTECTED,
+    VAR_INST,
+];
+// Set longer_alt for all keywords
+keywordTokens.forEach((token) => {
+    token.LONGER_ALT = Identifier;
+});
+// =============================================================================
+// Token List (order matters for matching priority)
+// =============================================================================
+/**
+ * All tokens in order of matching priority.
+ * Keywords must come before Identifier to be matched correctly.
+ */
+export const allTokens = [
+    // Whitespace and comments (skipped)
+    WhiteSpace,
+    Comment,
+    // External code pragma
+    ExternalPragma,
+    // Multi-character operators (before single-character)
+    DoubleDot,
+    Power,
+    RefAssign,
+    Assign,
+    OutputAssign,
+    NotEqual,
+    LessEqual,
+    GreaterEqual,
+    // Typed and time/date literals (before keywords — BYTE#255, TOD#12:00 must not split)
+    TimeLiteral,
+    DateTimeLiteral,
+    DateLiteral,
+    TimeOfDayLiteral,
+    TypedLiteral,
+    // Keywords (before Identifier)
+    END_PROGRAM,
+    END_FUNCTION_BLOCK,
+    END_FUNCTION,
+    END_CONFIGURATION,
+    END_RESOURCE,
+    END_STRUCT,
+    END_TYPE,
+    END_VAR,
+    END_IF,
+    END_CASE,
+    END_FOR,
+    END_WHILE,
+    END_REPEAT,
+    FUNCTION_BLOCK,
+    FUNCTION,
+    PROGRAM,
+    CONFIGURATION,
+    RESOURCE,
+    VAR_INPUT,
+    VAR_OUTPUT,
+    VAR_IN_OUT,
+    VAR_EXTERNAL,
+    VAR_GLOBAL,
+    VAR_TEMP,
+    VAR_INST,
+    VAR,
+    CONSTANT,
+    RETAIN,
+    TYPE,
+    STRUCT,
+    ARRAY,
+    OF,
+    AT,
+    TASK,
+    WITH,
+    ON,
+    IF,
+    THEN,
+    ELSIF,
+    ELSE,
+    CASE,
+    FOR,
+    TO,
+    BY,
+    DO,
+    WHILE,
+    REPEAT,
+    UNTIL,
+    EXIT,
+    RETURN,
+    TRUE,
+    FALSE,
+    AND,
+    OR,
+    XOR,
+    NOT,
+    MOD,
+    REFERENCE_TO,
+    REF_TO,
+    POINTER,
+    DREF,
+    REF,
+    NULL,
+    __NEW,
+    __DELETE,
+    END_METHOD,
+    END_INTERFACE,
+    END_PROPERTY,
+    END_GET,
+    END_SET,
+    METHOD,
+    INTERFACE,
+    EXTENDS,
+    IMPLEMENTS,
+    THIS,
+    SUPER,
+    PROPERTY,
+    GET,
+    SET,
+    ABSTRACT,
+    FINAL,
+    OVERRIDE,
+    PUBLIC,
+    PRIVATE,
+    PROTECTED,
+    // Literals
+    RealLiteral,
+    IntegerLiteral,
+    StringLiteral,
+    WideStringLiteral,
+    DirectAddress,
+    // Single-character operators and punctuation
+    Colon,
+    Semicolon,
+    Comma,
+    Dot,
+    LParen,
+    RParen,
+    LBracket,
+    RBracket,
+    Equal,
+    Less,
+    Greater,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Caret,
+    Ampersand,
+    // Identifier (last)
+    Identifier,
+];
+/**
+ * The STruC++ lexer instance.
+ */
+export const STLexer = new Lexer(allTokens);
+/**
+ * Token list for test files. Built programmatically from allTokens by
+ * inserting test-specific keywords (TEST, END_TEST, ASSERT_*, MOCK*, etc.)
+ * before the normal keywords section.
+ *
+ * Test keywords must NOT be in allTokens to avoid conflicting with user
+ * identifiers named TEST in normal ST programs.
+ */
+export const allTestTokens = (() => {
+    // Find where normal keywords start (first keyword is END_PROGRAM)
+    const keywordIndex = allTokens.indexOf(END_PROGRAM);
+    return [
+        ...allTokens.slice(0, keywordIndex),
+        // Test-specific keywords (higher priority than normal keywords)
+        ...testKeywordTokens,
+        ...allTokens.slice(keywordIndex),
+    ];
+})();
+/**
+ * The STruC++ test file lexer instance.
+ * Uses allTestTokens which includes TEST/END_TEST/ASSERT_* tokens.
+ */
+export const TestLexer = new Lexer(allTestTokens);
+/**
+ * Check for unclosed block comments in source code.
+ * Returns error info if an unclosed comment is found.
+ */
+function findUnclosedBlockComment(source) {
+    let i = 0;
+    let depth = 0;
+    let commentStartOffset = -1;
+    let commentStartLine = 1;
+    let commentStartColumn = 1;
+    let line = 1;
+    let column = 1;
+    while (i < source.length) {
+        const char = source.charAt(i);
+        const nextChar = source.charAt(i + 1);
+        // Skip single-line comments (only outside block comments)
+        if (char === "/" && nextChar === "/" && depth === 0) {
+            while (i < source.length && source.charAt(i) !== "\n") {
+                i++;
+                column++;
+            }
+            // Don't advance past the newline - let the main loop handle it
+            continue;
+        }
+        // Check for block comment start
+        if (char === "(" && nextChar === "*") {
+            if (depth === 0) {
+                commentStartOffset = i;
+                commentStartLine = line;
+                commentStartColumn = column;
+            }
+            depth++;
+            i += 2;
+            column += 2;
+            continue;
+        }
+        // Check for block comment end
+        if (char === "*" && nextChar === ")") {
+            if (depth > 0) {
+                depth--;
+            }
+            i += 2;
+            column += 2;
+            continue;
+        }
+        // Handle newlines
+        if (char === "\n") {
+            line++;
+            column = 1;
+        }
+        else {
+            column++;
+        }
+        i++;
+    }
+    if (depth > 0) {
+        return {
+            line: commentStartLine,
+            column: commentStartColumn,
+            offset: commentStartOffset,
+        };
+    }
+    return null;
+}
+/**
+ * Uppercase ST source while preserving case inside string literals,
+ * wide string literals, block comments, and line comments.
+ * IEC 61131-3 is case-insensitive, so this normalizes identifiers/keywords.
+ */
+export function uppercaseSource(source) {
+    const len = source.length;
+    const out = new Array(len);
+    let i = 0;
+    // Helper to get char at position (always valid when i < len)
+    const at = (pos) => source.charAt(pos);
+    while (i < len) {
+        const ch = at(i);
+        // Single-quoted string literal: preserve case
+        if (ch === "'") {
+            out[i] = ch;
+            i++;
+            while (i < len) {
+                const sc = at(i);
+                if (sc === "$" && i + 1 < len) {
+                    out[i] = sc;
+                    out[i + 1] = at(i + 1);
+                    i += 2;
+                    continue;
+                }
+                if (sc === "'" && i + 1 < len && at(i + 1) === "'") {
+                    out[i] = sc;
+                    out[i + 1] = "'";
+                    i += 2;
+                    continue;
+                }
+                out[i] = sc;
+                if (sc === "'") {
+                    i++;
+                    break;
+                }
+                i++;
+            }
+            continue;
+        }
+        // Double-quoted wide string literal: preserve case
+        if (ch === '"') {
+            out[i] = ch;
+            i++;
+            while (i < len) {
+                const sc = at(i);
+                if (sc === "$" && i + 1 < len) {
+                    out[i] = sc;
+                    out[i + 1] = at(i + 1);
+                    i += 2;
+                    continue;
+                }
+                out[i] = sc;
+                if (sc === '"') {
+                    i++;
+                    break;
+                }
+                i++;
+            }
+            continue;
+        }
+        // Block comment (* ... *): preserve case, nesting supported
+        if (ch === "(" && i + 1 < len && at(i + 1) === "*") {
+            let depth = 1;
+            out[i] = ch;
+            out[i + 1] = "*";
+            i += 2;
+            while (i < len && depth > 0) {
+                const c = at(i);
+                if (c === "(" && i + 1 < len && at(i + 1) === "*") {
+                    out[i] = c;
+                    out[i + 1] = "*";
+                    i += 2;
+                    depth++;
+                }
+                else if (c === "*" && i + 1 < len && at(i + 1) === ")") {
+                    out[i] = c;
+                    out[i + 1] = ")";
+                    i += 2;
+                    depth--;
+                }
+                else {
+                    out[i] = c;
+                    i++;
+                }
+            }
+            continue;
+        }
+        // Line comment // ... : preserve case
+        if (ch === "/" && i + 1 < len && at(i + 1) === "/") {
+            while (i < len && at(i) !== "\n") {
+                out[i] = at(i);
+                i++;
+            }
+            continue;
+        }
+        // External code pragma {external ...}: uppercase the tag, preserve body
+        if (ch === "{") {
+            // Skip whitespace after {
+            let probe = i + 1;
+            while (probe < len && /\s/.test(at(probe)))
+                probe++;
+            const keyword = source.substring(probe, probe + 8);
+            if (keyword.toLowerCase() === "external") {
+                // Found {external ...} — preserve body as-is except uppercase the opening keyword
+                out[i] = "{";
+                i++;
+                // Copy whitespace
+                while (i < probe) {
+                    out[i] = at(i);
+                    i++;
+                }
+                // Uppercase "external"
+                for (let k = 0; k < 8 && i < len; k++, i++) {
+                    out[i] = at(i).toUpperCase();
+                }
+                // Now preserve everything else until matching }, counting nested braces
+                let depth = 1;
+                while (i < len && depth > 0) {
+                    const pc = at(i);
+                    // Handle string literals inside external code
+                    if (pc === '"' || pc === "'") {
+                        out[i] = pc;
+                        i++;
+                        while (i < len && at(i) !== pc) {
+                            if (at(i) === "\\") {
+                                out[i] = at(i);
+                                i++;
+                            }
+                            if (i < len) {
+                                out[i] = at(i);
+                                i++;
+                            }
+                        }
+                        if (i < len) {
+                            out[i] = at(i);
+                            i++;
+                        }
+                        continue;
+                    }
+                    // Handle C++ line comments inside external code
+                    if (pc === "/" && i + 1 < len && at(i + 1) === "/") {
+                        while (i < len && at(i) !== "\n") {
+                            out[i] = at(i);
+                            i++;
+                        }
+                        continue;
+                    }
+                    // Handle C++ block comments inside external code
+                    if (pc === "/" && i + 1 < len && at(i + 1) === "*") {
+                        out[i] = at(i);
+                        out[i + 1] = at(i + 1);
+                        i += 2;
+                        while (i < len - 1) {
+                            if (at(i) === "*" && at(i + 1) === "/") {
+                                out[i] = at(i);
+                                out[i + 1] = at(i + 1);
+                                i += 2;
+                                break;
+                            }
+                            out[i] = at(i);
+                            i++;
+                        }
+                        continue;
+                    }
+                    if (pc === "{")
+                        depth++;
+                    else if (pc === "}")
+                        depth--;
+                    out[i] = at(i);
+                    i++;
+                }
+                continue;
+            }
+        }
+        // Everything else: uppercase
+        out[i] = ch.toUpperCase();
+        i++;
+    }
+    return out.join("");
+}
+/**
+ * Tokenize ST source code.
+ *
+ * @param source - The ST source code to tokenize
+ * @returns Lexer result with tokens and any lexing errors
+ */
+export function tokenize(source) {
+    // Normalize to uppercase for case-insensitive matching (preserves string/comment contents)
+    const upperSource = uppercaseSource(source);
+    // Check for unclosed block comments first
+    const unclosedComment = findUnclosedBlockComment(upperSource);
+    const result = STLexer.tokenize(upperSource);
+    if (unclosedComment) {
+        result.errors.push({
+            offset: unclosedComment.offset,
+            line: unclosedComment.line,
+            column: unclosedComment.column,
+            length: 2,
+            message: "Unclosed block comment",
+        });
+    }
+    return result;
+}
+/**
+ * Tokenize test file source code using the test lexer.
+ * Identical to tokenize() but uses TestLexer (which recognizes TEST/ASSERT_* tokens).
+ *
+ * @param source - The test file source code to tokenize
+ * @returns Lexer result with tokens and any lexing errors
+ */
+export function tokenizeTest(source) {
+    // Normalize to uppercase for case-insensitive matching (preserves string/comment contents)
+    const upperSource = uppercaseSource(source);
+    const unclosedComment = findUnclosedBlockComment(upperSource);
+    const result = TestLexer.tokenize(upperSource);
+    if (unclosedComment) {
+        result.errors.push({
+            offset: unclosedComment.offset,
+            line: unclosedComment.line,
+            column: unclosedComment.column,
+            length: 2,
+            message: "Unclosed block comment",
+        });
+    }
+    return result;
+}
+//# sourceMappingURL=lexer.js.map

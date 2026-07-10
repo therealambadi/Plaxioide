@@ -1,0 +1,1021 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2025 Autonomy / OpenPLC Project
+/**
+ * STruC++ Command Line Interface
+ *
+ * Usage:
+ *   strucpp <input.st> [input2.st ...] -o <output.cpp> [options]
+ *   strucpp --compile-lib <input.st> [...] -o <dir> --lib-name <name> [options]
+ *
+ * Options:
+ *   -o, --output <file>       Output file path or directory
+ *   -d, --debug               Enable debug mode
+ *   --no-line-mapping         Disable line mapping
+ *   --line-directives         Include #line directives
+ *   --source-comments         Include ST source as comments
+ *   -O, --optimize <level>    Optimization level (0, 1, 2)
+ *   --build                   Compile to executable binary with interactive REPL
+ *   --gpp <path>              Custom g++ path (default: g++)
+ *   --cc <path>               Custom C compiler path (default: cc)
+ *   --cxx-flags <flags>       Extra C++ compiler flags
+ *   -L, --lib-path <path>     Library search path (repeatable)
+ *   --compile-lib             Compile sources into a library
+ *   --lib-name <name>         Library name (required with --compile-lib)
+ *   --lib-version <version>   Library version (default: "1.0.0")
+ *   --lib-namespace <ns>      C++ namespace (default: derived from lib-name)
+ *   -v, --version             Show version
+ *   -h, --help                Show help
+ */
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync, statSync, } from "fs";
+import { resolve, basename, dirname, join, relative, sep } from "path";
+import { tmpdir, platform } from "os";
+import { execFileSync } from "child_process";
+import { compile, getVersion, compileStlib } from "../index.js";
+import { formatDiagnostic, buildSourceMap, } from "../diagnostic-formatter.js";
+import { discoverStlibs, loadStlibFromFile } from "./library-loader.js";
+import { discoverSTFiles } from "./library-utils.js";
+import { generateReplMain } from "../backend/repl-main-gen.js";
+import { parseTestFile } from "../testing/test-parser.js";
+import { generateTestMain, buildPOUInfoFromAST, } from "../backend/test-main-gen.js";
+import { analyzeTestFile } from "../semantic/analyzer.js";
+import { getCxxEnv, splitCxxFlags, isCompilerAvailable, findRuntimeIncludeDir, findBundledLibsDir, } from "./build-utils.js";
+import { importCodesysLibraryFromBytes } from "../library/codesys-import/index.js";
+/**
+ * Print one or more diagnostics to stdout/stderr with a blank line
+ * between entries. Builds the source map once and reuses it across
+ * the loop. Used by every CLI mode that surfaces compile/parse/analyze
+ * errors so the formatting (and the spacing) stays consistent.
+ */
+/** CLI-time color decision: TTY-attached stderr without NO_COLOR. */
+const enableColor = process.env.NO_COLOR === undefined && process.stderr.isTTY === true;
+function printDiagnostics(errors, sources, stream = "error") {
+    const map = buildSourceMap(sources);
+    const out = stream === "warn" ? console.warn : console.error;
+    for (const err of errors) {
+        out(formatDiagnostic(err, map, { enableColor }));
+        out("");
+    }
+}
+/**
+ * Coerce a stlib-compile error (which has optional line/file fields) into
+ * the CompileError shape `printDiagnostics` consumes. Defaults `column` to
+ * 1 since stlib errors don't carry one.
+ */
+function toDiagnostic(err) {
+    return {
+        message: err.message,
+        line: err.line ?? 0,
+        column: 1,
+        severity: "error",
+        ...(err.file ? { file: err.file } : {}),
+    };
+}
+function parseArgs(args) {
+    const options = {
+        inputs: [],
+        debug: false,
+        lineMapping: true,
+        lineDirectives: false,
+        sourceComments: false,
+        optimizationLevel: 0,
+        showHelp: false,
+        showVersion: false,
+        build: false,
+        gpp: "g++",
+        cc: process.platform === "win32" ? "gcc" : "cc",
+        cxxFlags: "",
+        libraryPaths: [],
+        noDefaultLibs: false,
+        compileLib: false,
+        libVersion: "1.0.0",
+        noSource: false,
+        builtin: false,
+        test: [],
+        defines: {},
+    };
+    let i = 0;
+    while (i < args.length) {
+        const arg = args[i];
+        if (arg === "-h" || arg === "--help") {
+            options.showHelp = true;
+        }
+        else if (arg === "-v" || arg === "--version") {
+            options.showVersion = true;
+        }
+        else if (arg === "-d" || arg === "--debug") {
+            options.debug = true;
+        }
+        else if (arg === "--no-line-mapping") {
+            options.lineMapping = false;
+        }
+        else if (arg === "--line-directives") {
+            options.lineDirectives = true;
+        }
+        else if (arg === "--source-comments") {
+            options.sourceComments = true;
+        }
+        else if (arg === "-o" || arg === "--output") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                options.output = nextArg;
+            }
+        }
+        else if (arg === "-O" || arg === "--optimize") {
+            i++;
+            const level = parseInt(args[i] ?? "0", 10);
+            if (level >= 0 && level <= 2) {
+                options.optimizationLevel = level;
+            }
+        }
+        else if (arg === "--build") {
+            options.build = true;
+        }
+        else if (arg === "--gpp") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                options.gpp = nextArg;
+            }
+        }
+        else if (arg === "--cc") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                options.cc = nextArg;
+            }
+        }
+        else if (arg === "--cxx-flags") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                options.cxxFlags = nextArg;
+            }
+        }
+        else if (arg === "-L" || arg === "--lib-path") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                options.libraryPaths.push(nextArg);
+            }
+        }
+        else if (arg === "--no-default-libs") {
+            options.noDefaultLibs = true;
+        }
+        else if (arg === "--compile-lib") {
+            options.compileLib = true;
+        }
+        else if (arg === "--lib-name") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                options.libName = nextArg;
+            }
+        }
+        else if (arg === "--lib-version") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                options.libVersion = nextArg;
+            }
+        }
+        else if (arg === "--lib-namespace") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                options.libNamespace = nextArg;
+            }
+        }
+        else if (arg === "--no-source") {
+            options.noSource = true;
+        }
+        else if (arg === "--builtin") {
+            options.builtin = true;
+        }
+        else if (arg === "--decompile-lib") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                options.decompileLib = nextArg;
+            }
+        }
+        else if (arg === "--import-lib") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                options.importLib = nextArg;
+            }
+        }
+        else if (arg === "--define") {
+            i++;
+            const nextArg = args[i];
+            if (nextArg !== undefined) {
+                parseDefine(nextArg, options.defines);
+            }
+        }
+        else if (arg !== undefined && arg.startsWith("-D")) {
+            // -DNAME=VALUE (no space) or -D NAME=VALUE (with space)
+            const inline = arg.substring(2);
+            if (inline.length > 0) {
+                parseDefine(inline, options.defines);
+            }
+            else {
+                i++;
+                const nextArg = args[i];
+                if (nextArg !== undefined) {
+                    parseDefine(nextArg, options.defines);
+                }
+            }
+        }
+        else if (arg === "--test") {
+            // Collect all following arguments that don't start with '-' as test files
+            i++;
+            while (i < args.length &&
+                args[i] !== undefined &&
+                !args[i].startsWith("-")) {
+                options.test.push(args[i]);
+                i++;
+            }
+            // Back up one so the outer loop increment doesn't skip anything
+            i--;
+        }
+        else if (arg !== undefined && !arg.startsWith("-")) {
+            options.inputs.push(arg);
+        }
+        i++;
+    }
+    return options;
+}
+function showHelp() {
+    console.log(`
+STruC++ - IEC 61131-3 Structured Text to C++ Compiler
+
+Usage:
+  strucpp <input.st> [input2.st ...] -o <output.cpp> [options]
+  strucpp --compile-lib <input.st|dir> [...] -o <dir> --lib-name <name> [options]
+
+Options:
+  -o, --output <file>       Output file path (default: <input>.cpp)
+  -d, --debug               Enable debug mode
+  --no-line-mapping         Disable line mapping
+  --line-directives         Include #line directives in output
+  --source-comments         Include ST source as comments
+  -O, --optimize <level>    Optimization level (0, 1, 2)
+  --build                   Compile to executable with interactive REPL
+  --gpp <path>              Custom g++ path (default: g++)
+  --cc <path>               Custom C compiler path (default: cc)
+  --cxx-flags <flags>       Extra C++ compiler flags
+  -L, --lib-path <path>     Library search path (repeatable)
+  --no-default-libs         Do not auto-add bundled library paths
+  -D, --define NAME=VALUE   Define a global constant (repeatable)
+  -v, --version             Show version
+  -h, --help                Show this help
+
+Library compilation:
+  --compile-lib             Compile sources into a .stlib library archive
+  --lib-name <name>         Library name (required with --compile-lib)
+  --lib-version <version>   Library version (default: "1.0.0")
+  --lib-namespace <ns>      C++ namespace (default: derived from lib-name)
+  --no-source               Omit ST source from .stlib archive (closed-source)
+  --decompile-lib <path>    Extract ST sources from a .stlib archive
+
+CODESYS import:
+  --import-lib <path>       Import a CODESYS V2.3 (.lib) or V3 (.library) file
+                            Requires --lib-name; -o sets output dir (default: cwd)
+
+Testing:
+  --test <file> [file2...]   Run tests from test file(s) against source files
+                             (must come after -o if used)
+
+Examples:
+  strucpp program.st -o program.cpp
+  strucpp program.st utils.st -o program.cpp
+  strucpp program.st -o program.cpp -L ./libs/
+  strucpp program.st -o program.cpp --debug --line-directives
+  strucpp program.st -o program.cpp --build
+  strucpp --compile-lib math.st -o mathlib/ --lib-name math-lib
+  strucpp --compile-lib src/mylib/ -o out/ --lib-name my-lib
+  strucpp counter.st --test test_counter.st
+  strucpp --decompile-lib mylib.stlib -o extracted/
+  strucpp --import-lib oscat.lib -o libs/ --lib-name oscat-basic -L libs/
+
+For more information, visit: https://github.com/Autonomy-Logic/STruCpp
+`);
+}
+/**
+ * Parse a `NAME=VALUE` define string and add it to the defines record.
+ * Ignores malformed input (no `=`, non-numeric value).
+ */
+function parseDefine(input, defines) {
+    const eqIdx = input.indexOf("=");
+    if (eqIdx > 0) {
+        const name = input.substring(0, eqIdx);
+        const value = parseInt(input.substring(eqIdx + 1), 10);
+        if (!isNaN(value)) {
+            defines[name] = value;
+        }
+    }
+}
+/**
+ * Check whether winget is available on Windows.
+ */
+function hasWinget() {
+    try {
+        execFileSync("winget", ["--version"], { stdio: "ignore" });
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * Print platform-specific compiler installation instructions and exit.
+ */
+function printCompilerNotFound(compiler, flag) {
+    console.error(`\nError: ${compiler === "g++" || compiler === "clang++" ? "C++" : "C"} compiler '${compiler}' not found.\n`);
+    const os = platform();
+    if (os === "win32") {
+        console.error("To compile on Windows you need a C/C++ toolchain (MinGW-w64).\n");
+        if (hasWinget()) {
+            console.error("  Install via winget (recommended):");
+            console.error("    winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT\n");
+            console.error("  Then reopen your terminal so the PATH update takes effect.\n");
+        }
+        console.error("  Or download standalone MinGW-w64 (GCC) from:");
+        console.error("    https://winlibs.com\n");
+        console.error("  Extract it and add the bin/ folder to your PATH.");
+    }
+    else if (os === "darwin") {
+        console.error("  Install the Xcode Command Line Tools:\n");
+        console.error("    xcode-select --install");
+    }
+    else {
+        console.error("  Install a C/C++ toolchain:\n");
+        console.error("    Ubuntu/Debian:  sudo apt install build-essential");
+        console.error("    Fedora/RHEL:    sudo dnf install gcc-c++");
+        console.error("    Arch Linux:     sudo pacman -S base-devel");
+    }
+    console.error(`\n  Or specify a custom compiler with --${flag} <path>`);
+    process.exit(1);
+}
+/**
+ * Verify that the required compilers are available before attempting compilation.
+ * Called early in --build and --test flows to fail fast with helpful messages.
+ */
+function ensureCompilersAvailable(options, needsCC) {
+    if (!isCompilerAvailable(options.gpp)) {
+        printCompilerNotFound(options.gpp, "gpp");
+    }
+    if (needsCC && !isCompilerAvailable(options.cc)) {
+        printCompilerNotFound(options.cc, "cc");
+    }
+}
+/**
+ * Build the effective list of library search paths.
+ * Prepends the bundled libs directory (like gcc's default system lib paths)
+ * unless --no-default-libs is specified.
+ */
+function getEffectiveLibraryPaths(options) {
+    const paths = [];
+    const seen = new Set();
+    if (!options.noDefaultLibs) {
+        const bundledDir = findBundledLibsDir();
+        if (bundledDir) {
+            const resolved = resolve(bundledDir);
+            seen.add(resolved);
+            paths.push(resolved);
+        }
+    }
+    for (const p of options.libraryPaths) {
+        const resolved = resolve(p);
+        if (!seen.has(resolved)) {
+            seen.add(resolved);
+            paths.push(resolved);
+        }
+    }
+    return paths;
+}
+/**
+ * Library compilation mode: compile ST sources into a single .stlib archive.
+ */
+function compileLibraryMode(options) {
+    if (!options.libName) {
+        console.error("Error: --lib-name is required with --compile-lib");
+        process.exit(1);
+    }
+    if (options.inputs.length === 0) {
+        console.error("Error: No input files specified");
+        process.exit(1);
+    }
+    const outputDir = options.output ? resolve(options.output) : process.cwd();
+    if (!existsSync(outputDir)) {
+        mkdirSync(outputDir, { recursive: true });
+    }
+    const libNamespace = options.libNamespace ?? options.libName.replace(/[^a-zA-Z0-9_]/g, "_");
+    // Collect input files — if an input is a directory, discover .st files
+    // recursively. Each entry remembers its discovery root so we can later
+    // derive a category from the path relative to that root: a file at
+    // `<dir>/some_category/foo.st` ends up tagged `some_category` in the
+    // manifest. Files passed directly (not via a directory) carry no
+    // category — they're treated as flat root-level inputs.
+    const filePaths = [];
+    for (const input of options.inputs) {
+        const inputPath = resolve(input);
+        try {
+            const stat = statSync(inputPath);
+            if (stat.isDirectory()) {
+                const discovered = discoverSTFiles(inputPath);
+                if (discovered.length === 0) {
+                    console.error(`Error: No .st or .il files found in directory: ${inputPath}`);
+                    process.exit(1);
+                }
+                for (const p of discovered)
+                    filePaths.push({ path: p, rootDir: inputPath });
+            }
+            else {
+                filePaths.push({ path: inputPath });
+            }
+        }
+        catch {
+            console.error(`Error: Cannot read input: ${inputPath}`);
+            process.exit(1);
+        }
+    }
+    // Read all source files
+    const sources = [];
+    for (const { path: filePath, rootDir } of filePaths) {
+        try {
+            const entry = {
+                source: readFileSync(filePath, "utf-8"),
+                fileName: basename(filePath),
+            };
+            if (rootDir) {
+                const rel = relative(rootDir, filePath);
+                const parts = rel.split(sep);
+                if (parts.length > 1) {
+                    entry.category = parts.slice(0, -1).join("/");
+                }
+            }
+            sources.push(entry);
+        }
+        catch {
+            console.error(`Error: Cannot read input file: ${filePath}`);
+            process.exit(1);
+        }
+    }
+    if (sources.length === 0) {
+        console.error("Error: No input files specified");
+        process.exit(1);
+    }
+    console.log(`Compiling library "${options.libName}" from ${sources.length} source file(s)...`);
+    // Load dependency libraries from explicit -L paths only.
+    // Unlike normal compilation, library compilation should not auto-add
+    // bundled system libraries as dependencies — only user-specified paths.
+    const dependencies = [];
+    for (const libPath of options.libraryPaths) {
+        try {
+            dependencies.push(...discoverStlibs(libPath));
+        }
+        catch (e) {
+            console.error(`Warning: Could not load libraries from ${libPath}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+    const stlibOpts = {
+        name: options.libName,
+        version: options.libVersion,
+        namespace: libNamespace,
+        noSource: options.noSource,
+        builtin: options.builtin,
+    };
+    if (dependencies.length > 0) {
+        stlibOpts.dependencies = dependencies;
+    }
+    if (Object.keys(options.defines).length > 0) {
+        stlibOpts.globalConstants = options.defines;
+    }
+    const result = compileStlib(sources, stlibOpts);
+    if (!result.success) {
+        console.error("\nLibrary compilation failed:\n");
+        printDiagnostics(result.errors.map(toDiagnostic), sources);
+        process.exit(1);
+    }
+    // Write single .stlib archive
+    const stlibPath = resolve(outputDir, `${options.libName}.stlib`);
+    writeFileSync(stlibPath, JSON.stringify(result.archive, null, 2), "utf-8");
+    console.log(`Library archive written to ${stlibPath}`);
+    console.log("Library compilation successful!");
+}
+/**
+ * Test runner mode: compile source, parse tests, generate + compile + run test binary.
+ */
+function runTestMode(options) {
+    ensureCompilersAvailable(options, false);
+    if (options.inputs.length === 0) {
+        console.error("Error: No source files specified for testing");
+        console.error("Usage: strucpp <source.st> --test <test.st>");
+        process.exit(1);
+    }
+    // 1. Read and compile all source files
+    const primaryInput = options.inputs[0];
+    const inputPath = resolve(primaryInput);
+    let source;
+    try {
+        source = readFileSync(inputPath, "utf-8");
+    }
+    catch {
+        console.error(`Error: Cannot read source file: ${inputPath}`);
+        process.exit(1);
+    }
+    const additionalSources = [];
+    for (const extra of options.inputs.slice(1)) {
+        const extraPath = resolve(extra);
+        try {
+            additionalSources.push({
+                source: readFileSync(extraPath, "utf-8"),
+                fileName: basename(extraPath),
+            });
+        }
+        catch {
+            console.error(`Error: Cannot read source file: ${extraPath}`);
+            process.exit(1);
+        }
+    }
+    const effectiveLibPaths = getEffectiveLibraryPaths(options);
+    const compileOptions = {
+        headerFileName: "generated.hpp",
+        fileName: basename(inputPath),
+        isTestBuild: true,
+    };
+    if (additionalSources.length > 0) {
+        compileOptions.additionalSources = additionalSources;
+    }
+    if (effectiveLibPaths.length > 0) {
+        compileOptions.libraries = effectiveLibPaths.flatMap((p) => discoverStlibs(p));
+    }
+    if (Object.keys(options.defines).length > 0) {
+        compileOptions.globalConstants = options.defines;
+    }
+    const result = compile(source, compileOptions);
+    if (!result.success) {
+        console.error("Error compiling source files:\n");
+        printDiagnostics(result.errors, [
+            { fileName: basename(inputPath), source },
+            ...additionalSources,
+        ]);
+        process.exit(1);
+    }
+    // 2. Build POU info from the compiled AST
+    const { pous } = result.ast ? buildPOUInfoFromAST(result.ast) : { pous: [] };
+    // 3. Parse test files
+    const testFiles = [];
+    const testSources = [];
+    for (const testPath of options.test) {
+        const resolvedPath = resolve(testPath);
+        let testSource;
+        try {
+            testSource = readFileSync(resolvedPath, "utf-8");
+        }
+        catch {
+            console.error(`Error: Cannot read test file: ${resolvedPath}`);
+            process.exit(1);
+        }
+        testSources.push({ fileName: basename(testPath), source: testSource });
+        const parseResult = parseTestFile(testSource, basename(testPath));
+        if (parseResult.errors.length > 0) {
+            console.error(`Error parsing ${basename(testPath)}:\n`);
+            printDiagnostics(parseResult.errors, testSources);
+            process.exit(1);
+        }
+        if (parseResult.testFile) {
+            testFiles.push(parseResult.testFile);
+        }
+    }
+    if (testFiles.length === 0) {
+        console.error("Error: No test cases found in test files");
+        process.exit(1);
+    }
+    // 3b. Semantic analysis of test files
+    if (result.symbolTables) {
+        let hasTestErrors = false;
+        for (const tf of testFiles) {
+            const analysisResult = analyzeTestFile(tf, result.symbolTables);
+            if (analysisResult.errors.length > 0) {
+                hasTestErrors = true;
+                console.error(`Error in test file '${tf.fileName}':\n`);
+                printDiagnostics(analysisResult.errors, testSources);
+            }
+        }
+        if (hasTestErrors) {
+            process.exit(1);
+        }
+    }
+    // 4. Generate test_main.cpp
+    const testMainOpts = {
+        headerFileName: "generated.hpp",
+        pous,
+        isTestBuild: true,
+    };
+    if (result.ast) {
+        testMainOpts.ast = result.ast;
+    }
+    if (result.resolvedLibraries) {
+        testMainOpts.libraryArchives = result.resolvedLibraries;
+    }
+    const testMainCpp = generateTestMain(testFiles, testMainOpts);
+    // 5. Write to temp directory
+    const tempDir = mkdtempSync(join(tmpdir(), "strucpp-test-"));
+    try {
+        writeFileSync(join(tempDir, "generated.hpp"), result.headerCode, "utf-8");
+        writeFileSync(join(tempDir, "generated.cpp"), result.cppCode, "utf-8");
+        writeFileSync(join(tempDir, "test_main.cpp"), testMainCpp, "utf-8");
+        // 6. Find runtime include directory
+        const runtimeIncludeDir = findRuntimeIncludeDir(options.cxxFlags);
+        if (!runtimeIncludeDir) {
+            console.error("Error: Could not locate runtime include directory.\n" +
+                '  Use --cxx-flags "-I/path/to/runtime/include" to specify it.');
+            process.exit(1);
+        }
+        // Test runtime header directory
+        const testRuntimeDir = resolve(dirname(runtimeIncludeDir), "test");
+        // 7. Compile with g++
+        const binaryPath = join(tempDir, process.platform === "win32" ? "test_runner.exe" : "test_runner");
+        try {
+            execFileSync(options.gpp, [
+                "-std=c++17",
+                `-I${runtimeIncludeDir}`,
+                `-I${testRuntimeDir}`,
+                `-I${tempDir}`,
+                ...splitCxxFlags(options.cxxFlags),
+                join(tempDir, "test_main.cpp"),
+                join(tempDir, "generated.cpp"),
+                "-o",
+                binaryPath,
+            ], { stdio: ["pipe", "pipe", "pipe"], env: getCxxEnv() });
+        }
+        catch (err) {
+            const execErr = err;
+            const stderr = execErr.stderr
+                ? typeof execErr.stderr === "string"
+                    ? execErr.stderr
+                    : execErr.stderr.toString()
+                : "";
+            console.error("Error: C++ compilation failed:");
+            if (stderr)
+                console.error(stderr);
+            process.exit(1);
+        }
+        // 8. Execute test binary and display results
+        let exitCode = 0;
+        try {
+            const output = execFileSync(binaryPath, [], {
+                encoding: "utf-8",
+                timeout: 30000,
+            });
+            process.stdout.write(output);
+        }
+        catch (err) {
+            const execErr = err;
+            if (execErr.stdout) {
+                process.stdout.write(execErr.stdout);
+            }
+            if (execErr.signal) {
+                console.error(`Error: Test binary crashed with signal ${execErr.signal}`);
+            }
+            exitCode = execErr.status ?? 1;
+        }
+        // 9. Exit with test result code
+        process.exit(exitCode);
+    }
+    finally {
+        // 10. Cleanup temp directory
+        try {
+            rmSync(tempDir, { recursive: true, force: true });
+        }
+        catch {
+            // Ignore cleanup errors
+        }
+    }
+}
+/**
+ * Decompile mode: extract ST source files from a .stlib archive.
+ *
+ * If the archive carries `category` metadata on its source entries, each
+ * file is written under that subfolder (`outputDir/<category>/<file.st>`),
+ * recreating the folder hierarchy the library was compiled from.
+ * Categoryless entries land at the output root, so flat archives extract
+ * exactly the same way they did before hierarchy support was added.
+ */
+function decompileLibMode(options) {
+    let archive;
+    try {
+        archive = loadStlibFromFile(resolve(options.decompileLib));
+    }
+    catch (e) {
+        console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+        process.exit(1);
+    }
+    if (!archive.sources || archive.sources.length === 0) {
+        console.error("Error: This .stlib archive has no embedded sources (compiled with --no-source).");
+        process.exit(1);
+    }
+    const outputDir = options.output ? resolve(options.output) : process.cwd();
+    mkdirSync(outputDir, { recursive: true });
+    for (const src of archive.sources) {
+        // Normalize forward-slash category paths to platform separators and
+        // ensure the destination folder exists before writing.
+        const subdir = src.category
+            ? join(outputDir, ...src.category.split("/"))
+            : outputDir;
+        mkdirSync(subdir, { recursive: true });
+        const outPath = join(subdir, src.fileName);
+        writeFileSync(outPath, src.source, "utf-8");
+        console.log(`  ${outPath}`);
+    }
+    console.log(`Extracted ${archive.sources.length} file(s) from ${archive.manifest.name} v${archive.manifest.version}`);
+}
+/**
+ * Import mode: convert a CODESYS .lib/.library file into a .stlib archive.
+ * Extracts ST source from the binary, then compiles via compileStlib().
+ */
+async function importLibMode(options) {
+    if (!options.libName) {
+        console.error("Error: --lib-name is required with --import-lib");
+        process.exit(1);
+    }
+    const outputDir = options.output ? resolve(options.output) : process.cwd();
+    if (!existsSync(outputDir)) {
+        mkdirSync(outputDir, { recursive: true });
+    }
+    console.log(`Importing CODESYS library: ${options.importLib}`);
+    const libPath = resolve(options.importLib);
+    const libBytes = readFileSync(libPath);
+    const importResult = await importCodesysLibraryFromBytes(libBytes);
+    if (!importResult.success) {
+        for (const err of importResult.errors) {
+            console.error(`Error: ${err}`);
+        }
+        process.exit(1);
+    }
+    for (const w of importResult.warnings) {
+        console.warn(`  warning: ${w}`);
+    }
+    const { metadata } = importResult;
+    console.log(`  Format: CODESYS ${metadata.format === "v23" ? "V2.3" : "V3"}`);
+    console.log(`  Extracted ${metadata.pouCount} items:`);
+    for (const [type, count] of Object.entries(metadata.counts).sort()) {
+        console.log(`    ${type}: ${count}`);
+    }
+    if (metadata.guid) {
+        console.log(`  GUID: ${metadata.guid}`);
+    }
+    // Now compile the extracted sources into a .stlib archive
+    const libNamespace = options.libNamespace ?? options.libName.replace(/[^a-zA-Z0-9_]/g, "_");
+    // Load dependency libraries from explicit -L paths only
+    const dependencies = [];
+    for (const libPath of options.libraryPaths) {
+        try {
+            dependencies.push(...discoverStlibs(libPath));
+        }
+        catch (e) {
+            console.error(`Warning: Could not load libraries from ${libPath}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+    console.log(`\nCompiling library "${options.libName}" from ${importResult.sources.length} extracted source(s)...`);
+    const stlibOpts = {
+        name: options.libName,
+        version: options.libVersion,
+        namespace: libNamespace,
+        noSource: options.noSource,
+    };
+    if (dependencies.length > 0) {
+        stlibOpts.dependencies = dependencies;
+    }
+    // Forward the constants promoted from VAR_GLOBAL CONSTANT blocks (e.g. OSCAT's
+    // STRING_LENGTH) so the dropped GVL's values are still available as constexpr
+    // template parameters; explicit -D defines win over the imported values.
+    const mergedConstants = {
+        ...importResult.globalConstants,
+        ...options.defines,
+    };
+    if (Object.keys(mergedConstants).length > 0) {
+        stlibOpts.globalConstants = mergedConstants;
+    }
+    const result = compileStlib(importResult.sources, stlibOpts);
+    if (!result.success) {
+        console.error("\nLibrary compilation failed:\n");
+        printDiagnostics(result.errors.map(toDiagnostic), importResult.sources);
+        console.error("Note: Extracted ST sources may need manual adjustments for compilation.");
+        process.exit(1);
+    }
+    const stlibPath = resolve(outputDir, `${options.libName}.stlib`);
+    writeFileSync(stlibPath, JSON.stringify(result.archive, null, 2), "utf-8");
+    console.log(`\nLibrary archive written to ${stlibPath}`);
+    console.log("Import successful!");
+}
+async function main() {
+    const args = process.argv.slice(2);
+    const options = parseArgs(args);
+    if (options.showVersion) {
+        console.log(`STruC++ version ${getVersion()}`);
+        process.exit(0);
+    }
+    if (options.showHelp || args.length === 0) {
+        showHelp();
+        process.exit(options.showHelp ? 0 : 1);
+    }
+    // Decompile mode
+    if (options.decompileLib) {
+        decompileLibMode(options);
+        return;
+    }
+    // Import CODESYS library mode
+    if (options.importLib) {
+        await importLibMode(options);
+        return;
+    }
+    // Library compilation mode
+    if (options.compileLib) {
+        compileLibraryMode(options);
+        return;
+    }
+    // Test mode
+    if (options.test.length > 0) {
+        runTestMode(options);
+        return;
+    }
+    if (options.inputs.length === 0) {
+        console.error("Error: No input file specified");
+        console.error('Run "strucpp --help" for usage information');
+        process.exit(1);
+    }
+    const primaryInput = options.inputs[0];
+    const inputPath = resolve(primaryInput);
+    const outputPath = options.output
+        ? resolve(options.output)
+        : inputPath.replace(/\.(st|il)$/i, ".cpp");
+    // Derive header filename from output path for correct #include directive
+    const headerFileName = basename(outputPath).replace(/\.cpp$/i, ".hpp");
+    let source;
+    try {
+        source = readFileSync(inputPath, "utf-8");
+    }
+    catch {
+        console.error(`Error: Cannot read input file: ${inputPath}`);
+        process.exit(1);
+    }
+    // Read additional source files
+    const additionalSources = [];
+    for (const extra of options.inputs.slice(1)) {
+        const extraPath = resolve(extra);
+        try {
+            additionalSources.push({
+                source: readFileSync(extraPath, "utf-8"),
+                fileName: basename(extraPath),
+            });
+        }
+        catch {
+            console.error(`Error: Cannot read input file: ${extraPath}`);
+            process.exit(1);
+        }
+    }
+    const effectiveLibPaths = getEffectiveLibraryPaths(options);
+    const compileOptions = {
+        debug: options.debug,
+        lineMapping: options.lineMapping,
+        lineDirectives: options.lineDirectives,
+        sourceComments: options.sourceComments,
+        optimizationLevel: options.optimizationLevel,
+        headerFileName,
+        fileName: basename(inputPath),
+    };
+    if (additionalSources.length > 0) {
+        compileOptions.additionalSources = additionalSources;
+    }
+    if (effectiveLibPaths.length > 0) {
+        compileOptions.libraries = effectiveLibPaths.flatMap((p) => discoverStlibs(p));
+    }
+    if (Object.keys(options.defines).length > 0) {
+        compileOptions.globalConstants = options.defines;
+    }
+    const fileLabel = options.inputs.length > 1
+        ? `${options.inputs.length} files`
+        : basename(inputPath);
+    console.log(`Compiling ${fileLabel}...`);
+    const result = compile(source, compileOptions);
+    const diagSources = [
+        { fileName: basename(inputPath), source },
+        ...additionalSources,
+    ];
+    if (!result.success) {
+        console.error("\nCompilation failed:\n");
+        printDiagnostics(result.errors, diagSources);
+        process.exit(1);
+    }
+    printDiagnostics(result.warnings, diagSources, "warn");
+    try {
+        writeFileSync(outputPath, result.cppCode, "utf-8");
+        console.log(`Output written to ${outputPath}`);
+        if (result.headerCode) {
+            const headerPath = outputPath.replace(/\.cpp$/i, ".hpp");
+            writeFileSync(headerPath, result.headerCode, "utf-8");
+            console.log(`Header written to ${headerPath}`);
+        }
+    }
+    catch {
+        console.error(`Error: Cannot write output file: ${outputPath}`);
+        process.exit(1);
+    }
+    console.log("Compilation successful!");
+    // --build: generate main.cpp and invoke g++
+    if (options.build) {
+        ensureCompilersAvailable(options, true);
+        if (!result.ast || !result.projectModel) {
+            console.error("Error: AST/ProjectModel not available for --build");
+            process.exit(1);
+        }
+        const outputDir = dirname(outputPath);
+        const mainCppPath = resolve(outputDir, "main.cpp");
+        // Resolve runtime include dir (auto-discovery + --cxx-flags fallback)
+        const runtimeIncludeDir = findRuntimeIncludeDir(options.cxxFlags);
+        if (!runtimeIncludeDir) {
+            console.error("Error: Could not locate runtime include directory.\n" +
+                '  Use --cxx-flags "-I/path/to/runtime/include" to specify it.');
+            process.exit(1);
+        }
+        // Derive repl dir as sibling of include dir (runtime/include -> runtime/repl)
+        const replDir = resolve(dirname(runtimeIncludeDir), "repl");
+        if (!existsSync(resolve(replDir, "isocline.h"))) {
+            console.error(`Error: REPL runtime not found at ${replDir}\n` +
+                "  Expected runtime/repl/ as sibling of runtime/include/.");
+            process.exit(1);
+        }
+        console.log("Generating REPL harness...");
+        const mainCppCode = generateReplMain(result.ast, result.projectModel, {
+            headerFileName,
+            stSource: source,
+            cppCode: result.cppCode,
+            headerCode: result.headerCode,
+            lineMap: result.lineMap,
+            headerLineMap: result.headerLineMap,
+        });
+        writeFileSync(mainCppPath, mainCppCode, "utf-8");
+        console.log(`REPL main written to ${mainCppPath}`);
+        // Derive binary output path (strip .cpp extension)
+        let binaryPath = outputPath.replace(/\.cpp$/i, "");
+        if (process.platform === "win32")
+            binaryPath += ".exe";
+        const isoclineObjPath = resolve(outputDir, "isocline.o");
+        // Step 1: Compile isocline.c as C (uses execFileSync to avoid shell injection)
+        console.log("Compiling isocline...");
+        try {
+            execFileSync(options.cc, [
+                "-c",
+                "-std=c11",
+                `-I${replDir}`,
+                resolve(replDir, "isocline.c"),
+                "-o",
+                isoclineObjPath,
+            ], { stdio: "inherit" });
+        }
+        catch (err) {
+            const exitCode = err.status;
+            console.error(`Error: C compilation of isocline failed (exit code ${exitCode ?? "unknown"}).`);
+            console.error("Ensure a C compiler is available or specify one with --cc.");
+            process.exit(1);
+        }
+        // Step 2: Compile C++ and link with isocline.o (uses execFileSync to avoid shell injection)
+        const gppArgs = [
+            "-std=c++17",
+            `-I${runtimeIncludeDir}`,
+            `-I${replDir}`,
+            `-I${outputDir}`,
+            ...splitCxxFlags(options.cxxFlags),
+            mainCppPath,
+            outputPath,
+            isoclineObjPath,
+            "-o",
+            binaryPath,
+        ];
+        console.log(`Building binary: ${basename(binaryPath)}`);
+        try {
+            execFileSync(options.gpp, gppArgs, {
+                stdio: "inherit",
+                env: getCxxEnv(),
+            });
+            console.log(`Binary built: ${binaryPath}`);
+            console.log(`Run it with: ${binaryPath}`);
+        }
+        catch (err) {
+            const exitCode = err.status;
+            console.error(`Error: g++ compilation failed (exit code ${exitCode ?? "unknown"}).`);
+            console.error("Check the compiler output above for details.");
+            process.exit(1);
+        }
+    }
+}
+main().catch((err) => {
+    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+    process.exit(1);
+});
+//# sourceMappingURL=cli.js.map

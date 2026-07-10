@@ -1,0 +1,1038 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2025 Autonomy / OpenPLC Project
+/**
+ * STruC++ Type Checker
+ *
+ * Performs type checking and type inference on the AST.
+ * Validates IEC 61131-3 type rules and resolves types for expressions.
+ *
+ * Sub-Phase B: Walks all POUs and resolves every expression's type (sets resolvedType on AST nodes).
+ * Sub-Phase C: Validates type rules (assignment compatibility, conditions, FOR vars, function args).
+ */
+import { ELEMENTARY_TYPES, isTypeInCategory as _isTypeInCategory, isAssignable as _isAssignable, isNarrowingConversion, matchesConstraint, getCommonType, resolveFieldType, resolveArrayElementType, typeName as typeNameUtil, isGenericGroupType, } from "./type-utils.js";
+import { stripEnEno } from "../ast-utils.js";
+// Re-export from type-utils for backward compatibility
+export { ELEMENTARY_TYPES, TYPE_CATEGORIES } from "./type-utils.js";
+// =============================================================================
+// IEC 61131-3 date/time arithmetic helpers
+// =============================================================================
+/** True when the operand type is one of the absolute-time types. */
+function isInstantType(t) {
+    if (t.typeKind !== "elementary")
+        return false;
+    const name = t.name;
+    return name === "DT" || name === "DATE" || name === "TOD";
+}
+/** True when the operand type is the duration type (TIME). */
+function isDurationType(t) {
+    if (t.typeKind !== "elementary")
+        return false;
+    return t.name === "TIME";
+}
+/** True when the operand pair maps to a recognised date/time arithmetic
+ *  rule from IEC 61131-3 §6.6.2.2 — instant minus instant, or instant
+ *  ± duration. Anything else (DT * 2, TIME / DT, …) falls through to
+ *  the normal arithmetic path so we don't widen the rule beyond what
+ *  the standard sanctions. */
+function isDateTimeArithmetic(left, right, op) {
+    const leftIsInstant = isInstantType(left);
+    const rightIsInstant = isInstantType(right);
+    const leftIsTime = isDurationType(left);
+    const rightIsTime = isDurationType(right);
+    // instant - instant → TIME (duration). Both must be the same instant
+    // type per the standard (DT - TOD is meaningless).
+    if (op === "-" && leftIsInstant && rightIsInstant) {
+        return left.name === right.name;
+    }
+    // instant ± duration → instant (offset)
+    if (leftIsInstant && rightIsTime)
+        return true;
+    // duration + instant → instant (commutative addition only)
+    if (op === "+" && leftIsTime && rightIsInstant)
+        return true;
+    return false;
+}
+/** Resolves the result type for a recognised date/time arithmetic pair.
+ *  Pre-condition: isDateTimeArithmetic returned true for the same args. */
+function resolveDateTimeArithmetic(left, right, op) {
+    const leftIsInstant = isInstantType(left);
+    const rightIsInstant = isInstantType(right);
+    if (op === "-" && leftIsInstant && rightIsInstant) {
+        return ELEMENTARY_TYPES["TIME"];
+    }
+    // instant ± duration: result keeps the instant type.
+    if (leftIsInstant)
+        return left;
+    // duration + instant (commutative): result is the instant type.
+    if (rightIsInstant)
+        return right;
+    return undefined;
+}
+// =============================================================================
+// Type Checker
+// =============================================================================
+/**
+ * Type checker for IEC 61131-3 programs.
+ */
+export class TypeChecker {
+    symbolTables;
+    stdRegistry;
+    errors = [];
+    warnings = [];
+    ast;
+    constructor(symbolTables, stdRegistry) {
+        this.symbolTables = symbolTables;
+        this.stdRegistry = stdRegistry;
+    }
+    /**
+     * Check types for a complete compilation unit.
+     * Walks all POUs, resolves expression types, and validates type rules.
+     */
+    check(ast) {
+        this.errors = [];
+        this.warnings = [];
+        this.ast = ast;
+        // Walk all programs
+        for (const prog of ast.programs) {
+            const scope = this.symbolTables.getProgramScope(prog.name);
+            if (scope) {
+                this.checkVarBlocks(prog.varBlocks, scope);
+                this.checkStatements(prog.body, scope);
+            }
+        }
+        // Walk all functions
+        for (const func of ast.functions) {
+            const scope = this.symbolTables.getFunctionScope(func.name);
+            if (scope) {
+                this.checkVarBlocks(func.varBlocks, scope);
+                this.checkStatements(func.body, scope);
+            }
+        }
+        // Walk all function blocks
+        for (const fb of ast.functionBlocks) {
+            const scope = this.symbolTables.getFBScope(fb.name);
+            if (scope) {
+                // FB body
+                this.checkVarBlocks(fb.varBlocks, scope);
+                this.checkStatements(fb.body, scope);
+                // Method bodies (use method scope for local variable resolution)
+                for (const method of fb.methods) {
+                    const methodScope = this.symbolTables.getMethodScope(fb.name, method.name);
+                    this.checkVarBlocks(method.varBlocks, methodScope ?? scope);
+                    this.checkStatements(method.body, methodScope ?? scope);
+                }
+                // Property getter/setter bodies
+                for (const prop of fb.properties) {
+                    if (prop.getter)
+                        this.checkStatements(prop.getter, scope);
+                    if (prop.setter)
+                        this.checkStatements(prop.setter, scope);
+                }
+            }
+        }
+        return {
+            errors: this.errors,
+            warnings: this.warnings,
+        };
+    }
+    // ===========================================================================
+    // Expression Type Resolution (Sub-Phase B)
+    // ===========================================================================
+    /**
+     * Resolve the type of an expression, setting resolvedType on the AST node.
+     * Public so codegen can call it for standalone expressions.
+     */
+    resolveExprType(expr, scope) {
+        const type = this.inferType(expr, scope);
+        if (type) {
+            expr.resolvedType = type;
+        }
+        return type;
+    }
+    /**
+     * Resolve a struct/FB/program field's declared type name, consulting the local
+     * compilation unit first and then the dependency libraries' symbol entries.
+     *
+     * The members of an FB whose type is defined in an imported `.stlib` (e.g.
+     * `rmp : _RMP_NEXT` where `_RMP_NEXT` lives in oscat-basic) are not in the local
+     * AST, so the AST-only `resolveFieldType` returns undefined for `rmp.DN`. That
+     * left the member access untyped, which only surfaced as a hard error when an
+     * overloaded bitwise std-function (e.g. `NOT`/`OR` from the IEC functions library)
+     * propagated the missing type as the generic `ANY_BIT` into a condition. Falling
+     * back to the FB symbol's registered inputs/outputs/inouts/locals fixes the root
+     * cause: `rmp.DN` now resolves to its real `BOOL` type.
+     */
+    resolveFieldTypeAnywhere(typeName, fieldName) {
+        if (this.ast) {
+            const local = resolveFieldType(typeName, fieldName, this.ast);
+            if (local)
+                return local;
+        }
+        const fb = this.symbolTables.lookupFunctionBlock(typeName);
+        if (fb) {
+            const fu = fieldName.toUpperCase();
+            for (const m of [
+                ...fb.inputs,
+                ...fb.outputs,
+                ...fb.inouts,
+                ...fb.locals,
+            ]) {
+                if (m.name.toUpperCase() === fu)
+                    return m.declaration?.type?.name;
+            }
+        }
+        // Dependency struct types: their member types are carried on the registered
+        // StructType (e.g. CONSTANTS_MATH.PI), so `MATH.PI` resolves to REAL.
+        const ty = this.symbolTables.lookupType(typeName);
+        if (ty?.resolvedType?.typeKind === "struct") {
+            const fu = fieldName.toUpperCase();
+            for (const [fname, ftype] of ty.resolvedType.fields) {
+                if (fname.toUpperCase() === fu) {
+                    return ftype.name;
+                }
+            }
+        }
+        return undefined;
+    }
+    /**
+     * Resolve a type *name* to its IECType: an elementary type, else a registered
+     * type (struct/FB/enum from the local AST or a dependency library), else a
+     * minimal elementary placeholder. Using the registered type (rather than always
+     * wrapping the name in a placeholder elementary) keeps member/array-element
+     * access consistent with how a variable's declared type resolves — otherwise
+     * `event := prog[pos]` where both are a library struct would compare a real
+     * StructType against a placeholder elementary and be wrongly rejected.
+     */
+    resolveNamedType(name) {
+        return (ELEMENTARY_TYPES[name.toUpperCase()] ??
+            this.symbolTables.lookupType(name)?.resolvedType ??
+            { typeKind: "elementary", name, sizeBits: 0 });
+    }
+    /**
+     * Infer the type of an expression.
+     */
+    inferType(expr, scope) {
+        switch (expr.kind) {
+            case "LiteralExpression":
+                return this.inferLiteralType(expr);
+            case "VariableExpression":
+                return this.inferVariableType(expr, scope);
+            case "BinaryExpression":
+                return this.inferBinaryType(expr, scope);
+            case "UnaryExpression":
+                return this.inferUnaryType(expr, scope);
+            case "FunctionCallExpression":
+                return this.inferFunctionCallType(expr, scope);
+            case "MethodCallExpression":
+                return this.inferMethodCallType(expr, scope);
+            case "ParenthesizedExpression": {
+                const inner = this.inferType(expr.expression, scope);
+                if (inner)
+                    expr.resolvedType = inner;
+                return inner;
+            }
+            case "RefExpression": {
+                const operandType = this.resolveExprType(expr.operand, scope);
+                if (operandType) {
+                    const refType = {
+                        typeKind: "reference",
+                        referencedType: operandType,
+                        isImplicitDeref: false,
+                    };
+                    expr.resolvedType = refType;
+                    return refType;
+                }
+                return undefined;
+            }
+            case "DrefExpression": {
+                const operandType = this.resolveExprType(expr.operand, scope);
+                if (operandType?.typeKind === "reference") {
+                    const derefType = operandType.referencedType;
+                    expr.resolvedType = derefType;
+                    return derefType;
+                }
+                return undefined;
+            }
+            case "NewExpression": {
+                const allocType = ELEMENTARY_TYPES[expr.allocationType.name.toUpperCase()];
+                if (allocType) {
+                    const refType = {
+                        typeKind: "reference",
+                        referencedType: allocType,
+                        isImplicitDeref: false,
+                    };
+                    expr.resolvedType = refType;
+                    return refType;
+                }
+                return undefined;
+            }
+            case "ArrayLiteralExpression": {
+                // Array literals don't have an inherent type — they get their type from the assignment target
+                return undefined;
+            }
+            default:
+                return undefined;
+        }
+    }
+    /**
+     * Infer type of a literal expression.
+     */
+    inferLiteralType(expr) {
+        if (expr.typePrefix) {
+            const prefixType = ELEMENTARY_TYPES[expr.typePrefix.toUpperCase()];
+            if (prefixType) {
+                expr.resolvedType = prefixType;
+                return prefixType;
+            }
+        }
+        let type;
+        switch (expr.literalType) {
+            case "BOOL":
+                type = ELEMENTARY_TYPES["BOOL"];
+                break;
+            case "INT":
+                type = ELEMENTARY_TYPES["INT"];
+                break;
+            case "REAL":
+                type = ELEMENTARY_TYPES["REAL"];
+                break;
+            case "STRING":
+                type = ELEMENTARY_TYPES["STRING"];
+                break;
+            case "WSTRING":
+                type = ELEMENTARY_TYPES["WSTRING"];
+                break;
+            case "TIME":
+                type = ELEMENTARY_TYPES["TIME"];
+                break;
+            case "DATE":
+                type = ELEMENTARY_TYPES["DATE"];
+                break;
+            case "TIME_OF_DAY":
+                type = ELEMENTARY_TYPES["TIME_OF_DAY"];
+                break;
+            case "DATE_AND_TIME":
+                type = ELEMENTARY_TYPES["DATE_AND_TIME"];
+                break;
+            case "NULL":
+                return undefined;
+            default:
+                return undefined;
+        }
+        if (type)
+            expr.resolvedType = type;
+        return type;
+    }
+    /**
+     * Infer type of a variable expression, including access chain resolution.
+     */
+    inferVariableType(expr, scope) {
+        const symbol = scope.lookup(expr.name);
+        if (symbol === undefined) {
+            // Don't report error here — Pass 3 undeclared-variable check handles this
+            return undefined;
+        }
+        if (symbol.kind !== "variable" && symbol.kind !== "constant") {
+            return undefined;
+        }
+        let currentType = symbol.type;
+        let currentTypeName;
+        if (currentType?.typeKind === "elementary") {
+            currentTypeName = currentType.name;
+        }
+        else if (currentType) {
+            // For non-elementary types, use the declaration type name
+            currentTypeName = symbol.declaration?.type?.name;
+        }
+        // Resolve access chain (accessChain is the preferred path)
+        if (expr.accessChain && expr.accessChain.length > 0 && this.ast) {
+            for (const step of expr.accessChain) {
+                if (!currentTypeName)
+                    break;
+                if (step.kind === "field") {
+                    // Resolve struct/FB field (local AST + dependency-library FB members)
+                    const fieldType = this.resolveFieldTypeAnywhere(currentTypeName, step.name);
+                    if (fieldType) {
+                        currentTypeName = fieldType;
+                        currentType = this.resolveNamedType(fieldType);
+                    }
+                    else {
+                        // Check if it's a numeric bit access (e.g., var.0)
+                        if (/^\d+$/.test(step.name)) {
+                            currentType = ELEMENTARY_TYPES["BOOL"];
+                            currentTypeName = "BOOL";
+                        }
+                        else {
+                            currentType = undefined;
+                            currentTypeName = undefined;
+                        }
+                    }
+                }
+                else if (step.kind === "subscript") {
+                    // Resolve array element type
+                    const elemType = resolveArrayElementType(currentTypeName, this.ast);
+                    if (elemType) {
+                        currentTypeName = elemType;
+                        currentType = this.resolveNamedType(elemType);
+                    }
+                    else {
+                        currentType = undefined;
+                        currentTypeName = undefined;
+                    }
+                    // Also resolve the index expressions
+                    for (const idx of step.indices) {
+                        this.resolveExprType(idx, scope);
+                    }
+                }
+                else if (step.kind === "dereference") {
+                    if (currentType?.typeKind === "reference") {
+                        currentType = currentType.referencedType;
+                        if (currentType.typeKind === "elementary") {
+                            currentTypeName = currentType.name;
+                        }
+                    }
+                    else {
+                        currentType = undefined;
+                        currentTypeName = undefined;
+                    }
+                }
+            }
+        }
+        else if (this.ast) {
+            // Fallback: use legacy fieldAccess + subscripts
+            // Resolve subscripts (array indexing on the base variable)
+            if (expr.subscripts.length > 0 && currentTypeName) {
+                for (const sub of expr.subscripts) {
+                    this.resolveExprType(sub, scope);
+                }
+                const elemType = resolveArrayElementType(currentTypeName, this.ast);
+                if (elemType) {
+                    currentTypeName = elemType;
+                    currentType = this.resolveNamedType(elemType);
+                }
+            }
+            // Resolve field access chain
+            if (expr.fieldAccess.length > 0 && currentTypeName) {
+                for (const field of expr.fieldAccess) {
+                    if (!currentTypeName)
+                        break;
+                    if (/^\d+$/.test(field)) {
+                        // Bit access
+                        currentType = ELEMENTARY_TYPES["BOOL"];
+                        currentTypeName = "BOOL";
+                    }
+                    else {
+                        const fieldType = this.resolveFieldTypeAnywhere(currentTypeName, field);
+                        if (fieldType) {
+                            currentTypeName = fieldType;
+                            currentType = this.resolveNamedType(fieldType);
+                        }
+                        else {
+                            currentType = undefined;
+                            currentTypeName = undefined;
+                        }
+                    }
+                }
+            }
+            // Handle dereference
+            if (expr.isDereference && currentType?.typeKind === "reference") {
+                currentType = currentType.referencedType;
+            }
+        }
+        if (currentType) {
+            expr.resolvedType = currentType;
+        }
+        return currentType;
+    }
+    /**
+     * Infer type of a binary expression.
+     */
+    inferBinaryType(expr, scope) {
+        const leftType = this.resolveExprType(expr.left, scope);
+        const rightType = this.resolveExprType(expr.right, scope);
+        if (leftType === undefined || rightType === undefined) {
+            return undefined;
+        }
+        let type;
+        // Comparison operators always return BOOL
+        if (["=", "<>", "<", ">", "<=", ">="].includes(expr.operator)) {
+            type = ELEMENTARY_TYPES["BOOL"];
+        }
+        // Logical operators return BOOL
+        else if (["AND", "OR", "XOR"].includes(expr.operator)) {
+            type = ELEMENTARY_TYPES["BOOL"];
+        }
+        // IEC 61131-3 date/time arithmetic (table 30 of the standard).
+        // Date types are int64_t aliases at the C++ level so the operator-
+        // overload returns IECVar<int64_t>, but the *semantic* result type
+        // depends on the operands:
+        //   DT/DATE/TOD - DT/DATE/TOD = TIME   (duration between two instants)
+        //   DT/DATE/TOD ± TIME       = DT/DATE/TOD (instant offset)
+        // Without these rules the type checker collapses DT - DT to DT,
+        // which then refuses assignment to a TIME variable (the natural use
+        // of the difference). This breaks RTC-style code that captures an
+        // offset between two datetimes — including the Additional Function
+        // Blocks library's RTC FB and any user code doing date arithmetic.
+        else if (["+", "-"].includes(expr.operator) &&
+            isDateTimeArithmetic(leftType, rightType, expr.operator)) {
+            type = resolveDateTimeArithmetic(leftType, rightType, expr.operator);
+        }
+        // Arithmetic operators return the "wider" type
+        else if (["+", "-", "*", "/", "MOD", "**"].includes(expr.operator)) {
+            type = getCommonType(leftType, rightType) ?? leftType;
+        }
+        else {
+            type = leftType;
+        }
+        if (type)
+            expr.resolvedType = type;
+        return type;
+    }
+    /**
+     * Infer type of a unary expression.
+     */
+    inferUnaryType(expr, scope) {
+        const operandType = this.resolveExprType(expr.operand, scope);
+        if (operandType === undefined) {
+            return undefined;
+        }
+        let type;
+        if (expr.operator === "NOT") {
+            // NOT preserves the operand type for bit types (NOT BYTE returns BYTE)
+            type = operandType;
+        }
+        else {
+            // Unary + and - preserve the operand type
+            type = operandType;
+        }
+        if (type)
+            expr.resolvedType = type;
+        return type;
+    }
+    /**
+     * Infer type of a function call expression.
+     */
+    inferFunctionCallType(expr, scope) {
+        // Resolve argument expressions
+        for (const arg of expr.arguments) {
+            this.resolveExprType(arg.value, scope);
+        }
+        const nameUpper = expr.functionName.toUpperCase();
+        // Check user-defined functions in symbol tables
+        const funcSymbol = this.symbolTables.lookupFunction(expr.functionName);
+        if (funcSymbol !== undefined) {
+            let returnType = funcSymbol.returnType;
+            // Overloaded standard functions are published in the builtin stdlib
+            // manifest with their generic return *constraint* (e.g. NOT -> ANY_BIT,
+            // ADD -> ANY_NUM). When the IEC signature says the result type matches
+            // the first argument, refine that generic to the concrete operand type
+            // so downstream checks see a real type — e.g. NOT(BOOL) -> BOOL, which
+            // the EN-input check (and bit/num operand rules) require.
+            if (returnType && isGenericGroupType(returnType) && this.stdRegistry) {
+                const desc = this.stdRegistry.lookup(nameUpper);
+                if (desc?.returnMatchesFirstParam) {
+                    const userArgs = stripEnEno(expr.arguments);
+                    const firstArgType = userArgs[0]?.value.resolvedType;
+                    if (firstArgType)
+                        returnType = firstArgType;
+                }
+            }
+            expr.resolvedType = returnType;
+            return returnType;
+        }
+        // Validate standard function argument types (after resolving args)
+        this.validateFunctionCallArgs(expr, scope);
+        // Check standard function registry for return type
+        if (this.stdRegistry) {
+            // Check conversion functions (e.g., INT_TO_REAL → REAL)
+            const conv = this.stdRegistry.resolveConversion(nameUpper);
+            if (conv) {
+                const retType = ELEMENTARY_TYPES[conv.toType.toUpperCase()];
+                if (retType) {
+                    expr.resolvedType = retType;
+                    return retType;
+                }
+            }
+            // Check standard functions
+            const desc = this.stdRegistry.lookup(nameUpper);
+            if (desc) {
+                // Specific return type
+                if (desc.specificReturnType) {
+                    const retType = ELEMENTARY_TYPES[desc.specificReturnType.toUpperCase()];
+                    if (retType) {
+                        expr.resolvedType = retType;
+                        return retType;
+                    }
+                }
+                // Return matches first parameter (skipping EN/ENO — they're not part
+                // of the declared signature).
+                if (desc.returnMatchesFirstParam) {
+                    const userArgs = stripEnEno(expr.arguments);
+                    if (userArgs.length > 0) {
+                        const firstArgType = userArgs[0].value.resolvedType;
+                        if (firstArgType) {
+                            expr.resolvedType = firstArgType;
+                            return firstArgType;
+                        }
+                    }
+                }
+            }
+        }
+        // Could be a function block invocation (treated as statement, no return)
+        const fbInstance = scope.lookup(expr.functionName);
+        if (fbInstance?.kind === "variable") {
+            return undefined;
+        }
+        // Check if it's a standard function even without the registry
+        // (the function might be known via the symbol table from library loading)
+        const globalSymbol = this.symbolTables.globalScope.lookup(expr.functionName);
+        if (globalSymbol?.kind === "functionBlock") {
+            return undefined; // FB invocation, no direct return type
+        }
+        // Unknown function — don't error here, the undeclared-variable pass handles this
+        return undefined;
+    }
+    /**
+     * Infer type of a method call expression (e.g., fb.method(args)).
+     */
+    inferMethodCallType(expr, scope) {
+        // Resolve the object expression
+        const objType = this.resolveExprType(expr.object, scope);
+        // Resolve argument expressions
+        for (const arg of expr.arguments) {
+            this.resolveExprType(arg.value, scope);
+        }
+        if (!objType || !this.ast)
+            return undefined;
+        // Get the type name for the object
+        let objTypeName;
+        if (objType.typeKind === "elementary") {
+            objTypeName = objType.name;
+        }
+        else if (expr.object.kind === "VariableExpression") {
+            const sym = scope.lookup(expr.object.name);
+            if (sym?.kind === "variable") {
+                objTypeName = sym.declaration?.type?.name;
+            }
+        }
+        if (!objTypeName)
+            return undefined;
+        // Find the FB declaration and the method
+        const fb = this.ast.functionBlocks.find((f) => f.name.toUpperCase() === objTypeName.toUpperCase());
+        if (fb) {
+            const method = fb.methods.find((m) => m.name.toUpperCase() === expr.methodName.toUpperCase());
+            if (method?.returnType) {
+                const retType = ELEMENTARY_TYPES[method.returnType.name.toUpperCase()] ??
+                    {
+                        typeKind: "elementary",
+                        name: method.returnType.name,
+                        sizeBits: 0,
+                    };
+                expr.resolvedType = retType;
+                return retType;
+            }
+        }
+        return undefined;
+    }
+    // ===========================================================================
+    // Statement Type Validation (Sub-Phase C)
+    // ===========================================================================
+    /**
+     * Walk variable declarations and validate every initialiser against the
+     * declared type. Without this pass, nonsense like `WSTRING := 'foo'`
+     * (STRING literal into a WSTRING variable) reaches codegen unchecked,
+     * surfacing as a confusing C++ "no matching function for call to
+     * IECWStringVar(const char[N])" instead of a proper IEC type error
+     * pointing at the declaration.
+     *
+     * The check delegates to the same `validateAssignment` used for
+     * assignment statements — no separate compatibility rules — so anything
+     * the standard considers an implicit assignment also passes here.
+     */
+    checkVarBlocks(blocks, scope) {
+        for (const block of blocks) {
+            for (const decl of block.declarations) {
+                if (!decl.initialValue)
+                    continue;
+                const targetType = ELEMENTARY_TYPES[decl.type.name.toUpperCase()];
+                if (!targetType)
+                    continue; // Non-elementary types — handled elsewhere
+                const valueType = this.resolveExprType(decl.initialValue, scope);
+                if (!valueType)
+                    continue;
+                this.validateAssignment(targetType, valueType, 
+                // Synthetic VariableExpression for the diagnostic anchor: gives
+                // validateAssignment a target.name to mention in the error.
+                {
+                    kind: "VariableExpression",
+                    sourceSpan: decl.sourceSpan,
+                    name: decl.names[0] ?? "<unnamed>",
+                    fieldAccess: [],
+                    subscripts: [],
+                    isDereference: false,
+                }, decl.initialValue);
+            }
+        }
+    }
+    /**
+     * Walk statements, resolve all sub-expressions, and validate type rules.
+     */
+    checkStatements(stmts, scope) {
+        for (const stmt of stmts) {
+            this.checkStatement(stmt, scope);
+        }
+    }
+    checkStatement(stmt, scope) {
+        switch (stmt.kind) {
+            case "AssignmentStatement": {
+                const targetType = this.resolveExprType(stmt.target, scope);
+                const valueType = this.resolveExprType(stmt.value, scope);
+                this.validateAssignment(targetType, valueType, stmt.target, stmt.value);
+                break;
+            }
+            case "RefAssignStatement": {
+                this.resolveExprType(stmt.target, scope);
+                this.resolveExprType(stmt.source, scope);
+                // REF= rebinds a reference, so the target must be declared
+                // REF_TO / REFERENCE TO. Catch `plainVar REF= x` here with a clear
+                // message rather than letting it fall through to a confusing C++
+                // error (e.g. `IEC_INT` has no member `bind`).
+                if (stmt.target.kind === "VariableExpression") {
+                    const sym = scope.lookup(stmt.target.name);
+                    if (sym && sym.kind === "variable") {
+                        const refKind = sym.declaration.type.referenceKind;
+                        if (refKind !== "ref_to" && refKind !== "reference_to") {
+                            this.addError(`REF= requires a REF_TO or REFERENCE TO target; '${stmt.target.name}' is not a reference`, stmt.target.sourceSpan.startLine, stmt.target.sourceSpan.startCol, stmt.target.sourceSpan.file);
+                        }
+                    }
+                }
+                break;
+            }
+            case "IfStatement": {
+                const condType = this.resolveExprType(stmt.condition, scope);
+                this.validateCondition(condType, stmt.condition);
+                this.checkStatements(stmt.thenStatements, scope);
+                for (const clause of stmt.elsifClauses) {
+                    const clauseCondType = this.resolveExprType(clause.condition, scope);
+                    this.validateCondition(clauseCondType, clause.condition);
+                    this.checkStatements(clause.statements, scope);
+                }
+                this.checkStatements(stmt.elseStatements, scope);
+                break;
+            }
+            case "CaseStatement": {
+                const selectorType = this.resolveExprType(stmt.selector, scope);
+                if (selectorType) {
+                    this.validateCaseSelector(selectorType, stmt.selector);
+                }
+                for (const c of stmt.cases) {
+                    for (const label of c.labels) {
+                        this.resolveExprType(label.start, scope);
+                        if (label.end)
+                            this.resolveExprType(label.end, scope);
+                    }
+                    this.checkStatements(c.statements, scope);
+                }
+                this.checkStatements(stmt.elseStatements, scope);
+                break;
+            }
+            case "ForStatement": {
+                const startType = this.resolveExprType(stmt.start, scope);
+                const endType = this.resolveExprType(stmt.end, scope);
+                if (stmt.step)
+                    this.resolveExprType(stmt.step, scope);
+                // Validate control variable type
+                const controlSym = scope.lookup(stmt.controlVariable);
+                if (controlSym?.kind === "variable" ||
+                    controlSym?.kind === "constant") {
+                    const ctrlType = controlSym.type;
+                    if (ctrlType && !_isTypeInCategory(ctrlType, "ANY_INT")) {
+                        this.addError(`FOR control variable '${stmt.controlVariable}' must be an integer type, got ${typeNameUtil(ctrlType)}`, stmt.sourceSpan.startLine, stmt.sourceSpan.startCol, stmt.sourceSpan.file);
+                    }
+                    // Validate start/end compatibility with control variable
+                    // Use warnings instead of errors — CODESYS is lenient with FOR bounds
+                    if (ctrlType &&
+                        startType &&
+                        !this.isUntypedNumericLiteral(stmt.start)) {
+                        if (ctrlType.typeKind === "elementary" &&
+                            startType.typeKind === "elementary" &&
+                            !_isAssignable(ctrlType, startType)) {
+                            this.addWarning(`FOR start value type ${typeNameUtil(startType)} is not compatible with control variable type ${typeNameUtil(ctrlType)}`, stmt.start.sourceSpan.startLine, stmt.start.sourceSpan.startCol, stmt.start.sourceSpan.file);
+                        }
+                    }
+                    if (ctrlType && endType && !this.isUntypedNumericLiteral(stmt.end)) {
+                        if (ctrlType.typeKind === "elementary" &&
+                            endType.typeKind === "elementary" &&
+                            !_isAssignable(ctrlType, endType)) {
+                            this.addWarning(`FOR end value type ${typeNameUtil(endType)} is not compatible with control variable type ${typeNameUtil(ctrlType)}`, stmt.end.sourceSpan.startLine, stmt.end.sourceSpan.startCol, stmt.end.sourceSpan.file);
+                        }
+                    }
+                }
+                this.checkStatements(stmt.body, scope);
+                break;
+            }
+            case "WhileStatement": {
+                const condType = this.resolveExprType(stmt.condition, scope);
+                this.validateCondition(condType, stmt.condition);
+                this.checkStatements(stmt.body, scope);
+                break;
+            }
+            case "RepeatStatement": {
+                this.checkStatements(stmt.body, scope);
+                const condType = this.resolveExprType(stmt.condition, scope);
+                this.validateCondition(condType, stmt.condition);
+                break;
+            }
+            case "FunctionCallStatement": {
+                // resolveExprType already validates function call args
+                this.resolveExprType(stmt.call, scope);
+                break;
+            }
+            case "ReturnStatement":
+            case "ExitStatement":
+            case "ExternalCodePragma":
+                // No expressions to validate
+                break;
+            case "DeleteStatement": {
+                this.resolveExprType(stmt.pointer, scope);
+                break;
+            }
+            case "AssertCall": {
+                // Assert calls may have conditions
+                break;
+            }
+        }
+    }
+    // ===========================================================================
+    // Validation Helpers
+    // ===========================================================================
+    validateAssignment(targetType, valueType, target, value) {
+        if (!targetType || !valueType)
+            return;
+        // Integer/real/bool literals without explicit type prefix are polymorphic:
+        // they can be assigned to any compatible numeric or bit type.
+        if (this.isUntypedNumericLiteral(value)) {
+            if (targetType.typeKind === "elementary") {
+                // INT/REAL literals → any numeric or bit type
+                if (_isTypeInCategory(targetType, "ANY_NUM") ||
+                    _isTypeInCategory(targetType, "ANY_BIT")) {
+                    return;
+                }
+            }
+        }
+        // Check assignment compatibility
+        if (!_isAssignable(targetType, valueType)) {
+            // Check if it's a function name assignment (return value)
+            if (target.kind === "VariableExpression") {
+                const funcSym = this.symbolTables.lookupFunction(target.name);
+                if (funcSym)
+                    return; // Function return assignment
+            }
+            // Allow reference/pointer assignments to non-reference types (CODESYS pattern)
+            if (valueType.typeKind === "reference" ||
+                targetType.typeKind === "reference") {
+                return;
+            }
+            // For elementary types, check if this is narrowing (warning) vs truly incompatible (error)
+            if (targetType.typeKind === "elementary" &&
+                valueType.typeKind === "elementary") {
+                const tName = targetType.name;
+                const vName = valueType.name;
+                // If either side is a FB or struct type, it's definitely incompatible
+                // with a scalar type — fall through to the error report.
+                // Otherwise, skip validation for user-defined type aliases we can't
+                // fully resolve (e.g. MyInt := INT where MyInt is an alias for INT).
+                const tIsFbOrStruct = this.isKnownCompositeType(tName);
+                const vIsFbOrStruct = this.isKnownCompositeType(vName);
+                if (!tIsFbOrStruct && !vIsFbOrStruct) {
+                    if (!ELEMENTARY_TYPES[tName] || !ELEMENTARY_TYPES[vName]) {
+                        return;
+                    }
+                }
+                // Narrowing conversions are warnings, not errors
+                if (isNarrowingConversion(tName, vName)) {
+                    this.addWarning(`Implicit narrowing conversion from ${vName} to ${tName}`, value.sourceSpan.startLine, value.sourceSpan.startCol, value.sourceSpan.file);
+                    return;
+                }
+            }
+            this.addError(`Cannot assign ${typeNameUtil(valueType)} to ${typeNameUtil(targetType)}`, value.sourceSpan.startLine, value.sourceSpan.startCol, value.sourceSpan.file);
+            return;
+        }
+    }
+    /**
+     * Check if an expression is an untyped numeric literal (no explicit type prefix).
+     * These are polymorphic and can be assigned to any compatible numeric type.
+     */
+    isUntypedNumericLiteral(expr) {
+        if (expr.kind !== "LiteralExpression")
+            return false;
+        // If there's an explicit type prefix (e.g., DINT#42), it's not polymorphic
+        if (expr.typePrefix)
+            return false;
+        return (expr.literalType === "INT" ||
+            expr.literalType === "REAL" ||
+            expr.literalType === "BOOL");
+    }
+    /**
+     * Check if a type name refers to a known function block or struct type.
+     */
+    isKnownCompositeType(name) {
+        if (!this.ast)
+            return false;
+        const upper = name.toUpperCase();
+        if (this.ast.functionBlocks.some((fb) => fb.name.toUpperCase() === upper)) {
+            return true;
+        }
+        if (this.ast.types.some((td) => td.name.toUpperCase() === upper &&
+            td.definition.kind === "StructDefinition")) {
+            return true;
+        }
+        // Also check library FBs via symbol tables
+        if (this.symbolTables.lookupFunctionBlock(name)) {
+            return true;
+        }
+        return false;
+    }
+    validateCondition(condType, condExpr) {
+        if (!condType)
+            return;
+        // Conditions must be ANY_BIT (BOOL, BYTE, WORD, etc.)
+        if (!_isTypeInCategory(condType, "ANY_BIT")) {
+            this.addError(`Condition must be a boolean or bit type, got ${typeNameUtil(condType)}`, condExpr.sourceSpan.startLine, condExpr.sourceSpan.startCol, condExpr.sourceSpan.file);
+        }
+    }
+    validateCaseSelector(selectorType, selectorExpr) {
+        // CASE selector must be ANY_INT, ANY_BIT, or enum (IEC 61131-3: ordinal types)
+        if (!_isTypeInCategory(selectorType, "ANY_INT") &&
+            !_isTypeInCategory(selectorType, "ANY_BIT") &&
+            selectorType.typeKind !== "enum") {
+            this.addError(`CASE selector must be an integer, bit, or enum type, got ${typeNameUtil(selectorType)}`, selectorExpr.sourceSpan.startLine, selectorExpr.sourceSpan.startCol, selectorExpr.sourceSpan.file);
+        }
+    }
+    validateFunctionCallArgs(expr, _scope) {
+        if (!this.stdRegistry)
+            return;
+        const nameUpper = expr.functionName.toUpperCase();
+        const desc = this.stdRegistry.lookup(nameUpper);
+        if (!desc)
+            return; // User-defined or unknown — skip constraint checking
+        // Validate argument types against parameter constraints. Strip EN/ENO
+        // first — they're handled by the codegen wrapper and don't map onto the
+        // declared signature, so leaving them in would shift positional indices
+        // and the param at slot 0 would be type-checked against EN's BOOL.
+        const userArgs = stripEnEno(expr.arguments);
+        for (let i = 0; i < userArgs.length && i < desc.params.length; i++) {
+            const arg = userArgs[i];
+            const param = desc.params[i];
+            const argType = arg.value.resolvedType;
+            if (!argType || argType.typeKind !== "elementary")
+                continue;
+            const argTypeName = argType.name;
+            // Check specific type constraint
+            if (param.constraint === "specific" && param.specificType) {
+                const specUpper = param.specificType.toUpperCase();
+                if (argTypeName.toUpperCase() !== specUpper) {
+                    const specType = ELEMENTARY_TYPES[specUpper];
+                    // Allow implicit widening to the specific type
+                    if (specType && !_isAssignable(specType, argType)) {
+                        // Check if it's a narrowing (warning) vs truly incompatible (error)
+                        if (specType && isNarrowingConversion(specUpper, argTypeName)) {
+                            this.addWarning(`Argument '${param.name}' of '${nameUpper}' expects ${param.specificType}, got ${argTypeName} (narrowing)`, arg.value.sourceSpan.startLine, arg.value.sourceSpan.startCol, arg.value.sourceSpan.file);
+                        }
+                        else {
+                            this.addError(`Argument '${param.name}' of '${nameUpper}' expects ${param.specificType}, got ${argTypeName}`, arg.value.sourceSpan.startLine, arg.value.sourceSpan.startCol, arg.value.sourceSpan.file);
+                        }
+                    }
+                }
+            }
+            else if (!matchesConstraint(argTypeName, param.constraint)) {
+                // Allow implicit widening: INT→REAL for ANY_REAL constraints, etc.
+                // Check if the argument type can be implicitly widened to a type in the constraint category
+                const canWiden = this.canWidenToConstraint(argTypeName, param.constraint);
+                if (!canWiden) {
+                    this.addError(`Argument '${param.name}' of '${nameUpper}' expects ${param.constraint}, got ${argTypeName}`, arg.value.sourceSpan.startLine, arg.value.sourceSpan.startCol, arg.value.sourceSpan.file);
+                }
+            }
+        }
+    }
+    /**
+     * Check if a type can be implicitly widened to match a constraint.
+     * E.g., INT can match ANY_REAL because INT→REAL is a valid widening.
+     */
+    canWidenToConstraint(typeName, constraint) {
+        const upper = typeName.toUpperCase();
+        // ANY_REAL: integer types can be implicitly promoted to REAL
+        if (constraint === "ANY_REAL") {
+            const elemType = ELEMENTARY_TYPES[upper] ?? {
+                typeKind: "elementary",
+                name: upper,
+                sizeBits: 0,
+            };
+            return _isTypeInCategory(elemType, "ANY_INT");
+        }
+        // ANY_NUM: bit types can be promoted to numeric
+        if (constraint === "ANY_NUM") {
+            const elemType = ELEMENTARY_TYPES[upper] ?? {
+                typeKind: "elementary",
+                name: upper,
+                sizeBits: 0,
+            };
+            return _isTypeInCategory(elemType, "ANY_BIT");
+        }
+        // ANY_BIT: integer types can be used in bit operations (CODESYS compat)
+        if (constraint === "ANY_BIT") {
+            const elemType = ELEMENTARY_TYPES[upper] ?? {
+                typeKind: "elementary",
+                name: upper,
+                sizeBits: 0,
+            };
+            return _isTypeInCategory(elemType, "ANY_INT");
+        }
+        return false;
+    }
+    // ===========================================================================
+    // Public API (backward compatible)
+    // ===========================================================================
+    /**
+     * Check if a type belongs to a category.
+     * Delegates to type-utils.
+     */
+    isTypeInCategory(type, category) {
+        return _isTypeInCategory(type, category);
+    }
+    /**
+     * Check if two types are compatible for assignment.
+     * Delegates to type-utils isAssignable.
+     */
+    areTypesCompatible(target, source) {
+        return _isAssignable(target, source);
+    }
+    // ===========================================================================
+    // Error/Warning Helpers
+    // ===========================================================================
+    /**
+     * Add an error message.
+     */
+    addError(message, line, column, file) {
+        this.errors.push({
+            message,
+            line,
+            column,
+            severity: "error",
+            ...(file ? { file } : {}),
+        });
+    }
+    /**
+     * Add a warning message.
+     */
+    addWarning(message, line, column, file) {
+        this.warnings.push({
+            message,
+            line,
+            column,
+            severity: "warning",
+            ...(file ? { file } : {}),
+        });
+    }
+}
+//# sourceMappingURL=type-checker.js.map

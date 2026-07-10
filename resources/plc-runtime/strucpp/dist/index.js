@@ -1,0 +1,819 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2025 Autonomy / OpenPLC Project
+/**
+ * STruC++ - IEC 61131-3 Structured Text to C++ Compiler
+ *
+ * Main entry point for the STruC++ compiler library.
+ * This module exports the public API for programmatic usage.
+ */
+import { parse as parseSource } from "./frontend/parser.js";
+import { suggestionForParseError } from "./frontend/parser-error-message-provider.js";
+import { buildAST } from "./frontend/ast-builder.js";
+import { transpileILSource } from "./il/il-transpiler.js";
+import { buildProjectModel } from "./project-model.js";
+import { SymbolTables } from "./semantic/symbol-table.js";
+import { SemanticAnalyzer } from "./semantic/analyzer.js";
+import { CodeGenerator } from "./backend/codegen.js";
+import { generateDebugTable, } from "./backend/debug-table-gen.js";
+import { StdFunctionRegistry } from "./semantic/std-function-registry.js";
+import { mergeCompilationUnits } from "./merge.js";
+import { walkAST } from "./ast-utils.js";
+import { registerLibrarySymbols } from "./library/library-loader.js";
+import { annotateErrorsWithPouContext } from "./diagnostic-pou-context.js";
+/**
+ * Default compilation options
+ */
+export const defaultOptions = {
+    debug: false,
+    lineMapping: true,
+    optimizationLevel: 0,
+};
+/** Conservative include-path character set: alphanumerics, dot, slash,
+ *  hyphen, underscore, plus.  Disallows quotes, backslashes, and newlines
+ *  so a `pouIncludes` entry can never break out of `#include "..."` and
+ *  splice unintended directives into a generated TU. */
+const INCLUDE_PATH_RE = /^[\w./+-]+$/;
+/**
+ * Reject obviously-malformed option values up front so misuse surfaces as
+ * a thrown error from the API entry point, not as broken C++ later in
+ * the pipeline.  Keep the checks narrow: the goal is to close foot-guns
+ * without becoming a schema validator.
+ */
+function validateCompileOptions(options) {
+    for (const include of options.pouIncludes ?? []) {
+        if (typeof include !== "string" || !INCLUDE_PATH_RE.test(include)) {
+            throw new TypeError(`pouIncludes entry ${JSON.stringify(include)} is not a valid include filename ` +
+                `(allowed characters: alphanumerics, '.', '/', '-', '_', '+').`);
+        }
+    }
+}
+// ---------------------------------------------------------------------------
+// Library tree-shaking: only include libraries whose symbols are referenced
+// ---------------------------------------------------------------------------
+/**
+ * Function-level tree-shake: determine which library chunks are
+ * reachable from the user's AST and need to be emitted into the
+ * final `generated.hpp` / `generated.cpp`.
+ *
+ * Walks every kind of cross-symbol reference the codegen relies on
+ * (function calls, variable & inline-global reads, type references,
+ * FB inheritance / interface implements), maps each name through a
+ * symbol→chunk index built across all archives, then BFS-traverses
+ * the chunk dep graph baked into each archive at library compile
+ * time.
+ *
+ * Returns a `Map<libraryName, Set<chunkName>>` describing the
+ * reachable subset of each archive. Archives whose entry is empty
+ * (or absent) contribute nothing to the user's output.
+ *
+ * Test builds bypass the shake: every chunk of every archive is
+ * declared reachable so the test harness sees the full symbol set
+ * regardless of what the source AST happens to reference.
+ */
+function collectUsedSymbols(ast, archives, includeEverything) {
+    // When asked to include everything (test builds), short-circuit.
+    if (includeEverything) {
+        const all = new Map();
+        for (const archive of archives) {
+            const chunkNames = new Set();
+            for (const chunk of archive.chunks ?? []) {
+                chunkNames.add(chunk.name);
+            }
+            all.set(archive.manifest.name, chunkNames);
+        }
+        return all;
+    }
+    // Build symbol→{library, chunk} index across every archive.  Names
+    // are uppercased to match how chunks are keyed (the codegen
+    // normalises every emitted identifier to uppercase before sealing
+    // chunk boundaries).
+    const symbolIndex = new Map();
+    // Per-library chunk-name lookup so the dep BFS can resolve chunks
+    // it already named when the consumer didn't reference them directly.
+    const chunkByKey = new Map();
+    for (const archive of archives) {
+        const libName = archive.manifest.name;
+        for (const chunk of archive.chunks ?? []) {
+            const entry = { library: libName, chunk: chunk.name };
+            symbolIndex.set(chunk.name.toUpperCase(), entry);
+            chunkByKey.set(`${libName}:${chunk.name}`, entry);
+        }
+    }
+    // Seed the reachable set from names the user AST references.
+    const referencedNames = new Set();
+    walkAST(ast, (node) => {
+        switch (node.kind) {
+            case "FunctionCallExpression": {
+                const fc = node;
+                referencedNames.add(fc.functionName.toUpperCase());
+                break;
+            }
+            case "VariableExpression": {
+                // Inline-global reads (e.g. `MATH.PI2`) show up as
+                // VariableExpression with name="MATH".
+                const ve = node;
+                referencedNames.add(ve.name.toUpperCase());
+                break;
+            }
+            case "TypeReference": {
+                const tr = node;
+                referencedNames.add(tr.name.toUpperCase());
+                if (tr.elementTypeName) {
+                    referencedNames.add(tr.elementTypeName.toUpperCase());
+                }
+                break;
+            }
+            case "FunctionBlockDeclaration": {
+                const fbd = node;
+                if (fbd.extends)
+                    referencedNames.add(fbd.extends.toUpperCase());
+                if (fbd.implements) {
+                    for (const iface of fbd.implements) {
+                        referencedNames.add(iface.toUpperCase());
+                    }
+                }
+                break;
+            }
+            case "InterfaceDeclaration": {
+                const id = node;
+                if (id.extends) {
+                    for (const base of id.extends) {
+                        referencedNames.add(base.toUpperCase());
+                    }
+                }
+                break;
+            }
+        }
+    });
+    // BFS through the chunk dep graph.
+    const reachable = new Set(); // keys: "<library>:<chunk>"
+    const queue = [];
+    for (const name of referencedNames) {
+        const entry = symbolIndex.get(name);
+        if (entry) {
+            const key = `${entry.library}:${entry.chunk}`;
+            if (!reachable.has(key)) {
+                reachable.add(key);
+                queue.push(entry);
+            }
+        }
+    }
+    // Build a fast lookup from "<library>:<chunk>" → chunk object so
+    // the BFS can read each chunk's pre-computed deps without rescanning.
+    const chunkLookup = new Map();
+    for (const archive of archives) {
+        for (const chunk of archive.chunks ?? []) {
+            chunkLookup.set(`${archive.manifest.name}:${chunk.name}`, {
+                archive,
+                chunk,
+            });
+        }
+    }
+    while (queue.length > 0) {
+        const cur = queue.shift();
+        const lookup = chunkLookup.get(`${cur.library}:${cur.chunk}`);
+        if (!lookup)
+            continue;
+        for (const dep of lookup.chunk.deps) {
+            const depKey = `${dep.library}:${dep.name}`;
+            if (reachable.has(depKey))
+                continue;
+            const target = chunkByKey.get(depKey);
+            if (!target)
+                continue;
+            reachable.add(depKey);
+            queue.push(target);
+        }
+    }
+    // Group reachable chunks by library.
+    const byLibrary = new Map();
+    for (const key of reachable) {
+        const sepIdx = key.indexOf(":");
+        const lib = key.slice(0, sepIdx);
+        const name = key.slice(sepIdx + 1);
+        let set = byLibrary.get(lib);
+        if (!set) {
+            set = new Set();
+            byLibrary.set(lib, set);
+        }
+        set.add(name);
+    }
+    return byLibrary;
+}
+/**
+ * Run phases 1-5 of the compilation pipeline (parse → AST → project model →
+ * library loading → semantic analysis).
+ *
+ * @param continueOnError - When true (analyze mode), wraps each phase in
+ *   try/catch and never aborts early so partial results are returned.
+ *   When false (compile mode), aborts at each phase boundary on errors.
+ */
+function runPipeline(source, options, continueOnError) {
+    const mergedOptions = { ...defaultOptions, ...options };
+    validateCompileOptions(mergedOptions);
+    const errors = [];
+    const warnings = [];
+    let ast;
+    let projectModel;
+    let symbolTables;
+    const allArchives = [];
+    // Phase 0: IL→ST transpilation (if source contains IL bodies)
+    let effectiveSource = source;
+    {
+        const ilResult = transpileILSource(source, mergedOptions.fileName);
+        if (ilResult.hasIL) {
+            effectiveSource = ilResult.stSource;
+            for (const err of ilResult.errors) {
+                const entry = {
+                    message: err.message,
+                    line: err.line,
+                    column: err.column,
+                    severity: err.severity,
+                };
+                if (err.file)
+                    entry.file = err.file;
+                errors.push(entry);
+            }
+            if (errors.length > 0 && !continueOnError) {
+                return {
+                    ast,
+                    projectModel,
+                    symbolTables,
+                    errors,
+                    warnings,
+                    allArchives,
+                    mergedOptions,
+                };
+            }
+        }
+    }
+    // Phase 1: Parse ST source to CST
+    const parseResult = parseSource(effectiveSource);
+    if (parseResult.errors.length > 0) {
+        for (const err of parseResult.errors) {
+            // Chevrotain's IRecognitionException — only the fields we
+            // actually read are typed here.  `context.ruleStack` is the
+            // chain of rules being parsed at the failure point; the
+            // innermost rule (last entry) drives the suggestion lookup.
+            const errObj = err;
+            const ruleStack = errObj.context?.ruleStack ?? [];
+            const ruleName = ruleStack[ruleStack.length - 1] ?? "";
+            const suggestion = suggestionForParseError(ruleName, errObj.token);
+            const entry = {
+                message: errObj.message ?? "Parse error",
+                line: errObj.token?.startLine ?? 0,
+                column: errObj.token?.startColumn ?? 0,
+                severity: "error",
+            };
+            if (mergedOptions.fileName)
+                entry.file = mergedOptions.fileName;
+            if (suggestion)
+                entry.suggestion = suggestion;
+            errors.push(entry);
+        }
+        // In analyze mode, continue with partial CST from Chevrotain recovery.
+        // In compile mode, abort immediately.
+        if (!continueOnError) {
+            return {
+                ast,
+                projectModel,
+                symbolTables,
+                errors,
+                warnings,
+                allArchives,
+                mergedOptions,
+            };
+        }
+    }
+    // Phase 2: Build AST from CST (supports multi-file via additionalSources)
+    if (!parseResult.cst) {
+        errors.push({
+            message: "Parse failed: no CST produced",
+            line: 0,
+            column: 0,
+            severity: "error",
+        });
+        return {
+            ast,
+            projectModel,
+            symbolTables,
+            errors,
+            warnings,
+            allArchives,
+            mergedOptions,
+        };
+    }
+    try {
+        const globalConstants = mergedOptions.globalConstants;
+        const primaryAst = buildAST(parseResult.cst, mergedOptions.fileName ?? "main.st", globalConstants);
+        const units = [primaryAst];
+        // Parse additional source files. Each gets the same Phase 0
+        // IL→ST transpilation as the primary source — without it, an IL
+        // POU surfaced through `additionalSources` (e.g. the editor's
+        // per-POU split of program.st) would reach the ST parser as
+        // raw IL and fail with a confusing "expecting Identifier but
+        // found 'LD'" error.
+        if (mergedOptions.additionalSources) {
+            for (const addlSource of mergedOptions.additionalSources) {
+                let effectiveAddlSource = addlSource.source;
+                const addlIlResult = transpileILSource(addlSource.source, addlSource.fileName);
+                if (addlIlResult.hasIL) {
+                    effectiveAddlSource = addlIlResult.stSource;
+                    for (const err of addlIlResult.errors) {
+                        const entry = {
+                            message: err.message,
+                            line: err.line,
+                            column: err.column,
+                            severity: err.severity,
+                        };
+                        if (err.file)
+                            entry.file = err.file;
+                        else
+                            entry.file = addlSource.fileName;
+                        errors.push(entry);
+                    }
+                    if (errors.length > 0 && !continueOnError) {
+                        continue;
+                    }
+                }
+                const addlParseResult = parseSource(effectiveAddlSource);
+                if (addlParseResult.errors.length > 0) {
+                    for (const err of addlParseResult.errors) {
+                        const errObj = err;
+                        errors.push({
+                            message: errObj.message ?? "Parse error",
+                            line: errObj.token?.startLine ?? 0,
+                            column: errObj.token?.startColumn ?? 0,
+                            severity: "error",
+                            file: addlSource.fileName,
+                        });
+                    }
+                    // In compile mode, skip files with parse errors.
+                    // In analyze mode, try to build from the partial CST.
+                    if (!continueOnError) {
+                        continue;
+                    }
+                }
+                if (addlParseResult.cst) {
+                    try {
+                        units.push(buildAST(addlParseResult.cst, addlSource.fileName, globalConstants));
+                    }
+                    catch (e) {
+                        errors.push({
+                            message: `AST build failed for ${addlSource.fileName}: ${e instanceof Error ? e.message : String(e)}`,
+                            line: 0,
+                            column: 0,
+                            severity: "error",
+                            file: addlSource.fileName,
+                        });
+                    }
+                }
+            }
+        }
+        if (!continueOnError && errors.length > 0) {
+            return {
+                ast,
+                projectModel,
+                symbolTables,
+                errors,
+                warnings,
+                allArchives,
+                mergedOptions,
+            };
+        }
+        ast = mergeCompilationUnits(units);
+    }
+    catch (e) {
+        errors.push({
+            message: `AST building failed: ${e instanceof Error ? e.message : String(e)}`,
+            line: 0,
+            column: 0,
+            severity: "error",
+        });
+        if (!continueOnError) {
+            return {
+                ast,
+                projectModel,
+                symbolTables,
+                errors,
+                warnings,
+                allArchives,
+                mergedOptions,
+            };
+        }
+        // In analyze mode, AST building failure is non-fatal — continue with
+        // whatever partial ast is available (may be undefined)
+    }
+    // Phase 3: Build project model and validate
+    if (!ast) {
+        // No AST available (parse/build failed completely) — skip remaining phases
+        return {
+            ast,
+            projectModel,
+            symbolTables,
+            errors,
+            warnings,
+            allArchives,
+            mergedOptions,
+        };
+    }
+    try {
+        const projectModelResult = buildProjectModel(ast);
+        projectModel = projectModelResult.model;
+        for (const err of projectModelResult.errors) {
+            errors.push({
+                message: err.message,
+                line: err.line ?? 0,
+                column: err.column ?? 0,
+                severity: "error",
+                ...(err.file ? { file: err.file } : {}),
+            });
+        }
+        for (const warn of projectModelResult.warnings) {
+            warnings.push({
+                message: warn.message,
+                line: warn.line ?? 0,
+                column: warn.column ?? 0,
+                severity: "warning",
+                ...(warn.file ? { file: warn.file } : {}),
+            });
+        }
+    }
+    catch (e) {
+        if (!continueOnError) {
+            errors.push({
+                message: `Project model failed: ${e instanceof Error ? e.message : String(e)}`,
+                line: 0,
+                column: 0,
+                severity: "error",
+            });
+            return {
+                ast,
+                projectModel,
+                symbolTables,
+                errors,
+                warnings,
+                allArchives,
+                mergedOptions,
+            };
+        }
+        // In analyze mode, project model failure is non-fatal
+    }
+    if (!continueOnError && errors.length > 0) {
+        return {
+            ast,
+            projectModel,
+            symbolTables,
+            errors,
+            warnings,
+            allArchives,
+            mergedOptions,
+        };
+    }
+    // Phase 4: Library loading.  Archives arrive pre-loaded;
+    // fs-based discovery lives in `strucpp/node`.
+    allArchives.push(...(mergedOptions.libraries ?? []));
+    if (!continueOnError && errors.length > 0) {
+        return {
+            ast,
+            projectModel,
+            symbolTables,
+            errors,
+            warnings,
+            allArchives,
+            mergedOptions,
+        };
+    }
+    // Auto-merge library globalConstants into effective constants.
+    // Library values provide defaults; user-provided values take priority.
+    for (const archive of allArchives) {
+        if (archive.globalConstants) {
+            if (!mergedOptions.globalConstants) {
+                mergedOptions.globalConstants = {};
+            }
+            for (const [key, value] of Object.entries(archive.globalConstants)) {
+                if (!(key in mergedOptions.globalConstants)) {
+                    mergedOptions.globalConstants[key] = value;
+                }
+            }
+        }
+    }
+    // Phase 5: Semantic analysis
+    let semanticSymbolTables;
+    if (allArchives.length > 0) {
+        semanticSymbolTables = new SymbolTables();
+        for (const archive of allArchives) {
+            registerLibrarySymbols(archive.manifest, semanticSymbolTables);
+        }
+    }
+    // Register global constants in symbol tables
+    if (mergedOptions.globalConstants) {
+        if (!semanticSymbolTables) {
+            semanticSymbolTables = new SymbolTables();
+        }
+        for (const name of Object.keys(mergedOptions.globalConstants)) {
+            try {
+                semanticSymbolTables.globalScope.define({
+                    name,
+                    kind: "constant",
+                    declaration: undefined,
+                    type: {
+                        typeKind: "elementary",
+                        name: "ULINT",
+                        sizeBits: 64,
+                    },
+                });
+            }
+            catch {
+                // Ignore duplicate
+            }
+        }
+    }
+    try {
+        const analyzer = new SemanticAnalyzer();
+        const semanticResult = analyzer.analyze(ast, semanticSymbolTables);
+        symbolTables = semanticResult.symbolTables;
+        for (const err of semanticResult.errors) {
+            errors.push({
+                message: err.message,
+                line: err.line ?? 0,
+                column: err.column ?? 0,
+                severity: "error",
+                ...(err.file ? { file: err.file } : {}),
+            });
+        }
+        for (const warn of semanticResult.warnings) {
+            warnings.push({
+                message: warn.message,
+                line: warn.line ?? 0,
+                column: warn.column ?? 0,
+                severity: "warning",
+                ...(warn.file ? { file: warn.file } : {}),
+            });
+        }
+    }
+    catch (e) {
+        if (!continueOnError) {
+            errors.push({
+                message: `Semantic analysis failed: ${e instanceof Error ? e.message : String(e)}`,
+                line: 0,
+                column: 0,
+                severity: "error",
+            });
+        }
+        // In analyze mode, semantic failure is non-fatal — return whatever we have
+    }
+    // Annotate errors/warnings with POU + section context so programmatic
+    // consumers (e.g. the OpenPLC Editor) can route diagnostics to the
+    // right POU tab and remap body-line numbers to the user's view.
+    // Skipped silently when no AST is available — the fields remain unset
+    // and downstream code falls back to plain (file, line) display.
+    if (ast) {
+        annotateErrorsWithPouContext(errors, ast);
+        annotateErrorsWithPouContext(warnings, ast);
+    }
+    return {
+        ast,
+        projectModel,
+        symbolTables,
+        errors,
+        warnings,
+        allArchives,
+        mergedOptions,
+    };
+}
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+/**
+ * Compile IEC 61131-3 Structured Text source code to C++.
+ *
+ * @param source - The ST source code to compile
+ * @param options - Compilation options
+ * @returns The compilation result containing C++ code and metadata
+ *
+ * @example
+ * ```typescript
+ * import { compile } from 'strucpp';
+ *
+ * const stSource = `
+ * PROGRAM Main
+ *   VAR counter : INT; END_VAR
+ *   counter := counter + 1;
+ * END_PROGRAM
+ * `;
+ *
+ * const result = compile(stSource, { debug: true, lineMapping: true });
+ * console.log(result.cppCode);
+ * console.log(result.lineMap);
+ * ```
+ */
+export function compile(source, options = {}) {
+    const pipeline = runPipeline(source, options, false);
+    if (pipeline.errors.length > 0 || !pipeline.ast) {
+        return {
+            success: false,
+            cppFiles: [],
+            cppCode: "",
+            headerCode: "",
+            lineMap: new Map(),
+            headerLineMap: new Map(),
+            errors: pipeline.errors,
+            warnings: pipeline.warnings,
+        };
+    }
+    // Phase 6: Generate C++ code
+    // Collect library headers for #include directives
+    const libraryHeaders = [];
+    for (const archive of pipeline.allArchives) {
+        for (const header of archive.manifest.headers) {
+            if (!libraryHeaders.includes(header)) {
+                libraryHeaders.push(header);
+            }
+        }
+    }
+    // Pass semantic symbol tables to codegen so it can use type info from semantic analysis
+    const codegen = new CodeGenerator(pipeline.symbolTables, {
+        sourceComments: pipeline.mergedOptions.debug,
+        lineDirectives: pipeline.mergedOptions.lineDirectives ?? false,
+        headerFileName: pipeline.mergedOptions.headerFileName ?? "generated.hpp",
+        fileName: pipeline.mergedOptions.fileName ?? "main.st",
+        ...(pipeline.mergedOptions.lineDirectiveFileName
+            ? { lineDirectiveFileName: pipeline.mergedOptions.lineDirectiveFileName }
+            : {}),
+        libraryHeaders,
+        pouIncludes: pipeline.mergedOptions.pouIncludes ?? [],
+        isTestBuild: pipeline.mergedOptions.isTestBuild ?? false,
+        globalConstants: pipeline.mergedOptions.globalConstants ?? {},
+        ...(pipeline.mergedOptions.emitChunkMarkers
+            ? { emitChunkMarkers: true }
+            : {}),
+    });
+    codegen.setProjectModel(pipeline.projectModel);
+    // Register all library metadata (FB types, field mappings, enum/struct types)
+    codegen.registerLibraryArchives(pipeline.allArchives);
+    // Function-level tree-shake: figure out which library chunks the
+    // user's AST actually reaches (transitively through chunk dep
+    // edges), then hand the reachable subset of each archive to the
+    // codegen for emission. Test builds bypass the shake — the test
+    // harness may reference symbols not present in the source AST.
+    const isTestBuild = pipeline.mergedOptions.isTestBuild ?? false;
+    const reachableByArchive = collectUsedSymbols(pipeline.ast, pipeline.allArchives, isTestBuild);
+    for (const archive of pipeline.allArchives) {
+        const reachable = reachableByArchive.get(archive.manifest.name);
+        if (!reachable || reachable.size === 0)
+            continue;
+        codegen.addLibraryChunks(archive, reachable);
+    }
+    const codeResult = codegen.generate(pipeline.ast);
+    // Collect codegen warnings
+    for (const warn of codeResult.warnings) {
+        const entry = {
+            message: warn.message,
+            line: warn.line ?? 0,
+            column: warn.column ?? 0,
+            severity: "warning",
+        };
+        if (warn.file !== undefined) {
+            entry.file = warn.file;
+        }
+        pipeline.warnings.push(entry);
+    }
+    // Emit debugger pointer tables + editor manifest. This is best-effort:
+    // if projectModel or symbolTables are missing (malformed input), we still
+    // return the primary compile output; the debug artifacts are just omitted.
+    let debugTableCpp;
+    let debugMap;
+    if (pipeline.projectModel && pipeline.symbolTables) {
+        const dbg = generateDebugTable(pipeline.ast, pipeline.projectModel, pipeline.symbolTables, { md5: pipeline.mergedOptions.md5 ?? "" });
+        debugTableCpp = dbg.debugTableCpp;
+        debugMap = dbg.debugMap;
+    }
+    return {
+        success: true,
+        cppFiles: codeResult.cppFiles,
+        cppCode: codeResult.cppCode,
+        headerCode: codeResult.headerCode,
+        lineMap: codeResult.lineMap,
+        headerLineMap: codeResult.headerLineMap,
+        errors: pipeline.errors,
+        warnings: pipeline.warnings,
+        ast: pipeline.ast,
+        ...(pipeline.projectModel ? { projectModel: pipeline.projectModel } : {}),
+        ...(pipeline.symbolTables ? { symbolTables: pipeline.symbolTables } : {}),
+        ...(pipeline.allArchives.length > 0
+            ? { resolvedLibraries: pipeline.allArchives }
+            : {}),
+        ...(debugTableCpp !== undefined ? { debugTableCpp } : {}),
+        ...(debugMap !== undefined ? { debugMap } : {}),
+    };
+}
+/**
+ * Analyze ST source code without code generation.
+ * Unlike compile(), returns partial results (AST, symbol tables, project model)
+ * even when errors are present, making it suitable for IDE/LSP integration.
+ *
+ * @param source - The ST source code to analyze
+ * @param options - Compilation options (codegen options are ignored)
+ * @returns Analysis result with AST, symbol tables, and diagnostics
+ */
+export function analyze(source, options = {}) {
+    const pipeline = runPipeline(source, options, true);
+    return {
+        ...(pipeline.ast ? { ast: pipeline.ast } : {}),
+        ...(pipeline.symbolTables ? { symbolTables: pipeline.symbolTables } : {}),
+        ...(pipeline.projectModel ? { projectModel: pipeline.projectModel } : {}),
+        errors: pipeline.errors,
+        warnings: pipeline.warnings,
+        stdFunctionRegistry: new StdFunctionRegistry(),
+    };
+}
+/**
+ * Parse ST source code and return the AST without code generation.
+ * Useful for syntax checking and IDE integration.
+ *
+ * @param source - The ST source code to parse
+ * @returns The parsed AST or parse errors
+ */
+export function parse(source) {
+    const errors = [];
+    // Parse ST source to CST
+    const parseResult = parseSource(source);
+    if (parseResult.errors.length > 0) {
+        for (const err of parseResult.errors) {
+            // Handle Chevrotain error format
+            const errObj = err;
+            errors.push({
+                message: errObj.message ?? "Parse error",
+                line: errObj.token?.startLine ?? 0,
+                column: errObj.token?.startColumn ?? 0,
+                severity: "error",
+            });
+        }
+        return { errors };
+    }
+    // Build AST from CST
+    if (!parseResult.cst) {
+        errors.push({
+            message: "Parse failed: no CST produced",
+            line: 0,
+            column: 0,
+            severity: "error",
+        });
+        return { errors };
+    }
+    try {
+        const ast = buildAST(parseResult.cst);
+        return { ast, errors };
+    }
+    catch (e) {
+        errors.push({
+            message: `AST building failed: ${e instanceof Error ? e.message : String(e)}`,
+            line: 0,
+            column: 0,
+            severity: "error",
+        });
+        return { errors };
+    }
+}
+import { STRUCPP_VERSION_BUILD } from "./version-build.js";
+export function getVersion() {
+    if (typeof STRUCPP_VERSION !== "undefined") {
+        return STRUCPP_VERSION;
+    }
+    if (STRUCPP_VERSION_BUILD) {
+        return STRUCPP_VERSION_BUILD;
+    }
+    return "0.0.0";
+}
+// Re-export diagnostic formatting helpers
+export { buildSourceMap, formatDiagnostic, formatDiagnostics, } from "./diagnostic-formatter.js";
+// Re-export symbol table types
+export { SymbolTables, Scope } from "./semantic/symbol-table.js";
+// Re-export standard function registry
+export { StdFunctionRegistry } from "./semantic/std-function-registry.js";
+// Re-export type utilities
+export { typeName, resolveFieldType, resolveArrayElementType, ELEMENTARY_TYPES, TYPE_CATEGORIES, matchesConstraint, isAssignable, isImplicitlyConvertible, getCommonType, } from "./semantic/type-utils.js";
+export { isElementaryType } from "./semantic/type-registry.js";
+// Canonical IEC base-type registry — same data published as
+// libs/iec-types.json. Downstream tooling that prefers a typed
+// import over the JSON artefact can pull these directly.
+export { IEC_BASE_TYPES, lookupBaseType, isBaseTypeName, } from "./semantic/iec-types-data.js";
+// Re-export AST utilities
+export { walkAST, findNodeAtPosition, findInnermostExpression, collectReferences, findEnclosingPOU, } from "./ast-utils.js";
+// Re-export library system
+export { compileLibrary, compileStlib } from "./library/library-compiler.js";
+export { loadLibraryManifest, loadStlibArchive, loadStlibFromBuffer, loadStlibFromString, registerLibrarySymbols, LibraryManifestError, } from "./library/library-loader.js";
+export { getBuiltinStdlibManifest } from "./library/builtin-stdlib.js";
+export { extractNamespaceBody } from "./library/library-utils.js";
+// Re-export CODESYS import
+export { detectFormat, importCodesysLibraryFromBytes, } from "./library/codesys-import/index.js";
+// REPL main generator (for build command)
+export { generateReplMain } from "./backend/repl-main-gen.js";
+// Pure C++ flag parsers (Node-only build helpers live in `strucpp/node`).
+export { extractIncludePaths, splitCxxFlags } from "./cxx-flags.js";
+// Test framework
+export { parseTestFile } from "./testing/test-parser.js";
+export { analyzeTestFile } from "./semantic/analyzer.js";
+export { generateTestMain, buildPOUInfoFromAST, } from "./backend/test-main-gen.js";
+//# sourceMappingURL=index.js.map

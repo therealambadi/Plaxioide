@@ -1,0 +1,4657 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2025 Autonomy / OpenPLC Project
+/**
+ * STruC++ Code Generator
+ *
+ * Generates C++ code from the typed AST or IR.
+ * Produces readable, debuggable C++ that maintains line correspondence with ST source.
+ */
+import { StdFunctionRegistry } from "../semantic/std-function-registry.js";
+import { getProjectNamespace, parseDateLiteralToDays, parseDtLiteralToNs, parseTimeLiteral, parseTodLiteralToNs, } from "../project-model.js";
+import { TypeRegistry } from "../semantic/type-registry.js";
+import { TypeCodeGenerator, IEC_TO_CPP_VAR_TYPE } from "./type-codegen.js";
+import { formatArrayType, iecBaseToCppLiteral } from "./codegen-utils.js";
+import { getTypeBits, getTypeCategory, isImplicitlyConvertible, resolveFieldType as resolveFieldTypeUtil, typeName as typeNameUtil, buildEnumMemberMap, } from "../semantic/type-utils.js";
+/**
+ * Parse a located variable address and return descriptor info.
+ */
+function parseLocatedAddress(address) {
+    const match = address.match(/^%([IQM])([XBWDL]?)(\d+)(?:\.(\d+))?$/i);
+    if (!match)
+        return null;
+    const areaChar = match[1].toUpperCase();
+    const sizeChar = match[2]?.toUpperCase() || "X";
+    const byteIndex = parseInt(match[3], 10);
+    const bitIndex = match[4] ? parseInt(match[4], 10) : 0;
+    const areaMap = {
+        I: "Input",
+        Q: "Output",
+        M: "Memory",
+    };
+    const sizeMap = {
+        X: "Bit",
+        B: "Byte",
+        W: "Word",
+        D: "DWord",
+        L: "LWord",
+    };
+    const area = areaMap[areaChar];
+    const size = sizeMap[sizeChar];
+    if (!area || !size)
+        return null;
+    return {
+        area,
+        size,
+        byteIndex,
+        bitIndex,
+    };
+}
+/**
+ * Numeric and bit-string targets for the `TO_*` family — i.e. every
+ * elementary type whose runtime representation is "just an integer or
+ * a float."  Used by `wrapTemporalArgForNumericConversion` to gate
+ * the temporal→ms scaling: STRING / WSTRING and temporal targets need
+ * different handling and stay out of this set.
+ */
+const NUMERIC_OR_BIT_CONVERSION_TARGETS = new Set([
+    "BOOL",
+    "SINT",
+    "INT",
+    "DINT",
+    "LINT",
+    "USINT",
+    "UINT",
+    "UDINT",
+    "ULINT",
+    "REAL",
+    "LREAL",
+    "BYTE",
+    "WORD",
+    "DWORD",
+    "LWORD",
+]);
+/**
+ * Default code generation options.
+ */
+export const defaultCodeGenOptions = {
+    lineDirectives: false,
+    sourceComments: true,
+    indent: "    ",
+    lineEnding: "\n",
+    headerFileName: "generated.hpp",
+    libraryHeaders: [],
+    pouIncludes: [],
+    isTestBuild: false,
+    globalConstants: {},
+    fileName: "main.st",
+};
+// =============================================================================
+// Code Generator
+// =============================================================================
+/**
+ * C++ code generator for IEC 61131-3 programs.
+ */
+export class CodeGenerator {
+    _symbolTables;
+    options;
+    /**
+     * One emit bucket per output .cpp file. The codegen splits POU
+     * implementations across files so the runtime build can run
+     * `make -j$(nproc)` and ccache can keep .o files for unchanged
+     * POUs across rebuilds. `output` always points at the bucket for
+     * the currently-active file; `setOutputFile` swaps it. The
+     * bucket map preserves insertion order, which determines emit
+     * order for the legacy `cppCode` concatenation.
+     */
+    outputFiles = new Map();
+    output = []; // currently-active bucket
+    currentLine = 1; // line counter within currently-active file
+    headerOutput = [];
+    lineMap = new Map();
+    headerLineMap = new Map();
+    currentHeaderLine = 1;
+    projectModel;
+    /** Track located variables for descriptor array generation */
+    locatedVars = [];
+    /** Track retain variables per program for table generation */
+    programRetainVars = new Map();
+    /** Store AST for looking up program bodies when using project model */
+    ast;
+    /** Current function name (for redirecting function name := to result variable) */
+    currentFunctionName;
+    /** Standard function registry for name mapping and conversion resolution */
+    stdRegistry;
+    /** Warnings collected during code generation */
+    codegenWarnings = [];
+    /** Counter for generating unique temporary variable names */
+    tempVarCounter = 0;
+    /**
+     * Stack of loop exit labels for EXIT codegen. C++ `break` only escapes the
+     * innermost switch/loop, so `EXIT` inside a `CASE` nested in a loop must
+     * goto past the loop instead. Each loop pushes a fresh label; an inner
+     * `EXIT` records `used=true` so the closing emitter only writes the label
+     * when something jumps to it.
+     */
+    loopExitLabelStack = [];
+    loopExitLabelCounter = 0;
+    /** Current statement indent level (set by generateStatement before expression generation) */
+    currentStatementIndent = "    ";
+    /** Set of known function block type names (upper case) for FB instance detection */
+    knownFBTypes = new Set();
+    /** Set of known interface type names (upper case) */
+    knownInterfaceTypes = new Set();
+    /** Set of known struct/UDT type names (upper case) */
+    knownStructTypes = new Set();
+    /** Map of enum type name (upper case) → set of member names (upper case) for :: emission */
+    enumTypeMembers = new Map();
+    /** Reverse map: enum member name (upper case) → owning enum type (for bare enum qualification) */
+    enumMemberToType = new Map();
+    /** Library FB field type map: "FBNAME.FIELDNAME" → type name (for field mangling in test codegen) */
+    libraryFBFieldTypes = new Map();
+    /** Extended type metadata for library FB fields (array dims, reference kind) */
+    libraryFBFieldTypeRefs = new Map();
+    /** Set of known program type names (upper case) for program invocation detection */
+    knownProgramTypes = new Set();
+    /** Map of variable name (upper case) → type name (original case) for current scope */
+    currentScopeVarTypes = new Map();
+    /** Map of variable name (upper case) → referenceKind ("ref_to" | "reference_to"
+     *  | "pointer_to") for current scope. Only reference/pointer vars are present;
+     *  used e.g. to pick the correct lowering for a REF= rebind. */
+    currentScopeVarRefKinds = new Map();
+    /** Parent class name of current FB (for SUPER resolution) */
+    currentFBExtends;
+    /** When generating a method that returns an interface type, assignments to the
+     *  result variable should be converted to return statements */
+    interfaceReturnMethod = false;
+    /** Map of UPPER(typeName).UPPER(methodName) → declared method name for case normalization */
+    methodNameMap = new Map();
+    /** Map of UPPER(interfaceName) → Set of UPPER(methodName) for variable/method collision detection */
+    interfaceMethodsByInterface = new Map();
+    /** Map of UPPER(typeName).UPPER(propName) → declared property name for property access codegen */
+    propertyNameMap = new Map();
+    /** Current FB name (set during generateFBImplementation for property resolution) */
+    currentFBName;
+    /** Mapping of VAR_INST names (upper case) to mangled class member names */
+    varInstMangledNames = new Map();
+    /** Mapping of member names (upper case) that collide with their type name
+     *  or interface method names to mangled names (e.g., SENSOR → SENSOR_) */
+    memberMangledNames = new Map();
+    /** Interface method names for the current FB (UPPER case), used for variable/method collision detection */
+    currentFBInterfaceMethods = new Set();
+    /** Map of UPPER(fbName) → Set of UPPER(interfaceMethodName) for external field access mangling */
+    fbInterfaceMethodNames = new Map();
+    /** Current FB's var blocks, kept so method scopes can see FB member types */
+    currentFBVarBlocks = [];
+    /** Topologically sorted function blocks (computed once in generate(), used by header + impl) */
+    sortedFBs = [];
+    /** Per-archive reachable-chunk emission state.
+     *
+     *  Built by `addLibraryChunks` — one entry per library the consumer
+     *  pulled at least one chunk from. The emission loop iterates this
+     *  in insertion order (= the order index.ts hands archives over,
+     *  which is library load order). For each library, only chunks
+     *  whose name appears in `reachable` are emitted; the array order
+     *  matches the library's `chunks[]` declaration order so symbol
+     *  layout in the user's `generated.hpp` is stable across builds. */
+    libraryEmissions = [];
+    /** Map of UPPER(fbTypeName) → ordered VAR_INPUT parameter names (UPPER case).
+     *  Used to resolve positional arguments in FB invocations. */
+    fbInputParams = new Map();
+    // IEC_TYPE_BITS and IEC_TYPE_CAT removed — use getTypeBits()/getTypeCategory() from type-utils.ts
+    constructor(_symbolTables, options = {}) {
+        this._symbolTables = _symbolTables;
+        this.options = { ...defaultCodeGenOptions, ...options };
+        this.stdRegistry = new StdFunctionRegistry();
+    }
+    /** TypeCodeGenerator instance for type mapping */
+    typeCodeGen = new TypeCodeGenerator();
+    /** Get symbol tables (for future use in Phase 3+) */
+    get symbolTables() {
+        if (!this._symbolTables) {
+            throw new Error("SymbolTables not available (test codegen mode)");
+        }
+        return this._symbolTables;
+    }
+    /**
+     * Map a variable type name to its C++ type string.
+     * Handles VLA synthetic names (__VLA_1D_INT → ArrayView1D<INT_t>)
+     * and regular types (INT → IEC_INT).
+     */
+    mapVarTypeToCpp(typeName, maxLength) {
+        // Handle VLA synthetic names: __VLA_{ndims}D_{elementType}
+        // Use IECVar-wrapped types to match concrete Array1D<IEC_T, ...> elements
+        const vlaMatch = typeName.match(/^__VLA_(\d+)D_(.+)$/);
+        if (vlaMatch) {
+            const ndims = vlaMatch[1];
+            const elemType = this.mapVarTypeToCpp(vlaMatch[2]);
+            return `ArrayView${ndims}D<${elemType}>`;
+        }
+        // Handle parameterized STRING(n) / WSTRING(n) / STRING(CONSTANT_NAME)
+        if (maxLength !== undefined) {
+            const upper = typeName.toUpperCase();
+            if (upper === "STRING") {
+                return `IECStringVar<${maxLength}>`;
+            }
+            if (upper === "WSTRING") {
+                return `IECWStringVar<${maxLength}>`;
+            }
+        }
+        // User-defined types fall into two camps:
+        //   1. FBs / interfaces / structs / arrays — fields already wrap leaves
+        //      in IECVar internally, so the bare class name is used directly.
+        //   2. Enums (`enum class`) — the raw C++ enum has no value_/forced_/
+        //      forced_value_ layout, so the debugger's `read_impl<int16_t>`
+        //      cast walks past the 2-byte enum into adjacent memory and
+        //      returns garbage when nearby variables are forced. Use the
+        //      `IEC_<name>` wrapper (= `IEC_ENUM<name>`) so enum-typed fields
+        //      have proper IECVar shape with forcing support.
+        if (this.isUserDefinedType(typeName)) {
+            // Programs use Program_NAME class naming convention
+            if (this.knownProgramTypes.has(typeName.toUpperCase())) {
+                return `Program_${typeName}`;
+            }
+            if (this.enumTypeMembers.has(typeName.toUpperCase())) {
+                return `IEC_${typeName}`;
+            }
+            return typeName;
+        }
+        // Elementary types: use the canonical IECVar alias map so names whose
+        // wrapper isn't simply `IEC_<NAME>` (e.g. __XWORD → IEC_XWORD) resolve
+        // correctly; all standard types map to `IEC_<NAME>` as before.
+        return IEC_TO_CPP_VAR_TYPE[typeName.toUpperCase()] ?? `IEC_${typeName}`;
+    }
+    /**
+     * Map a TypeReference to its C++ type string, including parameterized length
+     * and pointer/reference qualifiers.
+     */
+    /**
+     * Build a TypeReference shape suitable for emitting a parameter type.
+     *
+     * Preserves array/pointer metadata (so inline ARRAY parameters become
+     * `Array1D<T, L, U>&` and pointer params become `IEC_Ptr<T>&`) but
+     * strips STRING/WSTRING maxLength so any size string binds to the
+     * &-reference — matching the previous behavior of the call sites that
+     * went through `mapVarTypeToCpp(decl.type.name)` without maxLength.
+     */
+    toParamTypeRef(typeRef) {
+        const upper = typeRef.name.toUpperCase();
+        const isString = upper === "STRING" || upper === "WSTRING";
+        return {
+            name: typeRef.name,
+            ...(!isString && typeRef.maxLength !== undefined
+                ? { maxLength: typeRef.maxLength }
+                : {}),
+            ...(typeRef.arrayDimensions !== undefined
+                ? { arrayDimensions: typeRef.arrayDimensions }
+                : {}),
+            ...(typeRef.elementTypeName !== undefined
+                ? { elementTypeName: typeRef.elementTypeName }
+                : {}),
+            ...(typeRef.referenceKind !== undefined
+                ? { referenceKind: typeRef.referenceKind }
+                : {}),
+        };
+    }
+    /**
+     * Convert a project-model record (ProjectVarDeclaration /
+     * VarExternalDeclaration) into a TypeReference shape suitable for
+     * `mapTypeRefToCpp` / `toParamTypeRef`. Project-model records keep the
+     * type name in `.typeName` and reserve `.name` for the variable name;
+     * this helper rewires the fields so the shape matches what the
+     * type-resolution helpers expect.
+     */
+    projectVarToTypeRef(spec) {
+        return {
+            name: spec.typeName,
+            ...(spec.maxLength !== undefined ? { maxLength: spec.maxLength } : {}),
+            ...(spec.arrayDimensions !== undefined
+                ? { arrayDimensions: spec.arrayDimensions }
+                : {}),
+            ...(spec.elementTypeName !== undefined
+                ? { elementTypeName: spec.elementTypeName }
+                : {}),
+            ...(spec.referenceKind !== undefined
+                ? { referenceKind: spec.referenceKind }
+                : {}),
+        };
+    }
+    mapTypeRefToCpp(typeRef) {
+        let baseType;
+        // Handle inline array types with dimension info
+        // Array1D stores T directly — use IECVar-wrapped types for elementary elements
+        // and bare names for composites (whose fields already contain IECVar leaves)
+        if (typeRef.arrayDimensions && typeRef.elementTypeName) {
+            const elemCpp = this.isUserDefinedType(typeRef.elementTypeName)
+                ? typeRef.elementTypeName
+                : this.mapVarTypeToCpp(typeRef.elementTypeName);
+            baseType = formatArrayType(elemCpp, typeRef.arrayDimensions);
+        }
+        else {
+            baseType = this.mapVarTypeToCpp(typeRef.name, typeof typeRef.maxLength === "number" ? typeRef.maxLength : undefined);
+        }
+        if (typeRef.referenceKind === "pointer_to" ||
+            typeRef.referenceKind === "ref_to" ||
+            typeRef.referenceKind === "reference_to") {
+            // Pointer (IEC_Ptr<T>) and reference (IEC_REF_TO<T> / IEC_REFERENCE_TO<T>)
+            // wrappers all take the raw element type (not IECVar-wrapped); they wrap
+            // an IECVar<T> internally.
+            let elemType;
+            if (typeRef.arrayDimensions && typeRef.elementTypeName) {
+                // Array pointer/reference: baseType is already raw (Array1D<...>)
+                elemType = baseType;
+            }
+            else if (this.isUserDefinedType(typeRef.name)) {
+                // UDT: use raw struct/FB/program name
+                elemType = this.knownProgramTypes.has(typeRef.name.toUpperCase())
+                    ? `Program_${typeRef.name}`
+                    : typeRef.name;
+            }
+            else {
+                // Primitive type: use raw type mapping (BYTE_t, INT_t, etc.)
+                elemType = this.typeCodeGen.mapTypeToCpp(typeRef.name);
+            }
+            switch (typeRef.referenceKind) {
+                case "pointer_to":
+                    // IEC_Ptr<T> — cross-type assignment, pointer arithmetic,
+                    // pointer-to-integer conversion.
+                    return `IEC_Ptr<${elemType}>`;
+                case "ref_to":
+                    // REF_TO — explicit dereference (^), nullable, rebind via
+                    // `:= REF(x)` / `:= ADR(x)`.
+                    return `IEC_REF_TO<${elemType}>`;
+                case "reference_to":
+                    // REFERENCE TO — implicit dereference, rebind via `REF=`.
+                    return `IEC_REFERENCE_TO<${elemType}>`;
+            }
+        }
+        // For STRING(CONSTANT_NAME), emit template with the constant name
+        if (typeof typeRef.maxLength === "string") {
+            const upper = typeRef.name.toUpperCase();
+            if (upper === "STRING") {
+                return `IECStringVar<${typeRef.maxLength}>`;
+            }
+            if (upper === "WSTRING") {
+                return `IECWStringVar<${typeRef.maxLength}>`;
+            }
+        }
+        return baseType;
+    }
+    /**
+     * Set the project model for enhanced code generation.
+     */
+    setProjectModel(model) {
+        this.projectModel = model;
+    }
+    /**
+     * Register FB type names from libraries so codegen can distinguish
+     * FB invocations from regular function calls. Private — use registerLibraryArchives().
+     */
+    registerLibraryFBTypes(fbs) {
+        for (const fb of fbs) {
+            const fbUpper = fb.name.toUpperCase();
+            this.knownFBTypes.add(fbUpper);
+            if (fb.inputNames.length > 0) {
+                this.fbInputParams.set(fbUpper, fb.inputNames.map((n) => n.toUpperCase()));
+            }
+            for (const f of fb.fields) {
+                this.libraryFBFieldTypes.set(`${fbUpper}.${f.name.toUpperCase()}`, f.type);
+                // Store array metadata for inline array type reconstruction
+                if (f.arrayDimensions || f.elementTypeName || f.referenceKind) {
+                    const ref = {};
+                    if (f.arrayDimensions)
+                        ref.arrayDimensions = f.arrayDimensions;
+                    if (f.elementTypeName)
+                        ref.elementTypeName = f.elementTypeName;
+                    if (f.referenceKind)
+                        ref.referenceKind = f.referenceKind;
+                    this.libraryFBFieldTypeRefs.set(`${fbUpper}.${f.name.toUpperCase()}`, ref);
+                }
+            }
+        }
+    }
+    /**
+     * Register type info from library manifests (enum types for :: emission,
+     * struct types for known-type detection). Private — use registerLibraryArchives().
+     */
+    registerLibraryTypes(types) {
+        for (const t of types) {
+            const nameUpper = t.name.toUpperCase();
+            if (t.kind === "enum") {
+                // Members are not available in the manifest, but we only need to
+                // know the type IS an enum for :: emission in generateVariableExpression
+                if (!this.enumTypeMembers.has(nameUpper)) {
+                    this.enumTypeMembers.set(nameUpper, new Set());
+                }
+            }
+            this.knownStructTypes.add(nameUpper);
+        }
+    }
+    /**
+     * Register all type and FB metadata from library archives.
+     * Single entry point used by both compile() and generateTestMain().
+     */
+    registerLibraryArchives(archives) {
+        for (const archive of archives) {
+            this.registerLibraryFBTypes(archive.manifest.functionBlocks.map((fb) => {
+                const mapVar = (v) => {
+                    const entry = {
+                        name: v.name,
+                        type: v.type,
+                    };
+                    if (v.arrayDimensions)
+                        entry.arrayDimensions = v.arrayDimensions;
+                    if (v.elementTypeName)
+                        entry.elementTypeName = v.elementTypeName;
+                    if (v.referenceKind)
+                        entry.referenceKind = v.referenceKind;
+                    return entry;
+                };
+                return {
+                    name: fb.name,
+                    inputNames: fb.inputs.map((i) => i.name),
+                    fields: [
+                        ...fb.inputs.map(mapVar),
+                        ...fb.outputs.map(mapVar),
+                        ...fb.inouts.map(mapVar),
+                    ],
+                };
+            }));
+            if (archive.manifest.types) {
+                this.registerLibraryTypes(archive.manifest.types);
+            }
+        }
+    }
+    /**
+     * Hand the codegen a library archive and the set of chunk names
+     * the consumer determined to be reachable from the user's AST.
+     * Only those chunks are emitted into the final header/cpp.
+     *
+     * Single per-call entry point: nothing else mutates
+     * `libraryEmissions`. The caller (index.ts) computes the reachable
+     * set via function-level tree-shake before invoking this method.
+     */
+    addLibraryChunks(archive, reachable) {
+        this.libraryEmissions.push({ archive, reachable });
+    }
+    /**
+     * Emit a chunk-boundary marker in the active header stream. No-op
+     * when `emitChunkMarkers` is off. See `CodeGenOptions.emitChunkMarkers`
+     * — the markers exist so the library compiler can slice emitted code
+     * into per-symbol chunks for function-level tree-shaking.
+     */
+    emitHeaderChunkMarker(boundary, kind, name) {
+        if (!this.options.emitChunkMarkers)
+            return;
+        this.emitHeader(`//@chunk:${boundary}:${kind}:${name}`);
+    }
+    /** Emit a chunk-boundary marker in the active cpp stream. */
+    emitCppChunkMarker(boundary, kind, name) {
+        if (!this.options.emitChunkMarkers)
+            return;
+        this.emit(`//@chunk:${boundary}:${kind}:${name}`);
+    }
+    /**
+     * Switch the active emit bucket. Creates a new bucket if the file
+     * name hasn't been seen before; otherwise resumes appending to the
+     * existing one. Caller is responsible for emitting the per-TU
+     * preamble (license, #include, namespace open) on the first switch
+     * to a file via `startTranslationUnit`.
+     *
+     * `currentLine` keeps its global value across switches — lineMap
+     * entries reference positions in the legacy concatenated `cppCode`,
+     * which is what the REPL line-mapping display and gdb debug info
+     * (via #line directives) consume. Splitting only affects which
+     * physical .cpp file a line lands in; the logical numbering for
+     * the source-map is end-to-end across all files.
+     */
+    setOutputFile(name) {
+        let bucket = this.outputFiles.get(name);
+        if (!bucket) {
+            bucket = [];
+            this.outputFiles.set(name, bucket);
+        }
+        this.output = bucket;
+    }
+    /**
+     * Begin a new translation unit. Emits the standard preamble (banner,
+     * #include for the shared header, opening namespace) into the file's
+     * bucket. Pair with `endTranslationUnit` after emitting POU bodies.
+     */
+    startTranslationUnit(name) {
+        this.setOutputFile(name);
+        const ns = this.projectModel
+            ? getProjectNamespace(this.projectModel)
+            : "strucpp";
+        this.emit("// Generated by STruC++ - IEC 61131-3 Structured Text to C++ Compiler");
+        this.emit("// Do not edit this file manually.");
+        this.emit("");
+        this.emit(`#include "${this.options.headerFileName}"`);
+        for (const extra of this.options.pouIncludes) {
+            this.emit(`#include "${extra}"`);
+        }
+        this.emit("");
+        this.emit(`namespace ${ns} {`);
+        this.emit("");
+    }
+    /**
+     * Close the namespace on the currently-active translation unit.
+     * Mirrors `startTranslationUnit`.
+     */
+    endTranslationUnit() {
+        const ns = this.projectModel
+            ? getProjectNamespace(this.projectModel)
+            : "strucpp";
+        this.emit(`}  // namespace ${ns}`);
+    }
+    /**
+     * Build a deterministic .cpp file name for a POU. Names already
+     * conform to C identifier rules (the parser enforces it), so we
+     * just lowercase + prefix; per-POU uniqueness is the caller's
+     * concern (multiple POUs with the same name would already be a
+     * semantic error caught earlier).
+     */
+    pouFileName(pouName) {
+        return `pou_${pouName}.cpp`;
+    }
+    /**
+     * Generate C++ code from a compilation unit.
+     */
+    generate(ast) {
+        this.outputFiles = new Map();
+        this.output = [];
+        this.headerOutput = [];
+        this.lineMap = new Map();
+        this.headerLineMap = new Map();
+        this.currentLine = 1;
+        this.currentHeaderLine = 1;
+        this.locatedVars = [];
+        this.codegenWarnings = [];
+        this.tempVarCounter = 0;
+        this.ast = ast; // Store AST for looking up program bodies
+        // Build set of known FB types from AST (library FB types already registered
+        // via registerLibraryFBTypes() before generate() is called)
+        for (const fb of ast.functionBlocks) {
+            this.knownFBTypes.add(fb.name.toUpperCase());
+            // Build ordered input parameter names for positional argument resolution
+            const inputNames = [];
+            for (const block of fb.varBlocks) {
+                if (block.blockType === "VAR_INPUT") {
+                    for (const decl of block.declarations) {
+                        for (const name of decl.names) {
+                            inputNames.push(name.toUpperCase());
+                        }
+                    }
+                }
+            }
+            if (inputNames.length > 0) {
+                this.fbInputParams.set(fb.name.toUpperCase(), inputNames);
+            }
+        }
+        // Build set of known interface types, method name map, and per-interface method sets
+        for (const iface of ast.interfaces) {
+            this.knownInterfaceTypes.add(iface.name.toUpperCase());
+            const ifaceMethods = new Set();
+            for (const method of iface.methods) {
+                this.methodNameMap.set(`${iface.name.toUpperCase()}.${method.name.toUpperCase()}`, method.name);
+                ifaceMethods.add(method.name.toUpperCase());
+            }
+            this.interfaceMethodsByInterface.set(iface.name.toUpperCase(), ifaceMethods);
+        }
+        // Build method name map, property name map, and interface method names for FBs
+        for (const fb of ast.functionBlocks) {
+            for (const method of fb.methods) {
+                this.methodNameMap.set(`${fb.name.toUpperCase()}.${method.name.toUpperCase()}`, method.name);
+            }
+            for (const prop of fb.properties) {
+                this.propertyNameMap.set(`${fb.name.toUpperCase()}.${prop.name.toUpperCase()}`, prop.name);
+            }
+            // Precompute interface method names for each FB (for field access mangling)
+            const ifaceMethods = this.getInterfaceMethodNames(fb);
+            if (ifaceMethods.size > 0) {
+                this.fbInterfaceMethodNames.set(fb.name.toUpperCase(), ifaceMethods);
+            }
+        }
+        // Build set of known struct/UDT types and enum member maps
+        const enumDescriptors = [];
+        for (const td of ast.types) {
+            this.knownStructTypes.add(td.name.toUpperCase());
+            if (td.definition.kind === "EnumDefinition") {
+                const memberNames = td.definition.members.map((m) => m.name);
+                const members = new Set(memberNames.map((m) => m.toUpperCase()));
+                this.enumTypeMembers.set(td.name.toUpperCase(), members);
+                enumDescriptors.push({ name: td.name, members: memberNames });
+            }
+        }
+        this.enumMemberToType = buildEnumMemberMap(enumDescriptors);
+        // Register program names as types (CODESYS allows instantiating PROGRAMs like FBs)
+        for (const prog of ast.programs) {
+            this.knownProgramTypes.add(prog.name.toUpperCase());
+        }
+        // Topologically sort FBs once (used in both header and implementation)
+        this.sortedFBs = this.topologicalSortFBs(ast.functionBlocks);
+        // Generate header
+        this.generateHeader(ast);
+        // Generate implementation
+        this.generateImplementation(ast);
+        const eol = this.options.lineEnding;
+        const cppFiles = Array.from(this.outputFiles.entries()).map(([name, lines]) => ({ name, content: lines.join(eol) }));
+        return {
+            cppFiles,
+            // Legacy concatenation — preserves the historical single-blob
+            // shape for callers (CLI single-file output, library compiler,
+            // REPL preview, tests) that don't care about per-TU split. The
+            // public compile() wrapper exposes this verbatim.
+            cppCode: cppFiles.map((f) => f.content).join(eol),
+            headerCode: this.headerOutput.join(eol),
+            lineMap: this.lineMap,
+            headerLineMap: this.headerLineMap,
+            warnings: this.codegenWarnings,
+        };
+    }
+    /**
+     * Generate the C++ header file.
+     */
+    generateHeader(ast) {
+        // Determine the namespace for this project
+        const ns = this.projectModel
+            ? getProjectNamespace(this.projectModel)
+            : "strucpp";
+        this.emitHeader("#pragma once");
+        this.emitHeader("");
+        this.emitHeader("// Generated by STruC++ - IEC 61131-3 Structured Text to C++ Compiler");
+        this.emitHeader("// Do not edit this file manually.");
+        this.emitHeader("");
+        this.emitHeader('#include "iec_types.hpp"');
+        this.emitHeader('#include "iec_var.hpp"');
+        this.emitHeader('#include "iec_array.hpp"');
+        this.emitHeader('#include "iec_located.hpp"');
+        this.emitHeader('#include "iec_std_lib.hpp"');
+        this.emitHeader('#include "iec_enum.hpp"');
+        this.emitHeader('#include "iec_memory.hpp"');
+        this.emitHeader('#include "iec_pointer.hpp"');
+        this.emitHeader('#include "iec_string.hpp"');
+        this.emitHeader('#include "iec_wstring.hpp"');
+        this.emitHeader("#include <array>");
+        this.emitHeader("#include <cstddef>");
+        this.emitHeader("#include <string>");
+        // Undefine C standard-library macros that collide with legal ST identifiers
+        // (e.g. OSCAT's T_AVG24 has a local `TMP_MAX`, which <cstdio> #defines).
+        // Done after the runtime includes so the runtime still sees the real macros;
+        // user code below only ever uses these names as ordinary identifiers.
+        this.emitHeader("");
+        this.emitHeader("// Avoid clashes between ST identifiers and C stdlib macros");
+        for (const m of [
+            "TMP_MAX",
+            "EOF",
+            "BUFSIZ",
+            "FOPEN_MAX",
+            "FILENAME_MAX",
+            "RAND_MAX",
+            "EXIT_SUCCESS",
+            "EXIT_FAILURE",
+        ]) {
+            this.emitHeader(`#ifdef ${m}`);
+            this.emitHeader(`#undef ${m}`);
+            this.emitHeader(`#endif`);
+        }
+        // Include library headers
+        if (this.options.libraryHeaders.length > 0) {
+            this.emitHeader("");
+            this.emitHeader("// Library headers");
+            for (const header of this.options.libraryHeaders) {
+                this.emitHeader(`#include "${header}"`);
+            }
+        }
+        // Undefine macros that collide with IEC identifiers.
+        //
+        // `<math.h>` (transitively included via `<cmath>` in iec_std_lib.hpp)
+        // defines `OVERFLOW` as a legacy SVID numeric-error constant on both
+        // glibc/macOS and avr-libc. That collides with several OSCAT FB
+        // struct fields named OVERFLOW, and the preprocessor expansion would
+        // turn those into integer literals before the C++ parser sees them.
+        // The architecturally-correct fixes — wrapping in a namespace,
+        // renaming the IEC identifier — either don't help (macros expand
+        // before scope resolution) or break IEC FB ABI. The `#undef` has
+        // zero cost on platforms where the macro isn't defined.
+        //
+        // (`<avr/io.h>`'s `SP` macro used to need the same treatment, but
+        // post the Arduino-glue split no TU that parses `generated.hpp`
+        // also pulls in `<avr/io.h>`, so the SP undef was retired.)
+        this.emitHeader("");
+        this.emitHeader("#undef OVERFLOW");
+        // Emit global constants (before namespace, so they work as template parameters)
+        const globalConsts = Object.entries(this.options.globalConstants);
+        if (globalConsts.length > 0) {
+            this.emitHeader("");
+            this.emitHeader("// Global constants");
+            for (const [name, value] of globalConsts) {
+                this.emitHeader(`constexpr size_t ${name} = ${value};`);
+            }
+        }
+        this.emitHeader("");
+        // Open namespace
+        this.emitHeader(`namespace ${ns} {`);
+        this.emitHeader("");
+        // If using a custom namespace, import strucpp types
+        if (ns !== "strucpp") {
+            this.emitHeader("using namespace strucpp;  // Runtime types");
+            this.emitHeader("");
+        }
+        // Generate user-defined types (Phase 2.2)
+        if (ast.types.length > 0) {
+            const typeRegistry = new TypeRegistry();
+            typeRegistry.registerTypes(ast.types);
+            const typeCodeGen = new TypeCodeGenerator({
+                indent: this.options.indent,
+                lineEnding: this.options.lineEnding,
+                emitChunkMarkers: this.options.emitChunkMarkers ?? false,
+            });
+            const typeCode = typeCodeGen.generateFromRegistry(typeRegistry);
+            for (const line of typeCode.split(this.options.lineEnding)) {
+                this.emitHeader(line);
+            }
+        }
+        // Generate top-level global variables (GVL files)
+        if (ast.globalVarBlocks.length > 0) {
+            this.emitHeader("// Global variables");
+            for (const block of ast.globalVarBlocks) {
+                const constQualifier = block.isConstant ? "const " : "";
+                for (const decl of block.declarations) {
+                    const cppType = this.mapTypeRefToCpp(decl.type);
+                    for (const name of decl.names) {
+                        this.emitHeaderChunkMarker("begin", "inlineGlobal", name);
+                        if (decl.initialValue) {
+                            const initExpr = this.generateExpression(decl.initialValue);
+                            this.emitHeader(`${constQualifier}inline ${cppType} ${name} = ${initExpr};`);
+                        }
+                        else {
+                            this.emitHeader(`inline ${cppType} ${name}{};`);
+                        }
+                        this.emitHeaderChunkMarker("end", "inlineGlobal", name);
+                    }
+                }
+            }
+            this.emitHeader("");
+        }
+        // Inject reachable library chunks (header side).
+        //
+        // Per archive: emit `// Library: <name>` header, then `class X;`
+        // forward decls for every reachable functionBlock chunk
+        // (libraries' FB classes are sometimes mutually-referential and
+        // the bodies are emitted in declaration order — the forward
+        // decls ahead of any body keep the layout linkable in every
+        // ordering). Then emit each reachable chunk's `header` slice in
+        // chunk-array order; types come first, FBs next, functions last
+        // because that's the order the library compiler emitted them
+        // before slicing.
+        for (const { archive, reachable } of this.libraryEmissions) {
+            const reachableChunks = [];
+            for (const chunk of archive.chunks ?? []) {
+                if (chunk.header.length === 0)
+                    continue;
+                if (reachable.has(chunk.name))
+                    reachableChunks.push(chunk);
+            }
+            if (reachableChunks.length === 0)
+                continue;
+            this.emitHeader(`// Library: ${archive.manifest.name}`);
+            for (const chunk of reachableChunks) {
+                if (chunk.kind === "functionBlock") {
+                    this.emitHeader(`class ${chunk.name};`);
+                }
+            }
+            for (const chunk of reachableChunks) {
+                for (const line of chunk.header.split("\n")) {
+                    this.emitHeader(line);
+                }
+            }
+            this.emitHeader("");
+        }
+        // Generate forward declarations
+        for (const iface of ast.interfaces) {
+            this.emitHeader(`class ${iface.name};`);
+        }
+        for (const fb of ast.functionBlocks) {
+            this.emitHeader(`class ${fb.name};`);
+        }
+        for (const prog of ast.programs) {
+            this.emitHeader(`class Program_${prog.name};`);
+        }
+        for (const config of ast.configurations) {
+            this.emitHeader(`class Configuration_${config.name};`);
+        }
+        if (ast.interfaces.length > 0 ||
+            ast.functionBlocks.length > 0 ||
+            ast.programs.length > 0 ||
+            ast.configurations.length > 0) {
+            this.emitHeader("");
+        }
+        // Generate interface declarations (before FBs since FBs may implement interfaces)
+        for (const iface of ast.interfaces) {
+            this.emitHeaderChunkMarker("begin", "type", iface.name);
+            this.generateInterfaceHeaderDeclaration(iface);
+            this.emitHeaderChunkMarker("end", "type", iface.name);
+        }
+        // Generate function block class declarations (topologically sorted by dependency)
+        for (const fb of this.sortedFBs) {
+            this.emitHeaderChunkMarker("begin", "functionBlock", fb.name);
+            this.generateFBHeaderDeclaration(fb);
+            this.emitHeaderChunkMarker("end", "functionBlock", fb.name);
+        }
+        // Generate program class declarations
+        if (this.projectModel) {
+            // Use project model for enhanced generation with VAR_EXTERNAL support
+            for (const prog of this.projectModel.programs.values()) {
+                this.emitHeaderChunkMarker("begin", "functionBlock", `Program_${prog.name}`);
+                this.generateProgramHeaderFromModel(prog);
+                this.emitHeaderChunkMarker("end", "functionBlock", `Program_${prog.name}`);
+            }
+        }
+        else {
+            // Fallback to AST-based generation
+            for (const prog of ast.programs) {
+                this.emitHeaderChunkMarker("begin", "functionBlock", `Program_${prog.name}`);
+                this.generateProgramHeaderDeclaration(prog);
+                this.emitHeaderChunkMarker("end", "functionBlock", `Program_${prog.name}`);
+            }
+        }
+        // Generate function declarations
+        for (const func of ast.functions) {
+            this.emitHeaderChunkMarker("begin", "function", func.name);
+            this.generateFunctionHeaderDeclaration(func);
+            this.emitHeaderChunkMarker("end", "function", func.name);
+        }
+        // Generate configuration class declarations
+        if (this.projectModel) {
+            for (const config of this.projectModel.configurations) {
+                this.generateConfigurationHeaderFromModel(config);
+            }
+        }
+        else {
+            for (const config of ast.configurations) {
+                this.generateConfigurationHeaderDeclaration(config);
+            }
+        }
+        // Generate located variables descriptor array declaration
+        this.generateLocatedVarsDeclaration();
+        this.emitHeader(`}  // namespace ${ns}`);
+    }
+    /**
+     * Generate the C++ implementation files.
+     *
+     * Splits across multiple translation units so the runtime build can
+     * run `make -j$(nproc)` and ccache can keep .o files for unchanged
+     * POUs across rebuilds:
+     *
+     *   configuration.cpp     library preambles, located-vars definition,
+     *                         configuration glue (must be exactly one TU
+     *                         to avoid duplicate symbol errors at link).
+     *   pou_<NAME>.cpp        one TU per program / FB / function.
+     *
+     * All files share `generated.hpp`, so editing a POU's *body* leaves
+     * other TUs' preprocessed source unchanged → ccache reuses them.
+     * Editing a declaration invalidates the header and forces a full
+     * rebuild — same as any C++ project.
+     */
+    generateImplementation(ast) {
+        // 1. Shared TU: library preambles, located-vars def, configurations.
+        //    Anything that must have exactly one definition in the .so
+        //    lives here (multiple-TU defs would link-fail with "multiple
+        //    definition of …").
+        this.startTranslationUnit("configuration.cpp");
+        // Inject reachable library chunks (cpp side). Same per-archive
+        // iteration order as the header side; only chunks whose `cpp`
+        // slice is non-empty get emitted (types and inline globals are
+        // header-only).
+        for (const { archive, reachable } of this.libraryEmissions) {
+            const reachableChunks = [];
+            for (const chunk of archive.chunks ?? []) {
+                if (chunk.cpp.length === 0)
+                    continue;
+                if (reachable.has(chunk.name))
+                    reachableChunks.push(chunk);
+            }
+            if (reachableChunks.length === 0)
+                continue;
+            this.emit(`// Library: ${archive.manifest.name}`);
+            for (const chunk of reachableChunks) {
+                for (const line of chunk.cpp.split("\n")) {
+                    this.emit(line);
+                }
+            }
+            this.emit("");
+        }
+        this.generateLocatedVarsDefinition();
+        if (this.projectModel) {
+            for (const config of this.projectModel.configurations) {
+                this.generateConfigurationImplementationFromModel(config);
+            }
+        }
+        else {
+            for (const config of ast.configurations) {
+                this.generateConfigurationImplementation(config);
+            }
+        }
+        this.endTranslationUnit();
+        // 2. One TU per program.
+        if (this.projectModel) {
+            for (const prog of this.projectModel.programs.values()) {
+                this.startTranslationUnit(this.pouFileName(prog.name));
+                this.emitCppChunkMarker("begin", "functionBlock", `Program_${prog.name}`);
+                this.generateProgramImplementationFromModel(prog);
+                this.emitCppChunkMarker("end", "functionBlock", `Program_${prog.name}`);
+                this.endTranslationUnit();
+            }
+        }
+        else {
+            for (const prog of ast.programs) {
+                this.startTranslationUnit(this.pouFileName(prog.name));
+                this.emitCppChunkMarker("begin", "functionBlock", `Program_${prog.name}`);
+                this.generateProgramImplementation(prog);
+                this.emitCppChunkMarker("end", "functionBlock", `Program_${prog.name}`);
+                this.endTranslationUnit();
+            }
+        }
+        // 3. One TU per function block. Topological order doesn't matter
+        //    here (each impl just sees the shared header's full set of
+        //    class declarations); ordering only mattered for the header.
+        for (const fb of this.sortedFBs) {
+            this.startTranslationUnit(this.pouFileName(fb.name));
+            this.emitCppChunkMarker("begin", "functionBlock", fb.name);
+            this.generateFBImplementation(fb);
+            this.emitCppChunkMarker("end", "functionBlock", fb.name);
+            this.endTranslationUnit();
+        }
+        // 4. One TU per function.
+        for (const func of ast.functions) {
+            this.startTranslationUnit(this.pouFileName(func.name));
+            this.emitCppChunkMarker("begin", "function", func.name);
+            this.generateFunctionImplementation(func);
+            this.emitCppChunkMarker("end", "function", func.name);
+            this.endTranslationUnit();
+        }
+    }
+    /**
+     * Generate header declaration for a function block.
+     */
+    generateFBHeaderDeclaration(fb) {
+        // Populate interface method names for variable/method collision detection
+        this.currentFBInterfaceMethods = this.getInterfaceMethodNames(fb);
+        // Build inheritance clause
+        const bases = [];
+        if (fb.extends) {
+            bases.push(`public ${fb.extends}`);
+        }
+        if (fb.implements) {
+            for (const iface of fb.implements) {
+                bases.push(`public ${iface}`);
+            }
+        }
+        const inheritance = bases.length > 0 ? ` : ${bases.join(", ")}` : "";
+        const finalSpec = fb.isFinal ? " final" : "";
+        this.emitHeaderLineDirective(fb.sourceSpan.startLine);
+        const classLine = this.currentHeaderLine;
+        this.emitHeader(`class ${fb.name}${finalSpec}${inheritance} {`);
+        this.emitHeader("public:");
+        this.recordHeaderLineMapping(fb.sourceSpan.startLine, classLine);
+        // Member names in this FB — used to detect a member that shadows the type
+        // of a sibling member (e.g. F_LAMP has both `ONTIME : UDINT` and
+        // `RUNTIME : ONTIME`, where the FB type ONTIME also exists). C++ member
+        // lookup would resolve the bare type name to the data member, so such a
+        // member declaration needs an elaborated `class`/`struct` specifier.
+        const fbMemberNames = new Set();
+        for (const block of fb.varBlocks) {
+            for (const decl of block.declarations) {
+                for (const n of decl.names)
+                    fbMemberNames.add(n.toUpperCase());
+            }
+        }
+        // Generate member variables
+        for (const block of fb.varBlocks) {
+            const comment = block.blockType === "VAR_INPUT"
+                ? "// Inputs"
+                : block.blockType === "VAR_OUTPUT"
+                    ? "// Outputs"
+                    : block.blockType === "VAR_IN_OUT"
+                        ? "// In-Out"
+                        : "// Local variables";
+            this.emitHeader(`    ${comment}`);
+            for (const decl of block.declarations) {
+                const cppType = this.mapTypeRefToCpp(decl.type);
+                const tag = this.elaboratedTagIfShadowed(decl.type.name, fbMemberNames);
+                for (const name of decl.names) {
+                    const memberName = this.mangleMemberIfNeeded(name, cppType, decl.type.name);
+                    this.emitHeaderLineDirective(decl.sourceSpan.startLine);
+                    const memberLine = this.currentHeaderLine;
+                    this.emitHeader(`    ${tag}${cppType} ${memberName};`);
+                    this.recordHeaderLineMapping(decl.sourceSpan.startLine, memberLine);
+                }
+            }
+        }
+        // Generate VAR_INST mangled members from methods
+        const varInstMembers = this.collectVarInstMembers(fb);
+        if (varInstMembers.length > 0) {
+            this.emitHeader("");
+            this.emitHeader("    // Method instance variables (VAR_INST)");
+            for (const m of varInstMembers) {
+                this.emitHeader(`    ${m.cppType} ${m.mangledName};`);
+            }
+        }
+        // IEC 61131-3 implicit ENO output. Mirrors EN at every call site, so
+        // user code that does `IF inst.ENO THEN ...` after invoking the FB
+        // resolves. Default is true so FBs invoked without an EN pin see ENO=1
+        // (matches the standard: ENO defaults to TRUE when EN is omitted).
+        // Only emitted on the leaf FB; if it extends another FB, the parent
+        // already provides ENO.
+        if (!fb.extends) {
+            this.emitHeader("");
+            this.emitHeader("    // Implicit IEC 61131-3 ENO pin (mirrors EN)");
+            this.emitHeader("    IEC_BOOL ENO = true;");
+        }
+        this.emitHeader("");
+        this.emitHeader("    // Constructor");
+        this.emitHeader(`    ${fb.name}();`);
+        this.emitHeader("");
+        this.emitHeader("    // Execute function block");
+        this.emitHeader("    void operator()();");
+        // Generate method declarations (grouped by visibility)
+        if (fb.methods.length > 0) {
+            this.emitHeader("");
+            this.generateMethodDeclarations(fb.methods);
+        }
+        // Generate property declarations
+        if (fb.properties.length > 0) {
+            this.emitHeader("");
+            this.generatePropertyDeclarations(fb.properties);
+        }
+        // Virtual destructor (needed for classes with virtual methods)
+        if (fb.methods.length > 0 || fb.properties.length > 0 || !fb.isFinal) {
+            this.emitHeader("");
+            this.emitHeader(`    virtual ~${fb.name}() = default;`);
+        }
+        // Test build: add mock infrastructure
+        if (this.options.isTestBuild) {
+            this.emitHeader("");
+            this.emitHeader("    // Test mock infrastructure");
+            this.emitHeader("    bool __mocked_ = false;");
+            this.emitHeader("    struct { int call_count = 0; } __mock_state_;");
+        }
+        this.emitHeader("};");
+        this.emitHeader("");
+    }
+    /**
+     * Generate header declaration for a program.
+     */
+    generateProgramHeaderDeclaration(prog) {
+        this.emitHeaderLineDirective(prog.sourceSpan.startLine);
+        const classLine = this.currentHeaderLine;
+        this.emitHeader(`class Program_${prog.name} : public ProgramBase {`);
+        this.emitHeader("public:");
+        this.recordHeaderLineMapping(prog.sourceSpan.startLine, classLine);
+        // Generate member variables and collect located variables
+        for (const block of prog.varBlocks) {
+            for (const decl of block.declarations) {
+                const cppType = this.mapTypeRefToCpp(decl.type);
+                for (const name of decl.names) {
+                    const memberName = this.mangleMemberIfNeeded(name, cppType, decl.type.name);
+                    this.emitHeaderLineDirective(decl.sourceSpan.startLine);
+                    const memberLine = this.currentHeaderLine;
+                    if (decl.address) {
+                        // Generate variable with optional address comment
+                        this.emitHeader(`    ${cppType} ${memberName};  // AT ${decl.address}`);
+                        // Collect located variable info
+                        this.collectLocatedVar(name, decl, prog.name);
+                    }
+                    else {
+                        this.emitHeader(`    ${cppType} ${memberName};`);
+                    }
+                    this.recordHeaderLineMapping(decl.sourceSpan.startLine, memberLine);
+                }
+            }
+        }
+        this.emitHeader("");
+        // Implicit IEC 61131-3 ENO pin. Mirrors EN at every call site, so
+        // user code that does `IF prog.ENO THEN ...` after invoking the
+        // program (or the test framework that wraps a program as a UUT and
+        // invokes it like an FB) resolves. Default true matches the
+        // standard's "ENO defaults to TRUE when EN is omitted".
+        this.emitHeader("    // Implicit IEC 61131-3 ENO pin (mirrors EN)");
+        this.emitHeader("    IEC_BOOL ENO = true;");
+        this.emitHeader("");
+        this.emitHeader("    // Constructor");
+        this.emitHeader(`    Program_${prog.name}();`);
+        this.emitHeader("");
+        this.emitHeader("    // Run program");
+        this.emitHeader("    void run() override;");
+        this.emitHeader("};");
+        this.emitHeader("");
+    }
+    /**
+     * Generate header declaration for a function.
+     */
+    generateFunctionHeaderDeclaration(func) {
+        const params = this.generateFunctionParams(func);
+        this.emitHeaderLineDirective(func.sourceSpan.startLine);
+        const declLine = this.currentHeaderLine;
+        this.emitHeader(`${this.mapTypeRefToCpp(func.returnType)} ${func.name}(${params.join(", ")});`);
+        this.recordHeaderLineMapping(func.sourceSpan.startLine, declLine);
+    }
+    /**
+     * Generate function parameter list including VAR_INPUT and VAR_IN_OUT.
+     * VAR_IN_OUT parameters are passed by reference.
+     * VLA types use ArrayView instead of IECVar reference.
+     */
+    generateFunctionParams(func) {
+        const params = [];
+        for (const block of func.varBlocks) {
+            if (block.blockType === "VAR_INPUT") {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        params.push(`${this.mapTypeRefToCpp(decl.type)} ${name}`);
+                    }
+                }
+            }
+            else if (block.blockType === "VAR_IN_OUT") {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        // VLA types (ArrayView) are already reference-like; others need &
+                        if (decl.type.name.startsWith("__VLA_")) {
+                            params.push(`${this.mapTypeRefToCpp(decl.type)} ${name}`);
+                        }
+                        else {
+                            // mapTypeRefToCpp preserves arrayDimensions / elementTypeName
+                            // (so inline ARRAY params emit Array1D<...>) but we still want
+                            // STRING/WSTRING maxLength dropped so any string size binds to
+                            // the &-reference — strip it on a shallow copy of the typeRef.
+                            params.push(`${this.mapTypeRefToCpp(this.toParamTypeRef(decl.type))}& ${name}`);
+                        }
+                    }
+                }
+            }
+            else if (block.blockType === "VAR_OUTPUT") {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        // Same metadata-aware lookup as VAR_IN_OUT — see the comment above.
+                        params.push(`${this.mapTypeRefToCpp(this.toParamTypeRef(decl.type))}& ${name}`);
+                    }
+                }
+            }
+        }
+        return params;
+    }
+    // ===========================================================================
+    // OOP Code Generation (Phase 5.2)
+    // ===========================================================================
+    /**
+     * Generate header declaration for an interface.
+     * Interfaces become abstract classes with pure virtual methods.
+     */
+    generateInterfaceHeaderDeclaration(iface) {
+        const extendsClause = iface.extends && iface.extends.length > 0
+            ? ` : ${iface.extends.map((e) => `public ${e}`).join(", ")}`
+            : "";
+        this.emitHeaderLineDirective(iface.sourceSpan.startLine);
+        const classLine = this.currentHeaderLine;
+        this.emitHeader(`class ${iface.name}${extendsClause} {`);
+        this.emitHeader("public:");
+        this.emitHeader(`    virtual ~${iface.name}() = default;`);
+        this.recordHeaderLineMapping(iface.sourceSpan.startLine, classLine);
+        for (const method of iface.methods) {
+            const isIfaceReturn = method.returnType && this.isInterfaceType(method.returnType.name);
+            const returnType = method.returnType
+                ? `${this.mapTypeRefToCpp(method.returnType)}${isIfaceReturn ? "&" : ""}`
+                : "void";
+            const params = this.generateMethodParamList(method);
+            if (method.sourceSpan) {
+                this.emitHeaderLineDirective(method.sourceSpan.startLine);
+                const methodLine = this.currentHeaderLine;
+                this.emitHeader(`    virtual ${returnType} ${method.name}(${params}) = 0;`);
+                this.recordHeaderLineMapping(method.sourceSpan.startLine, methodLine);
+            }
+            else {
+                this.emitHeader(`    virtual ${returnType} ${method.name}(${params}) = 0;`);
+            }
+        }
+        this.emitHeader("};");
+        this.emitHeader("");
+    }
+    /**
+     * Collect VAR_INST members from all methods of a function block.
+     * These become name-mangled class members: __MethodName__varName
+     */
+    collectVarInstMembers(fb) {
+        const result = [];
+        for (const method of fb.methods) {
+            for (const block of method.varBlocks) {
+                if (block.blockType === "VAR_INST") {
+                    for (const decl of block.declarations) {
+                        for (const name of decl.names) {
+                            result.push({
+                                mangledName: `__${method.name}__${name}`,
+                                cppType: this.mapTypeRefToCpp(decl.type),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        return result;
+    }
+    /**
+     * Generate method declarations in the class header, grouped by visibility.
+     */
+    generateMethodDeclarations(methods) {
+        // Group by visibility
+        const groups = {
+            PUBLIC: [],
+            PRIVATE: [],
+            PROTECTED: [],
+        };
+        for (const method of methods) {
+            groups[method.visibility].push(method);
+        }
+        // Track current visibility section (class starts as public:)
+        let currentVisibility = "public";
+        for (const [visibility, visMethods] of Object.entries(groups)) {
+            if (visMethods.length === 0)
+                continue;
+            const cppVisibility = visibility.toLowerCase();
+            if (cppVisibility !== currentVisibility) {
+                this.emitHeader(`${cppVisibility}:`);
+                currentVisibility = cppVisibility;
+            }
+            for (const method of visMethods) {
+                const isIfaceReturn = method.returnType && this.isInterfaceType(method.returnType.name);
+                const returnType = method.returnType
+                    ? `${this.mapTypeRefToCpp(method.returnType)}${isIfaceReturn ? "&" : ""}`
+                    : "void";
+                const params = this.generateMethodParamList(method);
+                // Build declaration with appropriate specifiers
+                let prefix;
+                let suffix;
+                if (method.isAbstract) {
+                    prefix = "virtual ";
+                    suffix = " = 0";
+                }
+                else if (method.isOverride) {
+                    prefix = "";
+                    suffix = " override";
+                    if (method.isFinal)
+                        suffix += " final";
+                }
+                else {
+                    prefix = "virtual ";
+                    suffix = method.isFinal ? " final" : "";
+                }
+                this.emitHeaderLineDirective(method.sourceSpan.startLine);
+                const methodLine = this.currentHeaderLine;
+                this.emitHeader(`    ${prefix}${returnType} ${method.name}(${params})${suffix};`);
+                this.recordHeaderLineMapping(method.sourceSpan.startLine, methodLine);
+            }
+        }
+        // Restore public section if we changed it (for destructor etc.)
+        if (currentVisibility !== "public") {
+            this.emitHeader("public:");
+        }
+    }
+    /**
+     * Generate parameter list string for a method declaration.
+     * VAR_INPUT, VAR_OUTPUT (by ref), VAR_IN_OUT (by ref) become C++ params.
+     */
+    generateMethodParamList(method) {
+        const params = [];
+        for (const block of method.varBlocks) {
+            if (block.blockType === "VAR_INPUT") {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        params.push(`${this.mapTypeRefToCpp(decl.type)} ${name}`);
+                    }
+                }
+            }
+            else if (block.blockType === "VAR_IN_OUT") {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        // mapTypeRefToCpp preserves arrayDimensions / elementTypeName
+                        // (so inline ARRAY params emit Array1D<...>) while
+                        // toParamTypeRef strips STRING/WSTRING maxLength so any
+                        // string size binds to the &-reference.
+                        params.push(`${this.mapTypeRefToCpp(this.toParamTypeRef(decl.type))}& ${name}`);
+                    }
+                }
+            }
+            else if (block.blockType === "VAR_OUTPUT") {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        params.push(`${this.mapTypeRefToCpp(this.toParamTypeRef(decl.type))}& ${name}`);
+                    }
+                }
+            }
+        }
+        return params.join(", ");
+    }
+    /**
+     * Generate property getter/setter declarations in the class header.
+     */
+    generatePropertyDeclarations(properties) {
+        this.emitHeader("    // Properties");
+        for (const prop of properties) {
+            const type = this.mapTypeRefToCpp(prop.type);
+            this.emitHeaderLineDirective(prop.sourceSpan.startLine);
+            const propLine = this.currentHeaderLine;
+            if (prop.getter) {
+                this.emitHeader(`    virtual ${type} get_${prop.name}() const;`);
+            }
+            if (prop.setter) {
+                this.emitHeader(`    virtual void set_${prop.name}(${type} ${prop.name});`);
+            }
+            this.recordHeaderLineMapping(prop.sourceSpan.startLine, propLine);
+        }
+    }
+    /**
+     * Generate implementation for a method (in the .cpp file).
+     * Follows the same return-variable pattern as functions.
+     */
+    generateMethodImplementation(method, className) {
+        const isIfaceReturn = method.returnType && this.isInterfaceType(method.returnType.name);
+        const returnType = method.returnType
+            ? `${this.mapTypeRefToCpp(method.returnType)}${isIfaceReturn ? "&" : ""}`
+            : "void";
+        const params = this.generateMethodParamList(method);
+        this.emitLineDirective(method.sourceSpan.startLine);
+        const implLine = this.currentLine;
+        this.emit(`${returnType} ${className}::${method.name}(${params}) {`);
+        // Declare return variable if method has return type
+        if (method.returnType) {
+            if (isIfaceReturn) {
+                // Interface return: assignments to result become return statements
+                this.interfaceReturnMethod = true;
+            }
+            else {
+                this.emit(`    ${this.mapTypeRefToCpp(method.returnType)} ${method.name}_result;`);
+            }
+            this.currentFunctionName = method.name;
+        }
+        // Set up VAR_INST name mangling
+        this.varInstMangledNames.clear();
+        for (const block of method.varBlocks) {
+            if (block.blockType === "VAR_INST") {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        this.varInstMangledNames.set(name.toUpperCase(), `__${method.name}__${name}`);
+                    }
+                }
+            }
+        }
+        // Merge FB scope + method scope so FB member types are visible (same pattern as properties)
+        this.enterScope([...this.currentFBVarBlocks, ...method.varBlocks]);
+        // Declare local variables (VAR, VAR_TEMP)
+        for (const block of method.varBlocks) {
+            if (block.blockType === "VAR" || block.blockType === "VAR_TEMP") {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        const initValue = decl.initialValue
+                            ? ` = ${this.generateExpression(decl.initialValue)}`
+                            : "";
+                        this.emit(`    ${this.mapTypeRefToCpp(decl.type)} ${name}${initValue};`);
+                    }
+                }
+            }
+        }
+        // Generate body
+        if (method.body.length > 0) {
+            this.generateStatements(method.body);
+        }
+        // Return if method has return type
+        if (method.returnType) {
+            if (!isIfaceReturn) {
+                this.emit(`    return ${method.name}_result;`);
+            }
+            this.currentFunctionName = undefined;
+            this.interfaceReturnMethod = false;
+        }
+        // Clean up
+        this.exitScope();
+        this.varInstMangledNames.clear();
+        this.emitLineDirective(method.sourceSpan.endLine);
+        this.emit("}");
+        this.emit("");
+        this.recordLineMapping(method.sourceSpan.startLine, implLine);
+    }
+    /**
+     * Generate implementation for a property (getter and/or setter in the .cpp file).
+     */
+    generatePropertyImplementation(prop, className) {
+        const type = this.mapTypeRefToCpp(prop.type);
+        // Getter
+        if (prop.getter) {
+            this.emitLineDirective(prop.sourceSpan.startLine);
+            const getterLine = this.currentLine;
+            this.emit(`${type} ${className}::get_${prop.name}() const {`);
+            this.emit(`    ${type} ${prop.name}_result;`);
+            this.currentFunctionName = prop.name;
+            this.generateStatements(prop.getter);
+            this.emit(`    return ${prop.name}_result;`);
+            this.currentFunctionName = undefined;
+            this.emit("}");
+            this.emit("");
+            this.recordLineMapping(prop.sourceSpan.startLine, getterLine);
+        }
+        // Setter
+        if (prop.setter) {
+            this.emitLineDirective(prop.sourceSpan.startLine);
+            const setterLine = this.currentLine;
+            this.emit(`void ${className}::set_${prop.name}(${type} ${prop.name}) {`);
+            // In setter, prop.name refers to the input parameter (no redirection)
+            this.generateStatements(prop.setter);
+            this.emit("}");
+            this.emit("");
+            this.recordLineMapping(prop.sourceSpan.startLine, setterLine);
+        }
+    }
+    /**
+     * Generate implementation for a program.
+     */
+    generateProgramImplementation(prog) {
+        // Constructor
+        this.emit(`Program_${prog.name}::Program_${prog.name}() {`);
+        this.emit("    // Initialize variables");
+        for (const block of prog.varBlocks) {
+            for (const decl of block.declarations) {
+                if (decl.initialValue !== undefined) {
+                    const initExpr = this.generateExpression(decl.initialValue);
+                    for (const name of decl.names) {
+                        this.emit(`    ${name} = ${initExpr};`);
+                    }
+                }
+            }
+        }
+        // Initialize located variable pointers
+        this.generateLocatedVarPointerInit(prog.name);
+        this.emit("}");
+        this.emit("");
+        // PROGRAM line now maps to header class declaration, not constructor
+        // Run method
+        this.emit(`void Program_${prog.name}::run() {`);
+        this.enterScope(prog.varBlocks);
+        if (prog.body.length > 0) {
+            // Generate statements (Phase 2.8: only ExternalCodePragma; Phase 3+: all statements)
+            this.generateStatements(prog.body);
+        }
+        else if (this.options.sourceComments) {
+            this.emit("    // Empty program body");
+        }
+        this.exitScope();
+        this.emitLineDirective(prog.sourceSpan.endLine);
+        const closingBraceLine = this.currentLine;
+        this.emit("}");
+        this.emit("");
+        this.recordLineMapping(prog.sourceSpan.endLine, closingBraceLine);
+    }
+    /**
+     * Generate implementation for a function block.
+     */
+    generateFBImplementation(fb) {
+        this.currentFBName = fb.name;
+        this.currentFBExtends = fb.extends;
+        this.currentFBVarBlocks = fb.varBlocks;
+        this.currentFBInterfaceMethods = this.getInterfaceMethodNames(fb);
+        // Constructor with initializer list for variables with defaults
+        const fbInits = [];
+        for (const block of fb.varBlocks) {
+            for (const decl of block.declarations) {
+                if (decl.initialValue) {
+                    const initExpr = this.generateExpression(decl.initialValue);
+                    for (const name of decl.names) {
+                        const cppType = this.mapTypeRefToCpp(decl.type);
+                        const memberName = this.mangleMemberIfNeeded(name, cppType, decl.type.name);
+                        fbInits.push(`${memberName}(${initExpr})`);
+                    }
+                }
+            }
+        }
+        if (fbInits.length > 0) {
+            this.emit(`${fb.name}::${fb.name}()`);
+            this.emit(`    : ${fbInits.join(", ")}`);
+            this.emit("{");
+        }
+        else {
+            this.emit(`${fb.name}::${fb.name}() {`);
+        }
+        this.emit("    // Initialize variables");
+        this.emit("}");
+        this.emit("");
+        // Operator()
+        this.emitLineDirective(fb.sourceSpan.startLine);
+        const fbImplLine = this.currentLine;
+        this.emit(`void ${fb.name}::operator()() {`);
+        if (this.options.isTestBuild) {
+            this.emit("    if (__mocked_) { __mock_state_.call_count++; return; }");
+        }
+        this.enterScope(fb.varBlocks);
+        if (fb.body.length > 0) {
+            this.generateStatements(fb.body);
+        }
+        else if (this.options.sourceComments) {
+            this.emit("    // Empty function block body");
+        }
+        this.exitScope();
+        this.emitLineDirective(fb.sourceSpan.endLine);
+        this.emit("}");
+        this.emit("");
+        this.recordLineMapping(fb.sourceSpan.startLine, fbImplLine);
+        // Method implementations
+        for (const method of fb.methods) {
+            if (!method.isAbstract) {
+                this.generateMethodImplementation(method, fb.name);
+            }
+        }
+        // Property implementations (enter FB scope so FB member types are visible)
+        for (const prop of fb.properties) {
+            this.enterScope(fb.varBlocks);
+            this.generatePropertyImplementation(prop, fb.name);
+            this.exitScope();
+        }
+        this.currentFBName = undefined;
+        this.currentFBExtends = undefined;
+        this.currentFBVarBlocks = [];
+        this.currentFBInterfaceMethods = new Set();
+    }
+    /**
+     * Generate implementation for a function.
+     */
+    generateFunctionImplementation(func) {
+        const params = this.generateFunctionParams(func);
+        const retType = this.mapTypeRefToCpp(func.returnType);
+        // Helper to emit local variable declarations (VAR/VAR_TEMP) and body
+        const emitFunctionBody = (funcName) => {
+            this.emit(`    ${retType} ${funcName}_result;`);
+            this.currentFunctionName = func.name;
+            this.enterScope(func.varBlocks);
+            // Declare local variables (VAR, VAR_TEMP) — same pattern as method locals
+            for (const block of func.varBlocks) {
+                if (block.blockType === "VAR" || block.blockType === "VAR_TEMP") {
+                    for (const decl of block.declarations) {
+                        for (const name of decl.names) {
+                            const initValue = decl.initialValue
+                                ? ` = ${this.generateExpression(decl.initialValue)}`
+                                : "";
+                            this.emit(`    ${this.mapTypeRefToCpp(decl.type)} ${name}${initValue};`);
+                        }
+                    }
+                }
+            }
+            if (func.body.length > 0) {
+                this.generateStatements(func.body);
+            }
+            else if (this.options.sourceComments) {
+                this.emit("    // Empty function body");
+            }
+            this.exitScope();
+            this.currentFunctionName = undefined;
+            this.emit(`    return ${funcName}_result;`);
+        };
+        if (this.options.isTestBuild) {
+            // Test build: generate _real, dispatch pointer, and wrapper
+            // 1. _real implementation (original body with renamed function)
+            this.emitLineDirective(func.sourceSpan.startLine);
+            const realLine = this.currentLine;
+            this.emit(`${retType} ${func.name}_real(${params.join(", ")}) {`);
+            emitFunctionBody(func.name);
+            this.emit("}");
+            this.emit("");
+            this.recordLineMapping(func.sourceSpan.startLine, realLine);
+            // 2. Dispatch pointer (defaults to real implementation)
+            this.emit(`${retType} (*${func.name}_dispatch)(${params.join(", ")}) = ${func.name}_real;`);
+            this.emit("");
+            // 3. Wrapper that calls through dispatch pointer
+            const paramNames = this.generateFunctionParamNames(func);
+            this.emit(`${retType} ${func.name}(${params.join(", ")}) {`);
+            this.emit(`    return ${func.name}_dispatch(${paramNames.join(", ")});`);
+            this.emit("}");
+            this.emit("");
+        }
+        else {
+            // Production build: normal function
+            this.emitLineDirective(func.sourceSpan.startLine);
+            const funcImplLine = this.currentLine;
+            this.emit(`${retType} ${func.name}(${params.join(", ")}) {`);
+            emitFunctionBody(func.name);
+            this.emit("}");
+            this.emit("");
+            this.recordLineMapping(func.sourceSpan.startLine, funcImplLine);
+        }
+    }
+    /**
+     * Generate function parameter name list (just names, no types).
+     */
+    generateFunctionParamNames(func) {
+        const names = [];
+        for (const block of func.varBlocks) {
+            if (block.blockType === "VAR_INPUT" || block.blockType === "VAR_IN_OUT") {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        names.push(name);
+                    }
+                }
+            }
+        }
+        return names;
+    }
+    // ===========================================================================
+    // Project Model-based Generation (Phase 2.1)
+    // ===========================================================================
+    /**
+     * Generate header declaration for a program from the project model.
+     * Handles VAR_EXTERNAL as reference members.
+     */
+    generateProgramHeaderFromModel(prog) {
+        const className = `Program_${prog.name}`;
+        // Look up AST program for source spans
+        const astProg = this.ast?.programs.find((p) => p.name.toUpperCase() === prog.name.toUpperCase());
+        if (astProg) {
+            this.emitHeaderLineDirective(astProg.sourceSpan.startLine);
+        }
+        const classLine = this.currentHeaderLine;
+        this.emitHeader(`class ${className} : public ProgramBase {`);
+        this.emitHeader("public:");
+        // Map PROGRAM line → class declaration
+        if (astProg) {
+            this.recordHeaderLineMapping(astProg.sourceSpan.startLine, classLine);
+        }
+        // Build name→sourceLine lookup from AST for variable mappings
+        const varSourceLines = new Map();
+        if (astProg) {
+            for (const block of astProg.varBlocks) {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        varSourceLines.set(name, decl.sourceSpan.startLine);
+                    }
+                }
+            }
+        }
+        // Collect retain variables for table generation
+        const retainVars = [];
+        // Generate local variable members and collect located variables
+        if (prog.varDeclarations.length > 0) {
+            this.emitHeader("    // Local variables");
+            for (const decl of prog.varDeclarations) {
+                const constQualifier = decl.isConstant ? "const " : "";
+                // Use mapTypeRefToCpp so inline ARRAY types (where typeName looks
+                // like __INLINE_ARRAY_<T> and the bounds live alongside on the
+                // ProjectVarDeclaration) get expanded to Array1D<T, L, U>. Going
+                // through mapVarTypeToCpp directly would emit IEC___INLINE_ARRAY_<T>.
+                const cppType = this.mapTypeRefToCpp({
+                    name: decl.typeName,
+                    ...(decl.maxLength !== undefined
+                        ? { maxLength: decl.maxLength }
+                        : {}),
+                    ...(decl.arrayDimensions !== undefined
+                        ? { arrayDimensions: decl.arrayDimensions }
+                        : {}),
+                    ...(decl.elementTypeName !== undefined
+                        ? { elementTypeName: decl.elementTypeName }
+                        : {}),
+                    ...(decl.referenceKind !== undefined
+                        ? { referenceKind: decl.referenceKind }
+                        : {}),
+                });
+                const memberName = this.mangleMemberIfNeeded(decl.name, cppType, decl.typeName);
+                // Map variable ST line → header member line
+                const stLine = varSourceLines.get(decl.name);
+                if (stLine !== undefined) {
+                    this.emitHeaderLineDirective(stLine);
+                }
+                const memberLine = this.currentHeaderLine;
+                if (decl.address) {
+                    this.emitHeader(`    ${constQualifier}${cppType} ${memberName};  // AT ${decl.address}`);
+                    // Collect located variable info
+                    this.collectLocatedVarFromModel(decl, prog.name);
+                }
+                else {
+                    this.emitHeader(`    ${constQualifier}${cppType} ${memberName};`);
+                }
+                if (stLine !== undefined) {
+                    this.recordHeaderLineMapping(stLine, memberLine);
+                }
+                // Collect retain variables (cppType — same metadata-aware lookup
+                // as the member emission above, so inline arrays don't end up as
+                // IEC___INLINE_ARRAY_<T> in the retain table either).
+                if (decl.isRetain) {
+                    retainVars.push({
+                        name: decl.name,
+                        typeName: cppType,
+                    });
+                }
+            }
+        }
+        // Generate external variable members.
+        //
+        // Default build (single-threaded / baremetal / pre-threaded runtime):
+        // plain references to the shared Configuration globals -- the program
+        // reads/writes the canonical storage directly (the runtime serializes
+        // task bodies, so this is safe).
+        //
+        // STRUCPP_THREADED build (OpenPLC threaded runtime): the program holds a
+        // private working COPY of each global, a pointer to the canonical global,
+        // and a snapshot taken at sync_in. The runtime calls sync_in() before
+        // run() and sync_out() after, so task bodies operate only on private
+        // storage and never hold a global lock across the body. sync_out commits
+        // only globals this program actually changed (memcmp vs the snapshot), so
+        // a program that merely reads a shared global never clobbers a concurrent
+        // writer. The member keeps the same name in both builds, so the generated
+        // body code is identical.
+        if (prog.varExternal.length > 0) {
+            // VAR_EXTERNAL records carry separate `name`/`typeName`;
+            // projectVarToTypeRef + toParamTypeRef + mapTypeRefToCpp resolve the
+            // C++ type the same way the constructor params do (must agree).
+            const extTypes = prog.varExternal.map((ext) => this.mapTypeRefToCpp(this.toParamTypeRef(this.projectVarToTypeRef(ext))));
+            this.emitHeader("    // External variables (globals)");
+            this.emitHeader("#ifdef STRUCPP_THREADED");
+            for (let i = 0; i < prog.varExternal.length; i++) {
+                const ext = prog.varExternal[i];
+                const ty = extTypes[i];
+                this.emitHeader(`    ${ty} ${ext.name};`);
+                this.emitHeader(`    ${ty}* ${ext.name}__canon = nullptr;`);
+                this.emitHeader(`    ${ty} ${ext.name}__prev;`);
+            }
+            this.emitHeader("#else");
+            for (let i = 0; i < prog.varExternal.length; i++) {
+                this.emitHeader(`    ${extTypes[i]}& ${prog.varExternal[i].name};`);
+            }
+            this.emitHeader("#endif");
+        }
+        this.emitHeader("");
+        // Implicit IEC 61131-3 ENO pin (see generateProgramHeaderDeclaration
+        // for the rationale; this is the project-model code path, same shape).
+        this.emitHeader("    // Implicit IEC 61131-3 ENO pin (mirrors EN)");
+        this.emitHeader("    IEC_BOOL ENO = true;");
+        this.emitHeader("");
+        this.emitHeader("    // Constructor");
+        if (prog.varExternal.length > 0) {
+            // Constructor with external variable references — same metadata-aware
+            // type resolution as the field declarations above.
+            const params = prog.varExternal
+                .map((ext) => {
+                const cppType = this.mapTypeRefToCpp(this.toParamTypeRef(this.projectVarToTypeRef(ext)));
+                return `${cppType}& ${ext.name}_ref`;
+            })
+                .join(", ");
+            this.emitHeader(`    explicit ${className}(${params});`);
+        }
+        else {
+            this.emitHeader(`    ${className}();`);
+        }
+        this.emitHeader("");
+        this.emitHeader("    // Run program");
+        this.emitHeader("    void run() override;");
+        // Threaded-runtime overrides (STRUCPP_THREADED only): global sync hooks
+        // and this program's slice of the located-vars table. Absent otherwise,
+        // so the default build's ProgramBase no-ops are used.
+        const threadedRange = this.locatedRangeForProgram(prog.name);
+        if (prog.varExternal.length > 0 || threadedRange.count > 0) {
+            this.emitHeader("");
+            this.emitHeader("#ifdef STRUCPP_THREADED");
+            if (prog.varExternal.length > 0) {
+                this.emitHeader("    void sync_in() override {");
+                for (const ext of prog.varExternal) {
+                    // Snapshot the private working copy with a raw byte copy (memcpy),
+                    // NOT `__prev = x`. IECVar::operator= routes through set() and copies
+                    // ONLY value_ (it deliberately preserves forced_/forced_value_), so
+                    // `__prev = x` leaves __prev's padding and forced_* bytes diverging
+                    // from x's. The sync_out memcmp below then sees those stale bytes as a
+                    // spurious "change" — making a program that merely READS a shared
+                    // global write its stale snapshot back to canonical and clobber a
+                    // concurrent writer (per-variable, so it can revert g_a but not g_b
+                    // and tear a cross-global invariant). memcpy makes __prev byte-equal
+                    // to x at sync_in, so the memcmp is a true value diff.
+                    this.emitHeader(`        ${ext.name} = *${ext.name}__canon; __builtin_memcpy(&${ext.name}__prev, &${ext.name}, sizeof(${ext.name}));`);
+                }
+                this.emitHeader("    }");
+                this.emitHeader("    void sync_out() override {");
+                for (const ext of prog.varExternal) {
+                    // Dirty-diff over the whole object via its address + sizeof, NOT
+                    // .raw_ptr(): raw_ptr() exists only on scalar IECVar<T>, so arrays
+                    // (Array1D) and structs would fail to compile. This is correct for
+                    // every VAR_EXTERNAL kind ONLY because sync_in snapshots __prev with
+                    // memcpy (a byte-exact copy): the body changes value_ via set(), and
+                    // nothing else writes the object, so any byte difference here is a
+                    // real value change. A pure reader leaves x byte-identical to __prev
+                    // and commits nothing.
+                    this.emitHeader(`        if (__builtin_memcmp(&${ext.name}, &${ext.name}__prev, sizeof(${ext.name})) != 0) *${ext.name}__canon = ${ext.name};`);
+                }
+                this.emitHeader("    }");
+            }
+            if (threadedRange.count > 0) {
+                this.emitHeader(`    void located_range(uint32_t* __off, uint32_t* __cnt) const override { *__off = ${threadedRange.offset}; *__cnt = ${threadedRange.count}; }`);
+            }
+            this.emitHeader("#endif");
+        }
+        // Generate retain variable support if there are retain variables
+        if (retainVars.length > 0) {
+            this.emitHeader("");
+            this.emitHeader("    // Retain variable support");
+            this.emitHeader(`    static const RetainVarInfo __retain_vars[${retainVars.length}];`);
+            this.emitHeader(`    const RetainVarInfo* getRetainVars() const override { return __retain_vars; }`);
+            this.emitHeader(`    size_t getRetainCount() const override { return ${retainVars.length}; }`);
+            // Store retain vars for implementation file generation
+            this.programRetainVars.set(prog.name, retainVars);
+        }
+        this.emitHeader("};");
+        this.emitHeader("");
+    }
+    /**
+     * Generate implementation for a program from the project model.
+     */
+    generateProgramImplementationFromModel(prog) {
+        // Look up AST program for source span
+        const astProg = this.ast?.programs.find((p) => p.name.toUpperCase() === prog.name.toUpperCase());
+        // Constructor
+        if (prog.varExternal.length > 0) {
+            // Same metadata-aware type resolution as the matching declaration
+            // in generateProgramHeaderFromModel — must agree byte-for-byte or
+            // the linker rejects the definition.
+            const params = prog.varExternal
+                .map((ext) => {
+                const cppType = this.mapTypeRefToCpp(this.toParamTypeRef(this.projectVarToTypeRef(ext)));
+                return `${cppType}& ${ext.name}_ref`;
+            })
+                .join(", ");
+            this.emit(`Program_${prog.name}::Program_${prog.name}(${params})`);
+            // Initializer list
+            const inits = [];
+            for (const decl of prog.varDeclarations) {
+                // References (REF_TO / REFERENCE TO) and pointers (POINTER TO) wrap a
+                // pointer internally and must be default-constructed (unbound/null) —
+                // `name(0)` is ambiguous for IEC_REF_TO, and now also for IEC_Ptr,
+                // which gained an integer-address ctor (the `0` literal matches both
+                // the nullptr_t and the uintptr_t overload). The default ctor sets the
+                // pointer to nullptr, which is exactly the IEC default. References are
+                // bound later via REF= / := REF(); pointers via := ADR()/&.
+                if (decl.referenceKind === "ref_to" ||
+                    decl.referenceKind === "reference_to" ||
+                    decl.referenceKind === "pointer_to") {
+                    continue;
+                }
+                const initVal = this.getDefaultValue(decl.typeName, decl.initialValue);
+                // Skip user-defined types (empty initVal) - they use default constructors
+                if (initVal) {
+                    inits.push(`${decl.name}(${initVal})`);
+                }
+            }
+            // External globals: default build binds reference members in the init
+            // list; STRUCPP_THREADED build binds the canonical pointer in the body
+            // (the working copy is a value member synced by the runtime). The body
+            // code is identical in both builds.
+            const extRefInits = prog.varExternal.map((ext) => `${ext.name}(${ext.name}_ref)`);
+            this.emit("#ifdef STRUCPP_THREADED");
+            if (inits.length > 0) {
+                this.emit(`    : ${inits.join(", ")}`);
+            }
+            this.emit("#else");
+            {
+                const combined = [...inits, ...extRefInits];
+                if (combined.length > 0) {
+                    this.emit(`    : ${combined.join(", ")}`);
+                }
+            }
+            this.emit("#endif");
+            this.emit("{");
+            if (prog.varExternal.length > 0) {
+                this.emit("#ifdef STRUCPP_THREADED");
+                for (const ext of prog.varExternal) {
+                    this.emit(`    ${ext.name}__canon = &${ext.name}_ref;`);
+                }
+                this.emit("#endif");
+            }
+            // Initialize located variable pointers
+            this.generateLocatedVarPointerInit(prog.name);
+            this.emit("}");
+        }
+        else {
+            this.emit(`Program_${prog.name}::Program_${prog.name}()`);
+            // Initializer list for local variables
+            const inits = [];
+            for (const decl of prog.varDeclarations) {
+                // References (REF_TO / REFERENCE TO) and pointers (POINTER TO) wrap a
+                // pointer internally and must be default-constructed (unbound/null) —
+                // `name(0)` is ambiguous for IEC_REF_TO, and now also for IEC_Ptr,
+                // which gained an integer-address ctor (the `0` literal matches both
+                // the nullptr_t and the uintptr_t overload). The default ctor sets the
+                // pointer to nullptr, which is exactly the IEC default. References are
+                // bound later via REF= / := REF(); pointers via := ADR()/&.
+                if (decl.referenceKind === "ref_to" ||
+                    decl.referenceKind === "reference_to" ||
+                    decl.referenceKind === "pointer_to") {
+                    continue;
+                }
+                const initVal = this.getDefaultValue(decl.typeName, decl.initialValue);
+                // Skip user-defined types (empty initVal) - they use default constructors
+                if (initVal) {
+                    inits.push(`${decl.name}(${initVal})`);
+                }
+            }
+            if (inits.length > 0) {
+                this.emit(`    : ${inits.join(", ")}`);
+            }
+            this.emit("{");
+            // Initialize located variable pointers
+            this.generateLocatedVarPointerInit(prog.name);
+            this.emit("}");
+        }
+        this.emit("");
+        // PROGRAM line now maps to header class declaration, not constructor
+        // Run method
+        this.emit(`void Program_${prog.name}::run() {`);
+        if (astProg) {
+            this.enterScope(astProg.varBlocks);
+        }
+        if (astProg && astProg.body.length > 0) {
+            // Generate statements (Phase 2.8: only ExternalCodePragma; Phase 3+: all statements)
+            this.generateStatements(astProg.body);
+        }
+        else if (this.options.sourceComments) {
+            this.emit("    // Empty program body");
+        }
+        if (astProg) {
+            this.exitScope();
+            this.emitLineDirective(astProg.sourceSpan.endLine);
+        }
+        const closingBraceLine = this.currentLine;
+        this.emit("}");
+        this.emit("");
+        if (astProg) {
+            this.recordLineMapping(astProg.sourceSpan.endLine, closingBraceLine);
+        }
+        // Generate retain variable table if there are retain variables
+        this.generateRetainTable(`Program_${prog.name}`, prog.name);
+    }
+    /**
+     * Generate retain variable table for a class.
+     */
+    generateRetainTable(className, progName) {
+        const retainVars = this.programRetainVars.get(progName);
+        if (!retainVars || retainVars.length === 0)
+            return;
+        this.emit(`// Retain variable table for ${className}`);
+        this.emit(`const RetainVarInfo ${className}::__retain_vars[] = {`);
+        for (const v of retainVars) {
+            this.emit(`    {"${v.name}", offsetof(${className}, ${v.name}), sizeof(${v.typeName})},`);
+        }
+        this.emit("};");
+        this.emit("");
+    }
+    /**
+     * Generate header declaration for a configuration from the project model.
+     */
+    generateConfigurationHeaderFromModel(config) {
+        this.emitHeader(`class Configuration_${config.name} : public ConfigurationInstance {`);
+        this.emitHeader("public:");
+        // Generate VAR_GLOBAL members
+        if (config.globalVars.length > 0) {
+            this.emitHeader("    // VAR_GLOBAL variables");
+            for (const gvar of config.globalVars) {
+                const constQualifier = gvar.isConstant ? "const " : "";
+                // Same metadata-aware lookup as program locals (see comment in
+                // generateProgramHeaderFromModel) — globals can also be inline
+                // ARRAY types and need Array1D<...> expansion.
+                const cppType = this.mapTypeRefToCpp({
+                    name: gvar.typeName,
+                    ...(gvar.maxLength !== undefined
+                        ? { maxLength: gvar.maxLength }
+                        : {}),
+                    ...(gvar.arrayDimensions !== undefined
+                        ? { arrayDimensions: gvar.arrayDimensions }
+                        : {}),
+                    ...(gvar.elementTypeName !== undefined
+                        ? { elementTypeName: gvar.elementTypeName }
+                        : {}),
+                    ...(gvar.referenceKind !== undefined
+                        ? { referenceKind: gvar.referenceKind }
+                        : {}),
+                });
+                this.emitHeader(`    ${constQualifier}${cppType} ${gvar.name};`);
+            }
+            this.emitHeader("");
+        }
+        // Generate program instance members
+        const allInstances = this.collectProgramInstances(config);
+        if (allInstances.length > 0) {
+            this.emitHeader("    // Program instances");
+            for (const inst of allInstances) {
+                this.emitHeader(`    Program_${inst.programType} ${inst.instanceName};`);
+            }
+            this.emitHeader("");
+        }
+        // Generate task and resource storage
+        const taskCount = this.countTasks(config);
+        const resourceCount = config.resources.length;
+        if (taskCount > 0) {
+            this.emitHeader("    // Task storage");
+            this.emitHeader(`    TaskInstance tasks_storage[${taskCount}];`);
+            this.emitHeader(`    ProgramBase* task_programs_storage[${allInstances.length > 0 ? allInstances.length : 1}];`);
+        }
+        if (resourceCount > 0) {
+            this.emitHeader("    // Resource storage");
+            this.emitHeader(`    ResourceInstance resources_storage[${resourceCount}];`);
+        }
+        this.emitHeader("");
+        // Constructor
+        this.emitHeader("    // Constructor");
+        this.emitHeader(`    Configuration_${config.name}();`);
+        this.emitHeader("");
+        // ConfigurationInstance interface
+        this.emitHeader("    // ConfigurationInstance interface");
+        this.emitHeader("    const char* get_name() const override;");
+        this.emitHeader("    ResourceInstance* get_resources() override;");
+        this.emitHeader("    size_t get_resource_count() const override;");
+        this.emitHeader("};");
+        this.emitHeader("");
+    }
+    /**
+     * Generate implementation for a configuration from the project model.
+     */
+    generateConfigurationImplementationFromModel(config) {
+        const allInstances = this.collectProgramInstances(config);
+        // Constructor
+        this.emit(`Configuration_${config.name}::Configuration_${config.name}()`);
+        // Initializer list
+        const inits = [];
+        // Initialize global variables
+        for (const gvar of config.globalVars) {
+            const initVal = this.getDefaultValue(gvar.typeName, gvar.initialValue);
+            // Skip user-defined types (empty initVal) - they use default constructors
+            if (initVal) {
+                inits.push(`${gvar.name}(${initVal})`);
+            }
+        }
+        // Initialize program instances (with external variable references)
+        for (const inst of allInstances) {
+            const prog = this.projectModel?.programs.get(inst.programType.toUpperCase());
+            if (prog && prog.varExternal.length > 0) {
+                // Pass references to global variables
+                const args = prog.varExternal.map((ext) => ext.name).join(", ");
+                inits.push(`${inst.instanceName}(${args})`);
+            }
+            else {
+                inits.push(`${inst.instanceName}()`);
+            }
+        }
+        if (inits.length > 0) {
+            this.emit(`    : ${inits.join(",")}`);
+        }
+        this.emit("{");
+        // Wire up tasks and resources
+        if (this.options.sourceComments) {
+            this.emit("    // Wire up tasks and resources");
+        }
+        let taskIndex = 0;
+        let programIndex = 0;
+        let resourceIndex = 0;
+        for (const resource of config.resources) {
+            const resourceTaskStart = taskIndex;
+            for (const task of resource.tasks) {
+                const taskProgramStart = programIndex;
+                // Store program pointers for this task
+                for (const inst of task.programInstances) {
+                    this.emit(`    task_programs_storage[${programIndex}] = &${inst.instanceName};`);
+                    programIndex++;
+                }
+                // Initialize task
+                const intervalNs = task.interval?.nanoseconds ?? 0;
+                const priority = task.priority ?? 0;
+                const programCount = task.programInstances.length;
+                this.emit(`    tasks_storage[${taskIndex}] = TaskInstance("${task.name}", ${intervalNs}LL, ${priority}, &task_programs_storage[${taskProgramStart}], ${programCount});`);
+                taskIndex++;
+            }
+            // Initialize resource
+            const taskCount = resource.tasks.length;
+            this.emit(`    resources_storage[${resourceIndex}] = ResourceInstance("${resource.name}", "${resource.processor}", &tasks_storage[${resourceTaskStart}], ${taskCount});`);
+            resourceIndex++;
+        }
+        this.emit("}");
+        this.emit("");
+        // get_name()
+        this.emit(`const char* Configuration_${config.name}::get_name() const {`);
+        this.emit(`    return "${config.name}";`);
+        this.emit("}");
+        this.emit("");
+        // get_resources()
+        this.emit(`ResourceInstance* Configuration_${config.name}::get_resources() {`);
+        this.emit("    return resources_storage;");
+        this.emit("}");
+        this.emit("");
+        // get_resource_count()
+        this.emit(`size_t Configuration_${config.name}::get_resource_count() const {`);
+        this.emit(`    return ${config.resources.length};`);
+        this.emit("}");
+        this.emit("");
+    }
+    /**
+     * Generate header declaration for a configuration from AST (fallback).
+     */
+    generateConfigurationHeaderDeclaration(config) {
+        this.emitHeader(`class Configuration_${config.name} : public ConfigurationInstance {`);
+        this.emitHeader("public:");
+        // Generate VAR_GLOBAL members
+        for (const block of config.varBlocks) {
+            if (block.blockType === "VAR_GLOBAL") {
+                this.emitHeader("    // VAR_GLOBAL variables");
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        this.emitHeader(`    ${this.mapTypeRefToCpp(decl.type)} ${name};`);
+                    }
+                }
+            }
+        }
+        this.emitHeader("");
+        this.emitHeader("    // Constructor");
+        this.emitHeader(`    Configuration_${config.name}();`);
+        this.emitHeader("");
+        this.emitHeader("    // ConfigurationInstance interface");
+        this.emitHeader("    const char* get_name() const override;");
+        this.emitHeader("    ResourceInstance* get_resources() override;");
+        this.emitHeader("    size_t get_resource_count() const override;");
+        this.emitHeader("};");
+        this.emitHeader("");
+    }
+    /**
+     * Generate implementation for a configuration from AST (fallback).
+     */
+    generateConfigurationImplementation(config) {
+        this.emit(`Configuration_${config.name}::Configuration_${config.name}() {`);
+        this.emit("    // Initialize configuration");
+        this.emit("}");
+        this.emit("");
+        this.emit(`const char* Configuration_${config.name}::get_name() const {`);
+        this.emit(`    return "${config.name}";`);
+        this.emit("}");
+        this.emit("");
+        this.emit(`ResourceInstance* Configuration_${config.name}::get_resources() {`);
+        this.emit("    return nullptr;");
+        this.emit("}");
+        this.emit("");
+        this.emit(`size_t Configuration_${config.name}::get_resource_count() const {`);
+        this.emit("    return 0;");
+        this.emit("}");
+        this.emit("");
+    }
+    // ===========================================================================
+    // Statement Generation (Phase 2.8+)
+    // ===========================================================================
+    /**
+     * Generate code for a statement.
+     */
+    generateStatement(stmt, indent = "    ") {
+        this.currentStatementIndent = indent;
+        this.emitLineDirective(stmt.sourceSpan.startLine);
+        const cppStartLine = this.currentLine;
+        // Compound statements handle their own line mappings internally
+        let isCompound = false;
+        switch (stmt.kind) {
+            case "AssignmentStatement":
+                this.generateAssignmentStatement(stmt, indent);
+                break;
+            case "RefAssignStatement":
+                this.generateRefAssignStatement(stmt, indent);
+                break;
+            case "FunctionCallStatement": {
+                if (stmt.call.kind === "MethodCallExpression") {
+                    this.emit(`${indent}${this.generateMethodCallExpression(stmt.call)};`);
+                }
+                else {
+                    const fbType = this.getFBInvocationType(stmt.call.functionName);
+                    if (fbType) {
+                        this.generateFBInvocation(stmt.call, indent);
+                    }
+                    else if (stmt.call.kind === "FunctionCallExpression" &&
+                        this.hasEnEno(stmt.call.arguments)) {
+                        // Non-FB function call statement with EN/ENO
+                        const { enExpr, enoVar, filteredArgs } = this.extractEnEno(stmt.call.arguments);
+                        const modifiedCall = {
+                            ...stmt.call,
+                            arguments: filteredArgs,
+                        };
+                        const callExpr = this.generateFunctionCallExpression(modifiedCall);
+                        this.emitEnEnoWrapper(indent, enExpr, enoVar, (bi) => {
+                            this.emit(`${bi}${callExpr};`);
+                        });
+                    }
+                    else {
+                        this.emit(`${indent}${this.generateExpression(stmt.call)};`);
+                    }
+                }
+                break;
+            }
+            case "IfStatement":
+                this.generateIfStatement(stmt, indent);
+                isCompound = true;
+                break;
+            case "CaseStatement":
+                this.generateCaseStatement(stmt, indent);
+                isCompound = true;
+                break;
+            case "ForStatement":
+                this.generateForStatement(stmt, indent);
+                isCompound = true;
+                break;
+            case "WhileStatement":
+                this.generateWhileStatement(stmt, indent);
+                isCompound = true;
+                break;
+            case "RepeatStatement":
+                this.generateRepeatStatement(stmt, indent);
+                isCompound = true;
+                break;
+            case "ExitStatement": {
+                const top = this.loopExitLabelStack[this.loopExitLabelStack.length - 1];
+                if (top) {
+                    top.used = true;
+                    this.emit(`${indent}goto ${top.name};`);
+                }
+                else {
+                    // EXIT outside a loop is invalid IEC ST; emit defensive break
+                    // rather than crash codegen.
+                    this.emit(`${indent}break;`);
+                }
+                break;
+            }
+            case "ReturnStatement":
+                this.generateReturnStatement(indent);
+                break;
+            case "ExternalCodePragma":
+                this.generateExternalCodePragma(stmt, indent);
+                break;
+            case "DeleteStatement":
+                this.emit(`${indent}strucpp::iec_delete(${this.generateExpression(stmt.pointer)});`);
+                break;
+            case "AssertCall":
+                // Assert calls only appear in test files, not in normal source compilation
+                break;
+            default: {
+                const _exhaustive = stmt;
+                throw new Error(`Unhandled statement kind: ${_exhaustive.kind}`);
+            }
+        }
+        if (!isCompound) {
+            this.recordLineMapping(stmt.sourceSpan.startLine, cppStartLine);
+        }
+    }
+    /**
+     * Generate code for an assignment statement.
+     * ST: target := value;  →  C++: target = value;
+     */
+    generateAssignmentStatement(stmt, indent) {
+        // Check for property write: m.Speed := 75 → m.set_Speed(75)
+        const propWrite = this.detectPropertyWrite(stmt.target);
+        if (propWrite) {
+            const value = this.generateExpression(stmt.value);
+            this.emit(`${indent}${propWrite.objectCode}set_${propWrite.propertyName}(${value});`);
+            return;
+        }
+        // Bit access write: var.N := value → var = (var & ~(1ULL << N)) | ((value ? 1ULL : 0ULL) << N)
+        // Uses 1ULL (64-bit) to avoid UB when bit index >= 32 (e.g., LWORD.33)
+        if (stmt.target.kind === "VariableExpression" &&
+            stmt.target.fieldAccess.length > 0 &&
+            /^\d+$/.test(stmt.target.fieldAccess[stmt.target.fieldAccess.length - 1])) {
+            const bitIdx = stmt.target.fieldAccess[stmt.target.fieldAccess.length - 1];
+            // Build the base variable (without the bit index)
+            const baseVar = {
+                ...stmt.target,
+                fieldAccess: stmt.target.fieldAccess.slice(0, -1),
+            };
+            // Also trim the accessChain if present
+            if (stmt.target.accessChain) {
+                const trimmed = this.trimLastFieldFromAccessChain(stmt.target.accessChain);
+                if (trimmed) {
+                    baseVar.accessChain = trimmed;
+                }
+                else {
+                    delete baseVar.accessChain;
+                }
+            }
+            const baseCode = this.generateExpression(baseVar);
+            const value = this.generateExpression(stmt.value);
+            this.emit(`${indent}${baseCode} = (${baseCode} & ~(1ULL << ${bitIdx})) | ((${value} ? 1ULL : 0ULL) << ${bitIdx});`);
+            return;
+        }
+        // EN/ENO on function call assignment:
+        // result := func(EN := cond, args..., ENO => eno_var);
+        // → if (cond) { result = func(args); eno_var = true; } else { eno_var = false; }
+        if (stmt.value.kind === "FunctionCallExpression" &&
+            this.hasEnEno(stmt.value.arguments)) {
+            const { enExpr, enoVar, filteredArgs } = this.extractEnEno(stmt.value.arguments);
+            const target = this.generateExpression(stmt.target);
+            const modifiedCall = {
+                ...stmt.value,
+                arguments: filteredArgs,
+            };
+            const callExpr = this.generateFunctionCallExpression(modifiedCall);
+            this.emitEnEnoWrapper(indent, enExpr, enoVar, (bi) => {
+                this.emit(`${bi}${target} = ${callExpr};`);
+            });
+            return;
+        }
+        const target = this.generateExpression(stmt.target);
+        const value = this.generateExpression(stmt.value);
+        // For interface-returning methods, convert assignment to result var into return statement
+        if (this.interfaceReturnMethod &&
+            this.currentFunctionName &&
+            target === `${this.currentFunctionName}_result`) {
+            this.emit(`${indent}return ${value};`);
+            return;
+        }
+        this.emit(`${indent}${target} = ${value};`);
+    }
+    /**
+     * Generate code for a REF= rebind. The lowering depends on the target's
+     * reference kind, because the two runtime wrappers expose different APIs:
+     *
+     *   REFERENCE TO (IEC_REFERENCE_TO)  →  target.bind(source);
+     *   REF_TO       (IEC_REF_TO)        →  target = REF(source);
+     *
+     * IEC_REF_TO has no bind() — it rebinds via assignment from REF()/ADR() —
+     * so emitting bind() unconditionally (the old behaviour) failed to compile
+     * for REF_TO targets.
+     */
+    generateRefAssignStatement(stmt, indent) {
+        const target = this.generateExpression(stmt.target);
+        const source = this.generateExpression(stmt.source);
+        const targetKind = stmt.target.kind === "VariableExpression"
+            ? this.currentScopeVarRefKinds.get(stmt.target.name.toUpperCase())
+            : undefined;
+        if (targetKind === "ref_to") {
+            this.emit(`${indent}${target} = REF(${source});`);
+        }
+        else {
+            // REFERENCE_TO (and the default) rebind via bind().
+            this.emit(`${indent}${target}.bind(${source});`);
+        }
+    }
+    /**
+     * Generate code for an external code pragma.
+     * The code content is emitted AS-IS to the output.
+     */
+    generateExternalCodePragma(pragma, indent) {
+        // Split the code into lines and emit each with proper indentation
+        const lines = pragma.code.split(/\r?\n/);
+        for (const line of lines) {
+            // Emit the line with base indentation
+            // The code is emitted AS-IS, but we add the base indent for consistency
+            if (line.trim() === "") {
+                this.emit("");
+            }
+            else {
+                this.emit(`${indent}${line}`);
+            }
+        }
+    }
+    // ===========================================================================
+    // Control Flow Statement Generation (Phase 3.2)
+    // ===========================================================================
+    /**
+     * Generate code for an IF statement.
+     * ST: IF/ELSIF/ELSE → C++: if/else if/else
+     */
+    generateIfStatement(stmt, indent) {
+        const ifLine = this.currentLine;
+        this.emit(`${indent}if (${this.generateExpression(stmt.condition)}) {`);
+        this.recordLineMapping(stmt.sourceSpan.startLine, ifLine);
+        this.generateStatements(stmt.thenStatements, indent + this.options.indent);
+        for (const elsif of stmt.elsifClauses) {
+            this.emitLineDirective(elsif.sourceSpan.startLine);
+            const elsifLine = this.currentLine;
+            this.emit(`${indent}} else if (${this.generateExpression(elsif.condition)}) {`);
+            this.recordLineMapping(elsif.sourceSpan.startLine, elsifLine);
+            this.generateStatements(elsif.statements, indent + this.options.indent);
+        }
+        if (stmt.elseStatements.length > 0) {
+            // Map ELSE to the `} else {` line. Use endLine-1 as an approximation
+            // for the ELSE keyword line (one line before END_IF).
+            // The ELSE doesn't have its own AST node, so we derive from context.
+            let elseStLine;
+            if (stmt.elsifClauses.length > 0) {
+                elseStLine =
+                    stmt.elsifClauses[stmt.elsifClauses.length - 1].sourceSpan.endLine +
+                        1;
+            }
+            else if (stmt.thenStatements.length > 0) {
+                elseStLine =
+                    stmt.thenStatements[stmt.thenStatements.length - 1].sourceSpan
+                        .endLine + 1;
+            }
+            if (elseStLine !== undefined) {
+                this.emitLineDirective(elseStLine);
+            }
+            const elseLine = this.currentLine;
+            this.emit(`${indent}} else {`);
+            if (elseStLine !== undefined) {
+                this.recordLineMapping(elseStLine, elseLine);
+            }
+            this.generateStatements(stmt.elseStatements, indent + this.options.indent);
+        }
+        this.emitLineDirective(stmt.sourceSpan.endLine);
+        const closingLine = this.currentLine;
+        this.emit(`${indent}}`);
+        this.recordLineMapping(stmt.sourceSpan.endLine, closingLine);
+    }
+    /**
+     * Generate code for a CASE statement.
+     * ST: CASE/OF → C++: switch/case with range expansion
+     */
+    generateCaseStatement(stmt, indent) {
+        const switchLine = this.currentLine;
+        this.emit(`${indent}switch (${this.generateExpression(stmt.selector)}) {`);
+        this.recordLineMapping(stmt.sourceSpan.startLine, switchLine);
+        const innerIndent = indent + this.options.indent;
+        const bodyIndent = innerIndent + this.options.indent;
+        for (const caseElement of stmt.cases) {
+            this.emitLineDirective(caseElement.sourceSpan.startLine);
+            const caseLabelLine = this.currentLine;
+            for (const label of caseElement.labels) {
+                if (label.end) {
+                    // Range: expand to individual case labels
+                    const startVal = this.evaluateLiteralInt(label.start);
+                    const endVal = this.evaluateLiteralInt(label.end);
+                    if (startVal !== undefined && endVal !== undefined) {
+                        for (let i = startVal; i <= endVal; i++) {
+                            this.emit(`${innerIndent}case ${i}:`);
+                        }
+                    }
+                    else {
+                        // Fallback: emit as comment with expression
+                        this.emit(`${innerIndent}case ${this.generateExpression(label.start)}: // range to ${this.generateExpression(label.end)}`);
+                    }
+                }
+                else {
+                    this.emit(`${innerIndent}case ${this.generateExpression(label.start)}:`);
+                }
+            }
+            this.recordLineMapping(caseElement.sourceSpan.startLine, caseLabelLine);
+            this.generateStatements(caseElement.statements, bodyIndent);
+            this.emit(`${bodyIndent}break;`);
+        }
+        if (stmt.elseStatements.length > 0) {
+            this.emit(`${innerIndent}default:`);
+            this.generateStatements(stmt.elseStatements, bodyIndent);
+            this.emit(`${bodyIndent}break;`);
+        }
+        this.emitLineDirective(stmt.sourceSpan.endLine);
+        const closingLine = this.currentLine;
+        this.emit(`${indent}}`);
+        this.recordLineMapping(stmt.sourceSpan.endLine, closingLine);
+    }
+    /**
+     * Generate code for a FOR statement.
+     * ST: FOR i := start TO end BY step DO → C++: for (i = start; i <= end; i += step)
+     */
+    generateForStatement(stmt, indent) {
+        // In function bodies, the control variable may be the function name (IEC ST return variable)
+        let varName = stmt.controlVariable;
+        if (this.currentFunctionName &&
+            varName.toUpperCase() === this.currentFunctionName.toUpperCase()) {
+            varName = `${this.currentFunctionName}_result`;
+        }
+        const start = this.generateExpression(stmt.start);
+        const end = this.generateExpression(stmt.end);
+        const forLine = this.currentLine;
+        if (stmt.step) {
+            const stepExpr = this.generateExpression(stmt.step);
+            // Determine direction from step when it's a literal
+            const stepVal = this.evaluateLiteralInt(stmt.step);
+            if (stepVal !== undefined && stepVal < 0) {
+                this.emit(`${indent}for (${varName} = ${start}; ${varName} >= ${end}; ${varName} += ${stepExpr}) {`);
+            }
+            else {
+                this.emit(`${indent}for (${varName} = ${start}; ${varName} <= ${end}; ${varName} += ${stepExpr}) {`);
+            }
+        }
+        else {
+            // Default step is 1, ascending
+            this.emit(`${indent}for (${varName} = ${start}; ${varName} <= ${end}; ${varName}++) {`);
+        }
+        this.recordLineMapping(stmt.sourceSpan.startLine, forLine);
+        const exitLabel = {
+            name: `__strucpp_loop_exit_${this.loopExitLabelCounter++}`,
+            used: false,
+        };
+        this.loopExitLabelStack.push(exitLabel);
+        this.generateStatements(stmt.body, indent + this.options.indent);
+        this.loopExitLabelStack.pop();
+        this.emitLineDirective(stmt.sourceSpan.endLine);
+        const closingLine = this.currentLine;
+        this.emit(`${indent}}`);
+        if (exitLabel.used)
+            this.emit(`${indent}${exitLabel.name}: ;`);
+        this.recordLineMapping(stmt.sourceSpan.endLine, closingLine);
+    }
+    /**
+     * Generate code for a WHILE statement.
+     * ST: WHILE condition DO → C++: while (condition)
+     */
+    generateWhileStatement(stmt, indent) {
+        const whileLine = this.currentLine;
+        this.emit(`${indent}while (${this.generateExpression(stmt.condition)}) {`);
+        this.recordLineMapping(stmt.sourceSpan.startLine, whileLine);
+        const exitLabel = {
+            name: `__strucpp_loop_exit_${this.loopExitLabelCounter++}`,
+            used: false,
+        };
+        this.loopExitLabelStack.push(exitLabel);
+        this.generateStatements(stmt.body, indent + this.options.indent);
+        this.loopExitLabelStack.pop();
+        this.emitLineDirective(stmt.sourceSpan.endLine);
+        const closingLine = this.currentLine;
+        this.emit(`${indent}}`);
+        if (exitLabel.used)
+            this.emit(`${indent}${exitLabel.name}: ;`);
+        this.recordLineMapping(stmt.sourceSpan.endLine, closingLine);
+    }
+    /**
+     * Generate code for a REPEAT statement.
+     * ST: REPEAT ... UNTIL condition → C++: do { ... } while (!(condition))
+     */
+    generateRepeatStatement(stmt, indent) {
+        const doLine = this.currentLine;
+        this.emit(`${indent}do {`);
+        this.recordLineMapping(stmt.sourceSpan.startLine, doLine);
+        const exitLabel = {
+            name: `__strucpp_loop_exit_${this.loopExitLabelCounter++}`,
+            used: false,
+        };
+        this.loopExitLabelStack.push(exitLabel);
+        this.generateStatements(stmt.body, indent + this.options.indent);
+        this.loopExitLabelStack.pop();
+        this.emitLineDirective(stmt.sourceSpan.endLine);
+        const untilLine = this.currentLine;
+        this.emit(`${indent}} while (!(${this.generateExpression(stmt.condition)}));`);
+        if (exitLabel.used)
+            this.emit(`${indent}${exitLabel.name}: ;`);
+        this.recordLineMapping(stmt.sourceSpan.endLine, untilLine);
+    }
+    /**
+     * Generate code for a RETURN statement.
+     * In functions: return functionName_result;
+     * In programs/FBs: return;
+     */
+    generateReturnStatement(indent) {
+        if (this.interfaceReturnMethod) {
+            // Interface-returning methods: the assignment-based return path (methodName := expr)
+            // directly emits `return expr;`. A bare `RETURN;` has no value to return, so we
+            // default to `return *this;` which is correct for the common pattern where the
+            // method returns its own FB as the interface implementor. Edge case: if the method
+            // should return a different object, the user must use the assignment form instead.
+            this.emit(`${indent}return *this;`);
+        }
+        else if (this.currentFunctionName) {
+            this.emit(`${indent}return ${this.currentFunctionName}_result;`);
+        }
+        else {
+            this.emit(`${indent}return;`);
+        }
+    }
+    /**
+     * Evaluate an expression as a literal integer value (for CASE ranges and FOR step direction).
+     * Returns undefined if the expression is not a compile-time integer constant.
+     */
+    evaluateLiteralInt(expr) {
+        if (expr.kind === "LiteralExpression" && expr.literalType === "INT") {
+            return typeof expr.value === "number"
+                ? expr.value
+                : parseInt(String(expr.value), 10);
+        }
+        if (expr.kind === "UnaryExpression" &&
+            expr.operator === "-" &&
+            expr.operand.kind === "LiteralExpression") {
+            const val = this.evaluateLiteralInt(expr.operand);
+            return val !== undefined ? -val : undefined;
+        }
+        return undefined;
+    }
+    /**
+     * Generate code for a list of statements.
+     */
+    generateStatements(stmts, indent = "    ") {
+        for (const stmt of stmts) {
+            this.generateStatement(stmt, indent);
+        }
+    }
+    // ===========================================================================
+    // Expression Generation (Phase 3.1)
+    // ===========================================================================
+    /**
+     * Generate C++ code for an expression.
+     * Returns the C++ expression as a string.
+     */
+    generateExpression(expr) {
+        switch (expr.kind) {
+            case "LiteralExpression":
+                return this.generateLiteralExpression(expr);
+            case "VariableExpression":
+                return this.generateVariableExpression(expr);
+            case "BinaryExpression":
+                return this.generateBinaryExpression(expr);
+            case "UnaryExpression":
+                return this.generateUnaryExpression(expr);
+            case "ParenthesizedExpression":
+                return `(${this.generateExpression(expr.expression)})`;
+            case "FunctionCallExpression":
+                return this.generateFunctionCallExpression(expr);
+            case "MethodCallExpression":
+                return this.generateMethodCallExpression(expr);
+            case "RefExpression":
+                return `REF(${this.generateExpression(expr.operand)})`;
+            case "DrefExpression":
+                return `${this.generateExpression(expr.operand)}.deref()`;
+            case "NewExpression": {
+                const cppType = this.typeCodeGen.mapTypeToCpp(expr.allocationType.name);
+                if (expr.arraySize) {
+                    return `strucpp::iec_new_array<${cppType}>(${this.generateExpression(expr.arraySize)})`;
+                }
+                return `strucpp::iec_new<${cppType}>()`;
+            }
+            case "ArrayLiteralExpression": {
+                const elements = expr.elements.map((e) => this.generateExpression(e));
+                return `{${elements.join(", ")}}`;
+            }
+        }
+    }
+    /**
+     * Generate C++ for a literal expression.
+     */
+    generateLiteralExpression(expr) {
+        // Handle typed literals: BYTE#255 → static_cast<IEC_BYTE>(255)
+        if (expr.typePrefix) {
+            const cppType = `IEC_${expr.typePrefix}`;
+            const hashIdx = expr.rawValue.indexOf("#");
+            const valuePart = expr.rawValue.substring(hashIdx + 1);
+            const cppValue = iecBaseToCppLiteral(valuePart);
+            return `static_cast<${cppType}>(${cppValue})`;
+        }
+        switch (expr.literalType) {
+            case "BOOL":
+                return expr.value === true ||
+                    expr.value === "TRUE" ||
+                    expr.rawValue?.toUpperCase() === "TRUE"
+                    ? "true"
+                    : "false";
+            case "INT": {
+                return this.formatIntegerLiteral(expr.rawValue, expr.value);
+            }
+            case "REAL": {
+                const str = String(expr.value);
+                // Ensure real literals have a decimal point (but not for scientific notation)
+                return str.includes(".") || /[eE]/.test(str) ? str : str + ".0";
+            }
+            case "STRING": {
+                // rawValue includes surrounding single quotes: 'hello' → strip them
+                const inner = expr.rawValue.replace(/^'|'$/g, "");
+                const escaped = this.translateIECString(inner);
+                return `"${escaped}"`;
+            }
+            case "WSTRING": {
+                // IEC WSTRING literals are double-quoted in source; strip either
+                // form for safety. The C++ prefix is `u` (char16_t), not `L`
+                // (wchar_t — wchar_t is 32-bit on Linux/AVR, so L"…" wouldn't
+                // bind to IECWStringVar's char16_t* constructor).
+                const wInner = expr.rawValue.replace(/^["']|["']$/g, "");
+                const wEscaped = this.translateIECString(wInner);
+                return `u"${wEscaped}"`;
+            }
+            case "TIME": {
+                const timeVal = parseTimeLiteral(String(expr.value));
+                return `${timeVal.nanoseconds}LL`;
+            }
+            case "DATE":
+                // DATE: int64 days since Unix epoch (UTC).  `iec_date.hpp`
+                // stores DATE as days (see `DT_FROM_DATE_AND_TOD`'s
+                // `iec_unwrap(date) * DT_NS_PER_DAY` math).  Lowering to ns
+                // here would break every conversion / arithmetic helper.
+                return `${parseDateLiteralToDays(String(expr.value))}LL`;
+            case "TIME_OF_DAY":
+                // TOD: int64 nanoseconds since midnight.
+                return `${parseTodLiteralToNs(String(expr.value))}LL`;
+            case "DATE_AND_TIME":
+                // DT: int64 nanoseconds since Unix epoch (UTC).
+                return `${parseDtLiteralToNs(String(expr.value))}LL`;
+            case "NULL":
+                return "IEC_NULL";
+            default:
+                return String(expr.value);
+        }
+    }
+    /**
+     * Translate IEC 61131-3 $-escape sequences to C++ escape sequences.
+     * Handles: $N/$n (newline), $L/$l (line feed), $R/$r (CR), $T/$t (tab),
+     * $P/$p (form feed), $$ (literal $), $' (single quote), $XX (hex byte),
+     * '' (doubled single quote), and C++ escaping for backslash and double-quote.
+     */
+    formatIntegerLiteral(rawValue, value) {
+        // Based literals (16#FF, 8#77, 2#1010) → C++ notation; plain decimals use numeric value
+        const upper = rawValue.toUpperCase().replace(/_/g, "");
+        if (upper.startsWith("16#") ||
+            upper.startsWith("8#") ||
+            upper.startsWith("2#")) {
+            return iecBaseToCppLiteral(rawValue);
+        }
+        return String(value);
+    }
+    translateIECString(inner) {
+        let result = "";
+        for (let i = 0; i < inner.length; i++) {
+            const ch = inner[i];
+            if (ch === "$" && i + 1 < inner.length) {
+                const next = inner[i + 1];
+                switch (next.toUpperCase()) {
+                    case "N":
+                    case "L":
+                        result += "\\n";
+                        i++;
+                        break;
+                    case "R":
+                        result += "\\r";
+                        i++;
+                        break;
+                    case "T":
+                        result += "\\t";
+                        i++;
+                        break;
+                    case "P":
+                        result += "\\f";
+                        i++;
+                        break;
+                    case "$":
+                        result += "$";
+                        i++;
+                        break;
+                    case "'":
+                        result += "'";
+                        i++;
+                        break;
+                    default:
+                        // $XX hex escape: two hex digits
+                        if (i + 2 < inner.length &&
+                            /^[0-9A-Fa-f]{2}$/.test(inner.substring(i + 1, i + 3))) {
+                            result += "\\x" + inner.substring(i + 1, i + 3);
+                            i += 2;
+                        }
+                        else {
+                            // Unknown $-escape, pass through
+                            result += "\\\\$";
+                        }
+                        break;
+                }
+            }
+            else if (ch === "'" && i + 1 < inner.length && inner[i + 1] === "'") {
+                // ST doubled-quote → single quote
+                result += "'";
+                i++;
+            }
+            else if (ch === "\\") {
+                result += "\\\\";
+            }
+            else if (ch === '"') {
+                result += '\\"';
+            }
+            else {
+                result += ch;
+            }
+        }
+        return result;
+    }
+    /**
+     * Generate C++ for a variable expression.
+     */
+    generateVariableExpression(expr) {
+        const nameUpper = expr.name.toUpperCase();
+        // Handle THIS reference
+        if (nameUpper === "THIS") {
+            // THIS^ (dereference) with no field access → (*this)
+            if (expr.isDereference && expr.fieldAccess.length === 0) {
+                return "(*this)";
+            }
+            // THIS.member or THIS^.member → this->member
+            // Check if last field is a property → this->get_Prop()
+            let result = "this->";
+            if (expr.fieldAccess.length > 0) {
+                let currentType = this.currentFBName;
+                for (let i = 0; i < expr.fieldAccess.length; i++) {
+                    const field = expr.fieldAccess[i];
+                    const isLast = i === expr.fieldAccess.length - 1;
+                    if (isLast) {
+                        const propName = this.resolvePropertyName(currentType, field);
+                        if (propName) {
+                            result += `get_${propName}()`;
+                            return result;
+                        }
+                    }
+                    const fieldType = this.resolveMemberType(currentType, field);
+                    const fieldCppName = this.needsFieldMangling(field, fieldType, currentType)
+                        ? `${field}_`
+                        : field;
+                    if (i > 0)
+                        result += ".";
+                    result += fieldCppName;
+                    if (!isLast) {
+                        currentType = fieldType;
+                    }
+                }
+            }
+            return result;
+        }
+        // Handle SUPER reference → BaseClass::member
+        // Check if last field is a property → BaseClass::get_Prop()
+        if (nameUpper === "SUPER" && this.currentFBExtends) {
+            let result = `${this.currentFBExtends}::`;
+            if (expr.fieldAccess.length > 0) {
+                let currentType = this.currentFBExtends;
+                for (let i = 0; i < expr.fieldAccess.length; i++) {
+                    const field = expr.fieldAccess[i];
+                    const isLast = i === expr.fieldAccess.length - 1;
+                    if (isLast) {
+                        const propName = this.resolvePropertyName(currentType, field);
+                        if (propName) {
+                            result += `get_${propName}()`;
+                            return result;
+                        }
+                    }
+                    const fieldType = this.resolveMemberType(currentType, field);
+                    const fieldCppName = this.needsFieldMangling(field, fieldType, currentType)
+                        ? `${field}_`
+                        : field;
+                    if (i > 0)
+                        result += ".";
+                    result += fieldCppName;
+                    if (!isLast) {
+                        currentType = fieldType;
+                    }
+                }
+            }
+            return result;
+        }
+        // In function/method bodies, references to the function/method name redirect to the result variable
+        let result;
+        if (this.currentFunctionName &&
+            nameUpper === this.currentFunctionName.toUpperCase()) {
+            result = `${this.currentFunctionName}_result`;
+        }
+        else {
+            // Check for VAR_INST name mangling
+            const mangledName = this.varInstMangledNames.get(nameUpper);
+            if (mangledName) {
+                result = mangledName;
+            }
+            else {
+                // Check for member name collision mangling (SENSOR SENSOR → SENSOR SENSOR_)
+                const memberMangled = this.memberMangledNames.get(nameUpper);
+                if (memberMangled) {
+                    result = memberMangled;
+                }
+                else {
+                    result = this.resolveVariableBaseName(expr.name);
+                }
+            }
+        }
+        // Bare enum member: Stopped → Irrigation_State::Stopped
+        // Only qualify if the name is NOT a declared variable in the current scope
+        // (a local variable named RED should not be rewritten as Color::RED).
+        const enumEntry = this.enumMemberToType.get(nameUpper);
+        if (enumEntry?.typeName &&
+            !this.currentScopeVarTypes.has(nameUpper) &&
+            expr.fieldAccess.length === 0 &&
+            (!expr.accessChain || expr.accessChain.length === 0)) {
+            return `${enumEntry.typeName}::${expr.name}`;
+        }
+        // Enum qualified access: TrafficState.RED → TrafficState::RED
+        if (this.enumTypeMembers.has(nameUpper)) {
+            if (expr.accessChain &&
+                expr.accessChain.length === 1 &&
+                expr.accessChain[0].kind === "field") {
+                return `${expr.name}::${expr.accessChain[0].name}`;
+            }
+            if (expr.fieldAccess.length === 1) {
+                return `${expr.name}::${expr.fieldAccess[0]}`;
+            }
+        }
+        // Use ordered access chain when available (preserves interleaving)
+        if (expr.accessChain && expr.accessChain.length > 0) {
+            return this.generateAccessChain(result, expr.accessChain, nameUpper);
+        }
+        // Legacy path: flat subscripts/fieldAccess/dereference (no interleaving)
+        // Subscripts (array access). Use the bounds-checked .at() accessor (1D and
+        // 2D+) so an out-of-range index raises a clean fault — throw on exception
+        // targets (caught by the runtime, stops the faulting task), or
+        // iec_runtime_fault(ArrayBounds) on -fno-exceptions MCU targets — instead of
+        // the unchecked operator[]/operator() that silently corrupts memory.
+        if (expr.subscripts.length > 1) {
+            const args = expr.subscripts.map((sub) => this.generateExpression(sub));
+            result += `.at(${args.join(", ")})`;
+        }
+        else {
+            for (const sub of expr.subscripts) {
+                result += `.at(${this.generateExpression(sub)})`;
+            }
+        }
+        // Field access (struct members) — detect property reads and bit access on last field
+        if (expr.fieldAccess.length > 0) {
+            let currentType = this.currentScopeVarTypes.get(nameUpper);
+            for (let i = 0; i < expr.fieldAccess.length; i++) {
+                const field = expr.fieldAccess[i];
+                const isLast = i === expr.fieldAccess.length - 1;
+                // Bit access: numeric field like .0, .15, .31 → ((var >> N) & 1)
+                if (/^\d+$/.test(field)) {
+                    result = `((static_cast<uint64_t>(${result}) >> ${field}) & 1)`;
+                    continue;
+                }
+                if (isLast) {
+                    const propName = this.resolvePropertyName(currentType, field);
+                    if (propName) {
+                        result += `.get_${propName}()`;
+                        continue;
+                    }
+                }
+                // Check if this field needs mangling (name == type or interface method in parent)
+                const fieldType = this.resolveMemberType(currentType, field);
+                const fieldCppName = this.needsFieldMangling(field, fieldType, currentType)
+                    ? `${field}_`
+                    : field;
+                result += `.${fieldCppName}`;
+                if (!isLast) {
+                    currentType = fieldType;
+                }
+            }
+        }
+        // Dereference (^ operator → pointer dereference)
+        if (expr.isDereference) {
+            result = `(*${result})`;
+        }
+        return result;
+    }
+    /**
+     * Generate C++ code from an ordered access chain.
+     * Handles correct interleaving of field accesses, subscripts, and dereferences.
+     *
+     * Key rules:
+     * - field after subscript: use -> (because Array operator[] returns IECVar<T>&)
+     * - field after field: use .
+     * - field after dereference: use .
+     * - subscript of 1 index: use [idx]
+     * - subscript of 2+ indices: use (idx1, idx2) (multidim Array)
+     * - dereference: wrap in (*...)
+     */
+    generateAccessChain(base, chain, baseNameUpper) {
+        let result = base;
+        let currentType = this.currentScopeVarTypes.get(baseNameUpper);
+        for (let i = 0; i < chain.length; i++) {
+            const step = chain[i];
+            const isLast = i === chain.length - 1;
+            switch (step.kind) {
+                case "field": {
+                    // Bit access: numeric field like .0, .15, .31
+                    if (/^\d+$/.test(step.name)) {
+                        result = `((static_cast<uint64_t>(${result}) >> ${step.name}) & 1)`;
+                        continue;
+                    }
+                    // Property access on the last step
+                    if (isLast) {
+                        const propName = this.resolvePropertyName(currentType, step.name);
+                        if (propName) {
+                            result += `.get_${propName}()`;
+                            return result;
+                        }
+                    }
+                    const fieldType = this.resolveMemberType(currentType, step.name);
+                    const fieldCppName = this.needsFieldMangling(step.name, fieldType, currentType)
+                        ? `${step.name}_`
+                        : step.name;
+                    // Array elements store T directly — always use . for field access
+                    result += `.${fieldCppName}`;
+                    currentType = fieldType;
+                    break;
+                }
+                case "subscript": {
+                    // Bounds-checked .at() (not operator[]/operator()): an out-of-range
+                    // IEC array index raises a clean fault — `throw` on exception targets
+                    // (the runtime v4 dispatcher catches it and stops just the faulting
+                    // task) and iec_runtime_fault(IecFault::ArrayBounds) on -fno-exceptions
+                    // MCU targets. operator[] stays unchecked+constexpr for the debug-table
+                    // generator's &arr[i] address-of expressions; POU bodies use .at().
+                    if (step.indices.length > 1) {
+                        const args = step.indices.map((idx) => this.generateExpression(idx));
+                        result += `.at(${args.join(", ")})`;
+                    }
+                    else if (step.indices.length === 1) {
+                        result += `.at(${this.generateExpression(step.indices[0])})`;
+                    }
+                    break;
+                }
+                case "dereference": {
+                    result = `(*${result})`;
+                    break;
+                }
+            }
+        }
+        return result;
+    }
+    /**
+     * Operator mapping from ST to C++.
+     */
+    static BINARY_OP_MAP = {
+        "+": "+",
+        "-": "-",
+        "*": "*",
+        "/": "/",
+        MOD: "%",
+        AND: "&",
+        OR: "|",
+        XOR: "^",
+        "=": "==",
+        "<>": "!=",
+        "<": "<",
+        ">": ">",
+        "<=": "<=",
+        ">=": ">=",
+    };
+    /**
+     * Generate C++ for a binary expression.
+     */
+    generateBinaryExpression(expr) {
+        const left = this.generateExpression(expr.left);
+        const right = this.generateExpression(expr.right);
+        // Power operator needs special handling
+        if (expr.operator === "**") {
+            return `std::pow(static_cast<double>(${left}), static_cast<double>(${right}))`;
+        }
+        const cppOp = CodeGenerator.BINARY_OP_MAP[expr.operator] ?? expr.operator;
+        // IEC 61131-3 AND/OR/XOR are always bitwise. C++ bitwise & | ^ have
+        // higher precedence than comparison operators (== != < >), unlike ST
+        // where AND/OR have lower precedence. Parenthesize operands to preserve
+        // the correct evaluation order.
+        if (expr.operator === "AND" ||
+            expr.operator === "OR" ||
+            expr.operator === "XOR") {
+            return `(${left}) ${cppOp} (${right})`;
+        }
+        return `${left} ${cppOp} ${right}`;
+    }
+    /**
+     * Generate C++ for a unary expression.
+     */
+    generateUnaryExpression(expr) {
+        const operand = this.generateExpression(expr.operand);
+        switch (expr.operator) {
+            case "NOT": {
+                // NOT on non-BOOL ANY_BIT types must use bitwise complement (~)
+                const opType = this.inferExprType(expr.operand);
+                if (opType) {
+                    const cat = getTypeCategory(opType.toUpperCase());
+                    if (cat === "BIT" && opType.toUpperCase() !== "BOOL") {
+                        return `~${operand}`;
+                    }
+                }
+                return `!${operand}`;
+            }
+            case "-":
+                return `-${operand}`;
+            case "+":
+                return `+${operand}`;
+        }
+    }
+    /**
+     * Generate C++ for a method call expression (chained method calls).
+     * e.g., fb.method1(args).method2(args) → fb.method1(args).method2(args)
+     */
+    generateMethodCallExpression(expr) {
+        const obj = this.generateExpression(expr.object);
+        const args = expr.arguments
+            .map((a) => this.generateExpression(a.value))
+            .join(", ");
+        // Try type-specific resolution first (avoids collisions when two FBs share a method name)
+        let resolvedName;
+        if (expr.object.kind === "VariableExpression") {
+            const varType = this.currentScopeVarTypes.get(expr.object.name.toUpperCase());
+            resolvedName = varType
+                ? this.resolveMethodName(varType, expr.methodName)
+                : this.resolveMethodNameGlobal(expr.methodName);
+        }
+        else {
+            resolvedName = this.resolveMethodNameGlobal(expr.methodName);
+        }
+        return `${obj}.${resolvedName}(${args})`;
+    }
+    // ===========================================================================
+    // Implicit type widening / argument coercion helpers
+    // ===========================================================================
+    /**
+     * Returns true when `source` can be implicitly widened to `target`.
+     * Covers same-category widening (BYTE→DWORD), BIT→INT crossover (BYTE→INT),
+     * and integer→REAL promotion.
+     */
+    canImplicitWiden(source, target) {
+        return isImplicitlyConvertible(source, target);
+    }
+    /**
+     * Lightweight type inference for an expression using the current scope's
+     * variable type map. Returns the IEC type name (upper case) or undefined.
+     */
+    inferExprType(expr) {
+        // Use pre-computed type from semantic analysis when available
+        if (expr.resolvedType) {
+            const name = typeNameUtil(expr.resolvedType);
+            if (name)
+                return name.toUpperCase();
+        }
+        // Fallback to ad-hoc inference for standalone codegen (tests without semantic analysis)
+        switch (expr.kind) {
+            case "VariableExpression": {
+                // Walk `fieldAccess` so `FB_INSTANCE.OUTPUT` resolves to the
+                // output's element type rather than the FB's type — without
+                // this, type-driven literal casts (see `harmonizeStdFuncArgs`)
+                // would synthesise `static_cast<IEC_<FB_TYPE>>(literal)`, and
+                // `IEC_<FB_TYPE>` aliases don't exist (only types emit them).
+                let type = this.currentScopeVarTypes.get(expr.name.toUpperCase());
+                if (!type)
+                    return undefined;
+                for (const field of expr.fieldAccess ?? []) {
+                    const next = this.resolveMemberType(type, field);
+                    if (!next)
+                        return undefined;
+                    type = next;
+                }
+                return type.toUpperCase();
+            }
+            case "LiteralExpression": {
+                if (expr.typePrefix)
+                    return expr.typePrefix.toUpperCase();
+                // Map literal types to IEC names
+                switch (expr.literalType) {
+                    case "INT":
+                        return "INT";
+                    case "REAL":
+                        return "REAL";
+                    case "BOOL":
+                        return "BOOL";
+                    case "STRING":
+                        return "STRING";
+                    default:
+                        return undefined;
+                }
+            }
+            case "UnaryExpression":
+                return this.inferExprType(expr.operand);
+            case "BinaryExpression": {
+                // For bitwise/arithmetic ops, infer from operands
+                const lt = this.inferExprType(expr.left);
+                const rt = this.inferExprType(expr.right);
+                // Prefer variable types over literal types
+                if (lt && rt) {
+                    const lBits = getTypeBits(lt) ?? 0;
+                    const rBits = getTypeBits(rt) ?? 0;
+                    return rBits > lBits ? rt : lt;
+                }
+                return lt ?? rt;
+            }
+            case "FunctionCallExpression": {
+                const fnUpper = expr.functionName.toUpperCase();
+                // Check user-defined functions
+                if (this.ast) {
+                    const funcDecl = this.ast.functions.find((f) => f.name.toUpperCase() === fnUpper);
+                    if (funcDecl)
+                        return funcDecl.returnType?.name.toUpperCase();
+                }
+                // Check conversion functions (INT_TO_REAL → REAL)
+                const conv = this.stdRegistry.resolveConversion(fnUpper);
+                if (conv)
+                    return conv.toType.toUpperCase();
+                // Check std functions with specific return type
+                const std = this.stdRegistry.lookup(fnUpper);
+                if (std?.specificReturnType)
+                    return std.specificReturnType.toUpperCase();
+                // For generic functions returning same type as first param, infer from first arg
+                if (std?.returnMatchesFirstParam && expr.arguments.length > 0) {
+                    return this.inferExprType(expr.arguments[0].value);
+                }
+                return undefined;
+            }
+            case "MethodCallExpression": {
+                // Resolve object type → find FB declaration → find method → return type
+                if (expr.object.kind === "VariableExpression") {
+                    const objType = this.currentScopeVarTypes.get(expr.object.name.toUpperCase());
+                    if (objType && this.ast) {
+                        const fb = this.ast.functionBlocks.find((f) => f.name.toUpperCase() === objType.toUpperCase());
+                        if (fb) {
+                            const method = fb.methods.find((m) => m.name.toUpperCase() === expr.methodName.toUpperCase());
+                            if (method?.returnType) {
+                                return method.returnType.name.toUpperCase();
+                            }
+                        }
+                    }
+                }
+                return undefined;
+            }
+            case "ParenthesizedExpression":
+                return this.inferExprType(expr.expression);
+            default:
+                return undefined;
+        }
+    }
+    /**
+     * Extract ordered parameter types from a user-defined function declaration.
+     * Returns undefined if function not found.
+     */
+    getParamTypes(funcName) {
+        if (!this.ast)
+            return undefined;
+        const nameUpper = funcName.toUpperCase();
+        const funcDecl = this.ast.functions.find((f) => f.name.toUpperCase() === nameUpper);
+        if (!funcDecl)
+            return undefined;
+        const types = [];
+        for (const block of funcDecl.varBlocks) {
+            if (block.blockType === "VAR_INPUT" ||
+                block.blockType === "VAR_IN_OUT" ||
+                block.blockType === "VAR_OUTPUT") {
+                for (const decl of block.declarations) {
+                    for (let i = 0; i < decl.names.length; i++) {
+                        types.push(decl.type.name.toUpperCase());
+                    }
+                }
+            }
+        }
+        return types.length > 0 ? types : undefined;
+    }
+    /**
+     * Apply implicit widening casts to a list of argument strings for a
+     * user-defined function call. Modifies `args` in place.
+     */
+    coerceUserFuncArgs(args, argExprs, paramTypes) {
+        const exprCount = argExprs.length;
+        for (let i = 0; i < args.length && i < paramTypes.length; i++) {
+            if (i >= exprCount)
+                break; // padded temp vars have no expr to infer from
+            const expr = argExprs[i].value;
+            const argType = this.inferExprType(expr);
+            if (!argType)
+                continue;
+            const paramType = paramTypes[i];
+            if (argType === paramType)
+                continue;
+            // Bare literals (no typePrefix) are untyped — always castable to param type
+            if (this.isBareLiteral(expr) ||
+                this.canImplicitWiden(argType, paramType)) {
+                args[i] = `static_cast<IEC_${paramType}>(${args[i]})`;
+            }
+        }
+    }
+    /** Returns true if expr is a bare literal (no typePrefix), possibly negated */
+    isBareLiteral(expr) {
+        const inner = expr.kind === "UnaryExpression" ? expr.operand : expr;
+        return inner.kind === "LiteralExpression" && !inner.typePrefix;
+    }
+    /**
+     * Wrap a temporal-typed argument with the right `*_TO_MS` helper
+     * before it's handed to a numeric / bit-string `TO_*` conversion.
+     *
+     * Why this lives in codegen and not in the runtime:
+     *  - `IEC_TIME`, `IEC_LTIME`, `IEC_TOD`, `IEC_LTOD`, `IEC_DT`,
+     *    `IEC_LDT`, `IEC_DATE`, `IEC_LDATE` are all
+     *    `using ... = IECVar<int64_t>` aliases in `iec_var.hpp` — they
+     *    collapse to the same C++ type after preprocessing.
+     *  - A runtime overload `TO_UINT(IEC_TIME)` therefore CANNOT be
+     *    distinguished from `TO_UINT(IEC_DATE)` by the C++ compiler;
+     *    both bind to the same generic template and the raw `int64_t`
+     *    underlying value gets `static_cast`ed straight to the target
+     *    integer (low 16 / 32 bits of a nanosecond count for TIME).
+     *  - The IEC type label only survives at the language layer.  So
+     *    the scaling has to happen at the call site, before the type
+     *    identity is erased.
+     *
+     * Scaling chosen (matches `TO_TIME(integer)`'s established
+     * "integer means milliseconds" convention from OSCAT/CODESYS):
+     *  - TIME / LTIME → `TIME_TO_MS`           (ns since 0   → ms)
+     *  - TOD / TIME_OF_DAY / LTOD / LTIME_OF_DAY → `TOD_TO_MS`
+     *    (ns since midnight  → ms since midnight, [0, 86_400_000))
+     *  - DT / DATE_AND_TIME / LDT / LDATE_AND_TIME → `DT_TO_MS`
+     *    (ns since epoch  → ms since epoch)
+     *  - DATE / LDATE: NOT scaled — DATE is already stored as whole
+     *    days, and "days since 1970-01-01" is the natural integer
+     *    answer for `DATE_TO_INT` / etc.  Callers wanting a different
+     *    unit can compose with `DATE_TO_DAYS` (today, the identity).
+     *
+     * No wrap on temporal-target conversions (`TO_TIME(TIME)`,
+     * `INT_TO_TIME(ms)`, etc.) — those are either pass-through (same
+     * family) or handled by the existing `TO_TIME(integer)` runtime
+     * template which scales ms→ns going the other way.  No wrap on
+     * non-temporal sources either (the generic numeric path already
+     * does the right thing).
+     */
+    wrapTemporalArgForNumericConversion(argExpr, fromTypeUpper, toTypeUpper) {
+        // Only the numeric / bit-string targets — temporal targets stay
+        // pass-through and STRING targets need a separate format pipeline
+        // (out of scope for this helper).
+        if (!NUMERIC_OR_BIT_CONVERSION_TARGETS.has(toTypeUpper)) {
+            return argExpr;
+        }
+        if (fromTypeUpper === "TIME" || fromTypeUpper === "LTIME") {
+            return `TIME_TO_MS(${argExpr})`;
+        }
+        if (fromTypeUpper === "TOD" ||
+            fromTypeUpper === "TIME_OF_DAY" ||
+            fromTypeUpper === "LTOD" ||
+            fromTypeUpper === "LTIME_OF_DAY") {
+            return `TOD_TO_MS(${argExpr})`;
+        }
+        if (fromTypeUpper === "DT" ||
+            fromTypeUpper === "DATE_AND_TIME" ||
+            fromTypeUpper === "LDT" ||
+            fromTypeUpper === "LDATE_AND_TIME") {
+            return `DT_TO_MS(${argExpr})`;
+        }
+        return argExpr;
+    }
+    /**
+     * For std-lib template functions (like LIMIT, MAX, MIN) where all params
+     * share the same generic constraint, harmonize argument types so C++ template
+     * deduction succeeds. Casts literals to the dominant variable type, or widens
+     * all args to the widest type if variables differ.
+     */
+    harmonizeStdFuncArgs(args, argExprs, stdFunc) {
+        // Only harmonize when all params share the same generic constraint
+        if (stdFunc.params.length === 0)
+            return;
+        const firstConstraint = stdFunc.params[0].constraint;
+        if (firstConstraint === "specific" || firstConstraint === "BOOL")
+            return;
+        const allSame = stdFunc.params.every((p) => p.constraint === firstConstraint);
+        if (!allSame)
+            return;
+        // Infer types for all arguments
+        const argTypes = argExprs.map((a) => this.inferExprType(a.value));
+        // Separate variable types from literal types
+        const varTypes = [];
+        const literalIndices = [];
+        for (let i = 0; i < argExprs.length && i < args.length; i++) {
+            const expr = argExprs[i].value;
+            const t = argTypes[i];
+            if (!t)
+                continue;
+            if (expr.kind === "LiteralExpression" ||
+                (expr.kind === "UnaryExpression" &&
+                    expr.operand.kind === "LiteralExpression")) {
+                literalIndices.push(i);
+            }
+            else {
+                varTypes.push(t);
+            }
+        }
+        // Find dominant type from variable types, or from literal types if all args are literals
+        let dominant;
+        if (varTypes.length === 0) {
+            // All literals — pick the widest literal type as dominant
+            const litTypes = literalIndices
+                .map((i) => argTypes[i])
+                .filter((t) => !!t);
+            if (litTypes.length === 0)
+                return;
+            dominant = litTypes[0];
+            for (let i = 1; i < litTypes.length; i++) {
+                const bits1 = getTypeBits(dominant) ?? 0;
+                const bits2 = getTypeBits(litTypes[i]) ?? 0;
+                if (bits2 > bits1)
+                    dominant = litTypes[i];
+            }
+        }
+        else {
+            // Find dominant type: if all var types agree, use that; otherwise pick widest
+            dominant = varTypes[0];
+            for (let i = 1; i < varTypes.length; i++) {
+                if (varTypes[i] !== dominant) {
+                    // Pick wider type
+                    const bits1 = getTypeBits(dominant) ?? 0;
+                    const bits2 = getTypeBits(varTypes[i]) ?? 0;
+                    if (bits2 > bits1)
+                        dominant = varTypes[i];
+                }
+            }
+        }
+        // Cast literals to dominant type.
+        // Bare literals (no typePrefix) are untyped — castable to dominant unless
+        // this would narrow a REAL/LREAL literal to an integer type (losing
+        // precision).  When the call also carries a variable argument we must
+        // ALWAYS wrap bare literals: the variable side is an `IECVar<T>` but a
+        // bare literal lowers to a raw `int`/`double`, so C++ template deduction
+        // sees conflicting `T`s (`IECVar<int>` vs `int`) even when both share
+        // the same IEC type name on our side.
+        for (const i of literalIndices) {
+            const litType = argTypes[i];
+            if (!litType)
+                continue;
+            const expr = argExprs[i].value;
+            const litCat = getTypeCategory(litType);
+            const domCat = getTypeCategory(dominant);
+            // Never narrow a REAL literal to integer — that truncates (e.g. 1.5 → 1)
+            if (litCat === "REAL" && domCat !== "REAL" && this.isBareLiteral(expr)) {
+                continue;
+            }
+            // Bare literal paired with at least one IEC variable: cast even when
+            // the inferred IEC type matches `dominant`, to lift raw C++ literals
+            // into the IECVar<> template space.
+            if (this.isBareLiteral(expr) && varTypes.length > 0) {
+                args[i] = `static_cast<IEC_${dominant}>(${args[i]})`;
+                continue;
+            }
+            if (litType === dominant)
+                continue;
+            if (this.isBareLiteral(expr) ||
+                this.canImplicitWiden(litType, dominant)) {
+                args[i] = `static_cast<IEC_${dominant}>(${args[i]})`;
+            }
+        }
+        // Cast variable args that need widening to dominant type
+        for (let i = 0; i < args.length && i < argExprs.length; i++) {
+            if (literalIndices.includes(i))
+                continue;
+            const t = argTypes[i];
+            if (t && t !== dominant && this.canImplicitWiden(t, dominant)) {
+                args[i] = `static_cast<IEC_${dominant}>(${args[i]})`;
+            }
+        }
+    }
+    /**
+     * Generate C++ for a function call expression.
+     * Handles: dotted method calls (THIS.method, SUPER.method, instance.method),
+     * standard functions, *_TO_* conversions, DELETE->DELETE_STR mapping,
+     * named argument reordering, and user-defined function calls.
+     */
+    generateFunctionCallExpression(expr) {
+        // Handle dotted method calls: THIS.method, SUPER.method, instance.method
+        if (expr.functionName.includes(".")) {
+            const dotIdx = expr.functionName.indexOf(".");
+            const prefix = expr.functionName.substring(0, dotIdx);
+            const methodName = expr.functionName.substring(dotIdx + 1);
+            const args = expr.arguments.map((arg) => this.generateExpression(arg.value));
+            // Resolve method name case from declaration
+            const varType = this.currentScopeVarTypes.get(prefix.toUpperCase());
+            const resolvedMethod = varType
+                ? this.resolveMethodName(varType, methodName)
+                : this.resolveMethodNameGlobal(methodName);
+            if (prefix.toUpperCase() === "THIS") {
+                return `this->${resolvedMethod}(${args.join(", ")})`;
+            }
+            else if (prefix.toUpperCase() === "SUPER" && this.currentFBExtends) {
+                return `${this.currentFBExtends}::${resolvedMethod}(${args.join(", ")})`;
+            }
+            else {
+                // instance.method() call
+                return `${prefix}.${resolvedMethod}(${args.join(", ")})`;
+            }
+        }
+        const nameUpper = expr.functionName.toUpperCase();
+        // SUPER^() — parent body call
+        if (nameUpper === "SUPER" && this.currentFBExtends) {
+            const args = expr.arguments.map((arg) => this.generateExpression(arg.value));
+            return `${this.currentFBExtends}::operator()(${args.join(", ")})`;
+        }
+        // 0. ADR(x) → &(x) (CODESYS address-of operator)
+        if (nameUpper === "ADR") {
+            const args = expr.arguments.map((arg) => this.generateExpression(arg.value));
+            return `&(${args[0] ?? ""})`;
+        }
+        // 0a. REF_LINK(x) → REF(x) — callable form of the REF() reference operator
+        // (REF is a reserved token and can't take the graphical EN/IN/ENO call
+        // form). Assigning the result to a REF_TO variable binds it.
+        if (nameUpper === "REF_LINK") {
+            const args = expr.arguments.map((arg) => this.generateExpression(arg.value));
+            return `REF(${args[0] ?? ""})`;
+        }
+        // 0b. LOWER_BOUND/UPPER_BOUND(arr, dim) → arr.lower_bound() / arr.upper_bound()
+        if (nameUpper === "LOWER_BOUND" || nameUpper === "UPPER_BOUND") {
+            const method = nameUpper === "LOWER_BOUND" ? "lower_bound" : "upper_bound";
+            const arrExpr = this.generateExpression(expr.arguments[0].value);
+            if (expr.arguments.length >= 2) {
+                const dimExpr = this.generateExpression(expr.arguments[1].value);
+                return `${arrExpr}.${method}(${dimExpr})`;
+            }
+            return `${arrExpr}.${method}()`;
+        }
+        // 1. Check for *_TO_* conversion pattern (e.g., INT_TO_REAL -> TO_REAL)
+        const conversion = this.stdRegistry.resolveConversion(nameUpper);
+        if (conversion) {
+            const args = expr.arguments.map((arg, idx) => {
+                const generated = this.generateExpression(arg.value);
+                if (idx !== 0)
+                    return generated;
+                // Type-aware scaling for temporal sources.  See the helper for
+                // the full rationale — short version: the C++ runtime aliases
+                // every temporal type to `IECVar<int64_t>` (so a `TIME` and a
+                // `DATE` are literally the same C++ type after compilation),
+                // and the only place that still knows "this expression is a
+                // TIME" is the codegen layer.  We have to wrap the argument
+                // with `TIME_TO_MS` / `TOD_TO_MS` / `DT_TO_MS` here, otherwise
+                // `TO_UINT(time_var)` lowers to a `static_cast<uint16_t>(raw_ns)`
+                // and the user sees the low 16 bits of the nanosecond count
+                // instead of the milliseconds they asked for.
+                return this.wrapTemporalArgForNumericConversion(generated, conversion.fromType.toUpperCase(), conversion.toType.toUpperCase());
+            });
+            return `${conversion.cppName}(${args.join(", ")})`;
+        }
+        // 2. Check for standard function (may have different cppName)
+        const stdFunc = this.stdRegistry.lookup(nameUpper);
+        if (stdFunc) {
+            const args = expr.arguments.map((arg, idx) => {
+                let generated = this.generateExpression(arg.value);
+                // For the bare `TO_xxx(temporal_var)` spelling, `nameUpper` is
+                // a registered std function (not a `*_TO_*` form) so the source
+                // type isn't in the name — infer it from the argument's IEC
+                // type and apply the same temporal→ms wrap as the conversion
+                // branch above.  Conversion std functions advertise
+                // `isConversion: true` and carry the target in
+                // `specificReturnType`, so we have everything needed without
+                // adding a new schema field.
+                if (idx === 0 && stdFunc.isConversion && stdFunc.specificReturnType) {
+                    const fromType = this.inferExprType(arg.value);
+                    if (fromType) {
+                        generated = this.wrapTemporalArgForNumericConversion(generated, fromType.toUpperCase(), stdFunc.specificReturnType.toUpperCase());
+                    }
+                }
+                return generated;
+            });
+            this.harmonizeStdFuncArgs(args, expr.arguments, stdFunc);
+            return `${stdFunc.cppName}(${args.join(", ")})`;
+        }
+        // 3. Check for named arguments that may need reordering
+        const hasNamedArgs = expr.arguments.some((arg) => arg.name !== undefined);
+        if (hasNamedArgs && this.ast) {
+            const reordered = this.reorderNamedArguments(expr);
+            if (reordered) {
+                return `${expr.functionName}(${reordered.join(", ")})`;
+            }
+        }
+        // 4. Default: emit as-is (with output argument validation)
+        const args = expr.arguments.map((arg) => {
+            const generated = this.generateExpression(arg.value);
+            if (arg.isOutput && arg.value.kind !== "VariableExpression") {
+                this.codegenWarnings.push({
+                    message: `Output argument '${arg.name ?? ""}' should be a variable, not an expression`,
+                    line: arg.sourceSpan.startLine,
+                    column: arg.sourceSpan.startCol,
+                    file: arg.sourceSpan.file,
+                });
+            }
+            return generated;
+        });
+        // Pad missing trailing VAR_OUTPUT/VAR_IN_OUT params with temp variables
+        if (this.ast) {
+            const funcDecl = this.ast.functions.find((f) => f.name.toUpperCase() === nameUpper);
+            if (funcDecl) {
+                const paramInfo = [];
+                for (const block of funcDecl.varBlocks) {
+                    if (block.blockType === "VAR_INPUT" ||
+                        block.blockType === "VAR_IN_OUT" ||
+                        block.blockType === "VAR_OUTPUT") {
+                        for (const decl of block.declarations) {
+                            for (let ni = 0; ni < decl.names.length; ni++) {
+                                paramInfo.push({
+                                    blockType: block.blockType,
+                                    typeName: decl.type.name,
+                                });
+                            }
+                        }
+                    }
+                }
+                while (args.length < paramInfo.length) {
+                    const param = paramInfo[args.length];
+                    if (param.blockType === "VAR_OUTPUT" ||
+                        param.blockType === "VAR_IN_OUT") {
+                        args.push(this.emitOutputTempVar(param.typeName));
+                    }
+                    else {
+                        args.push(this.getDefaultValue(param.typeName));
+                    }
+                }
+            }
+        }
+        // Apply implicit widening casts for user-defined function args
+        const paramTypes = this.getParamTypes(nameUpper);
+        if (paramTypes) {
+            this.coerceUserFuncArgs(args, expr.arguments, paramTypes);
+        }
+        return `${expr.functionName}(${args.join(", ")})`;
+    }
+    /**
+     * Reorder named arguments to match function declaration parameter order.
+     * Positional args are placed first (in declaration order, skipping named slots),
+     * then named args fill their declared slots. Unfilled parameters get default values.
+     * Returns null if function not found in AST.
+     */
+    reorderNamedArguments(expr) {
+        if (!this.ast)
+            return null;
+        // Find the function declaration in the AST
+        const funcDecl = this.ast.functions.find((f) => f.name.toUpperCase() === expr.functionName.toUpperCase());
+        if (!funcDecl)
+            return null;
+        // Build parameter info from VAR_INPUT, VAR_IN_OUT, VAR_OUTPUT blocks
+        const params = [];
+        for (const block of funcDecl.varBlocks) {
+            if (block.blockType === "VAR_INPUT" ||
+                block.blockType === "VAR_IN_OUT" ||
+                block.blockType === "VAR_OUTPUT") {
+                for (const decl of block.declarations) {
+                    for (const name of decl.names) {
+                        const entry = {
+                            name: name.toUpperCase(),
+                            typeName: decl.type.name,
+                            blockType: block.blockType,
+                        };
+                        if (decl.initialValue) {
+                            entry.defaultExpr = this.generateExpression(decl.initialValue);
+                        }
+                        params.push(entry);
+                    }
+                }
+            }
+        }
+        // Build set of parameter slots claimed by named arguments
+        // (skip implicit EN/ENO — handled separately by EN/ENO codegen logic)
+        const namedArgs = new Map();
+        const claimedSlots = new Set();
+        for (const arg of expr.arguments) {
+            if (arg.name !== undefined) {
+                const upperName = arg.name.toUpperCase();
+                if (upperName === "EN" || upperName === "ENO")
+                    continue;
+                namedArgs.set(upperName, {
+                    expr: this.generateExpression(arg.value),
+                    isOutput: arg.isOutput,
+                });
+                claimedSlots.add(upperName);
+                // Validate output argument is a variable
+                if (arg.isOutput && arg.value.kind !== "VariableExpression") {
+                    this.codegenWarnings.push({
+                        message: `Output argument '${arg.name}' should be a variable, not an expression`,
+                        line: arg.sourceSpan.startLine,
+                        column: arg.sourceSpan.startCol,
+                        file: arg.sourceSpan.file,
+                    });
+                }
+            }
+        }
+        // Warn about named args that don't match any declared parameter,
+        // and check for direction mismatches (=> on VAR_INPUT)
+        const paramLookup = new Map(params.map((p) => [p.name, p]));
+        for (const [argName, argInfo] of namedArgs) {
+            const param = paramLookup.get(argName);
+            if (!param) {
+                const span = expr.sourceSpan;
+                this.codegenWarnings.push({
+                    message: `Named argument '${argName}' does not match any parameter of function '${expr.functionName}'`,
+                    line: span.startLine,
+                    column: span.startCol,
+                    file: span.file,
+                });
+            }
+            else if (argInfo.isOutput && param.blockType === "VAR_INPUT") {
+                const span = expr.sourceSpan;
+                this.codegenWarnings.push({
+                    message: `Output argument '=>' used for input parameter '${param.name.toLowerCase()}' — did you mean ':='?`,
+                    line: span.startLine,
+                    column: span.startCol,
+                    file: span.file,
+                });
+            }
+        }
+        // Collect positional args (preserving source order)
+        const positionalArgs = [];
+        for (const arg of expr.arguments) {
+            if (arg.name === undefined) {
+                positionalArgs.push(this.generateExpression(arg.value));
+            }
+        }
+        // Assign positional args to unclaimed parameter slots (in declaration order)
+        const result = new Array(params.length);
+        let positionalIdx = 0;
+        for (let i = 0; i < params.length; i++) {
+            const param = params[i];
+            if (claimedSlots.has(param.name)) {
+                // This slot is reserved for a named arg - skip it for positional fill
+                continue;
+            }
+            if (positionalIdx < positionalArgs.length) {
+                result[i] = positionalArgs[positionalIdx];
+                positionalIdx++;
+            }
+        }
+        // Fill named arg slots
+        for (let i = 0; i < params.length; i++) {
+            const param = params[i];
+            const named = namedArgs.get(param.name);
+            if (named !== undefined) {
+                result[i] = named.expr;
+            }
+        }
+        // Fill any remaining unfilled slots with defaults (or temp vars for output params)
+        for (let i = 0; i < params.length; i++) {
+            if (result[i] === undefined) {
+                const param = params[i];
+                if (param.blockType === "VAR_OUTPUT" ||
+                    param.blockType === "VAR_IN_OUT") {
+                    result[i] = this.emitOutputTempVar(param.typeName);
+                }
+                else {
+                    result[i] = param.defaultExpr ?? this.getDefaultValue(param.typeName);
+                }
+            }
+        }
+        return result.map((v, i) => {
+            if (v !== undefined)
+                return v;
+            const param = params[i];
+            if (param.blockType === "VAR_OUTPUT" ||
+                param.blockType === "VAR_IN_OUT") {
+                return this.emitOutputTempVar(param.typeName);
+            }
+            return param.defaultExpr ?? this.getDefaultValue(param.typeName);
+        });
+    }
+    // ===========================================================================
+    // Helper Methods
+    // ===========================================================================
+    /**
+     * Emit a temporary variable declaration for an omitted VAR_OUTPUT/VAR_IN_OUT argument.
+     * The temp is emitted before the current statement line (since generateExpression()
+     * runs before the statement's emit() call). Returns the temp variable name.
+     */
+    emitOutputTempVar(typeName) {
+        const name = `__output_tmp_${this.tempVarCounter++}`;
+        const cppType = this.mapVarTypeToCpp(typeName);
+        this.emit(`${this.currentStatementIndent}${cppType} ${name};`);
+        return name;
+    }
+    /**
+     * Check if a type name refers to a known function block type.
+     */
+    isFBType(typeName) {
+        return this.knownFBTypes.has(typeName.toUpperCase());
+    }
+    /**
+     * When `typeName` (a member's declared type) is also the name of a sibling
+     * member in the same scope, return the C++ elaborated-type-specifier keyword
+     * (`class `/`struct `) needed so the bare type name isn't resolved to the data
+     * member. Returns "" when there's no shadowing or the type isn't a composite.
+     */
+    elaboratedTagIfShadowed(typeName, memberNames) {
+        const u = typeName.toUpperCase();
+        if (!memberNames.has(u))
+            return "";
+        if (this.knownFBTypes.has(u))
+            return "class ";
+        if (this.knownStructTypes.has(u))
+            return "struct ";
+        return "";
+    }
+    /**
+     * Check if a type name refers to a known interface type.
+     */
+    isInterfaceType(typeName) {
+        return this.knownInterfaceTypes.has(typeName.toUpperCase());
+    }
+    /**
+     * Resolve the declared case of a method name given the type and method name.
+     * Returns the declared name if found, or the original name if not.
+     */
+    resolveMethodName(typeName, methodName) {
+        const key = `${typeName.toUpperCase()}.${methodName.toUpperCase()}`;
+        return this.methodNameMap.get(key) ?? methodName;
+    }
+    /**
+     * Resolve method name case by searching all known types.
+     * Used when the object type is not easily determined (e.g., chained calls).
+     */
+    resolveMethodNameGlobal(methodName) {
+        const upper = methodName.toUpperCase();
+        for (const [key, declaredName] of this.methodNameMap) {
+            if (key.endsWith(`.${upper}`)) {
+                return declaredName;
+            }
+        }
+        return methodName;
+    }
+    /**
+     * Resolve a property name from the property name map.
+     * Returns the declared property name if the field is a property, undefined otherwise.
+     */
+    resolvePropertyName(typeName, fieldName) {
+        if (!typeName)
+            return undefined;
+        const key = `${typeName.toUpperCase()}.${fieldName.toUpperCase()}`;
+        return this.propertyNameMap.get(key);
+    }
+    /**
+     * Resolve the type of a member field on a given FB or struct type.
+     * Used for chained access like ctrl.motor.Speed where we need to know
+     * motor's type to check if Speed is a property.
+     */
+    resolveMemberType(typeName, memberName) {
+        if (!typeName)
+            return undefined;
+        if (this.ast) {
+            const result = resolveFieldTypeUtil(typeName, memberName, this.ast);
+            if (result)
+                return result;
+        }
+        // Fallback: check library FB field types
+        return this.libraryFBFieldTypes.get(`${typeName.toUpperCase()}.${memberName.toUpperCase()}`);
+    }
+    /**
+     * Detect if an assignment target is a property write (e.g., m.Speed := 75).
+     * Returns the object code prefix and property name if so, undefined otherwise.
+     */
+    detectPropertyWrite(target) {
+        if (target.kind !== "VariableExpression")
+            return undefined;
+        const expr = target;
+        if (expr.fieldAccess.length === 0)
+            return undefined;
+        const nameUpper = expr.name.toUpperCase();
+        const lastField = expr.fieldAccess[expr.fieldAccess.length - 1];
+        // Resolve the type at the point just before the last field
+        let currentType;
+        if (nameUpper === "THIS")
+            currentType = this.currentFBName;
+        else if (nameUpper === "SUPER")
+            currentType = this.currentFBExtends;
+        else
+            currentType = this.currentScopeVarTypes.get(nameUpper);
+        for (let i = 0; i < expr.fieldAccess.length - 1; i++) {
+            if (!currentType)
+                break;
+            currentType = this.resolveMemberType(currentType, expr.fieldAccess[i]);
+        }
+        if (!currentType)
+            return undefined;
+        const propName = this.resolvePropertyName(currentType, lastField);
+        if (!propName)
+            return undefined;
+        // Build the object code (everything except the last field)
+        let objectCode;
+        if (nameUpper === "THIS") {
+            objectCode = "this->";
+            let ct = this.currentFBName;
+            for (let i = 0; i < expr.fieldAccess.length - 1; i++) {
+                const f = expr.fieldAccess[i];
+                const ft = this.resolveMemberType(ct, f);
+                objectCode += (this.needsFieldMangling(f, ft, ct) ? `${f}_` : f) + ".";
+                ct = ft;
+            }
+        }
+        else if (nameUpper === "SUPER" && this.currentFBExtends) {
+            objectCode = this.currentFBExtends + "::";
+            let ct = this.currentFBExtends;
+            for (let i = 0; i < expr.fieldAccess.length - 1; i++) {
+                const f = expr.fieldAccess[i];
+                const ft = this.resolveMemberType(ct, f);
+                objectCode += (this.needsFieldMangling(f, ft, ct) ? `${f}_` : f) + ".";
+                ct = ft;
+            }
+        }
+        else {
+            // Generate a VariableExpression with fieldAccess trimmed to all-but-last
+            // Also trim the accessChain if present
+            const baseExpr = {
+                ...expr,
+                fieldAccess: expr.fieldAccess.slice(0, -1),
+            };
+            if (expr.accessChain) {
+                const trimmed = this.trimLastFieldFromAccessChain(expr.accessChain);
+                if (trimmed) {
+                    baseExpr.accessChain = trimmed;
+                }
+                else {
+                    delete baseExpr.accessChain;
+                }
+            }
+            objectCode = this.generateVariableExpression(baseExpr) + ".";
+        }
+        return { objectCode, propertyName: propName };
+    }
+    /**
+     * Remove the last field step from an access chain (for bit access / property trim).
+     * Returns undefined if the chain becomes empty.
+     */
+    trimLastFieldFromAccessChain(chain) {
+        const trimmed = [...chain];
+        for (let i = trimmed.length - 1; i >= 0; i--) {
+            if (trimmed[i].kind === "field") {
+                trimmed.splice(i, 1);
+                break;
+            }
+        }
+        return trimmed.length > 0 ? trimmed : undefined;
+    }
+    /**
+     * Check if a type name refers to any user-defined type (FB, interface, or struct/UDT).
+     * These types should NOT get the IEC_ prefix.
+     */
+    isUserDefinedType(typeName) {
+        const upper = typeName.toUpperCase();
+        return (this.knownFBTypes.has(upper) ||
+            this.knownInterfaceTypes.has(upper) ||
+            this.knownStructTypes.has(upper) ||
+            this.knownProgramTypes.has(upper));
+    }
+    /**
+     * Enter a new scope for code generation. Populates currentScopeVarTypes
+     * from the variable blocks of a program or function block.
+     */
+    enterScope(varBlocks) {
+        this.currentScopeVarTypes.clear();
+        this.currentScopeVarRefKinds.clear();
+        this.memberMangledNames.clear();
+        for (const block of varBlocks) {
+            for (const decl of block.declarations) {
+                const cppType = this.isUserDefinedType(decl.type.name)
+                    ? decl.type.name
+                    : `IEC_${decl.type.name}`;
+                for (const name of decl.names) {
+                    this.currentScopeVarTypes.set(name.toUpperCase(), decl.type.name);
+                    if (decl.type.referenceKind !== undefined &&
+                        decl.type.referenceKind !== "none") {
+                        this.currentScopeVarRefKinds.set(name.toUpperCase(), decl.type.referenceKind);
+                    }
+                    // Detect member name collisions with type name (GCC -Wchanges-meaning)
+                    if (this.isUserDefinedType(decl.type.name) &&
+                        name.toUpperCase() === cppType.toUpperCase()) {
+                        this.memberMangledNames.set(name.toUpperCase(), `${name}_`);
+                    }
+                    // Detect member name collisions with interface method names
+                    if (this.currentFBInterfaceMethods.has(name.toUpperCase())) {
+                        this.memberMangledNames.set(name.toUpperCase(), `${name}_`);
+                    }
+                }
+            }
+        }
+    }
+    /**
+     * Exit the current scope, clearing variable type tracking.
+     */
+    exitScope() {
+        this.currentScopeVarTypes.clear();
+    }
+    /**
+     * Topologically sort function blocks so that FBs containing instances of
+     * other FBs are emitted after their dependencies (Kahn's algorithm).
+     */
+    topologicalSortFBs(fbs) {
+        if (fbs.length <= 1)
+            return fbs;
+        // Build name → FB mapping
+        const fbMap = new Map();
+        for (const fb of fbs) {
+            fbMap.set(fb.name.toUpperCase(), fb);
+        }
+        // Build adjacency: fbName → set of FB names it depends on (has as members)
+        const deps = new Map();
+        for (const fb of fbs) {
+            const fbDeps = new Set();
+            for (const block of fb.varBlocks) {
+                for (const decl of block.declarations) {
+                    const typeName = decl.type.name.toUpperCase();
+                    if (fbMap.has(typeName) && typeName !== fb.name.toUpperCase()) {
+                        fbDeps.add(typeName);
+                    }
+                }
+            }
+            // Also check EXTENDS (parent FB must come first)
+            if (fb.extends) {
+                const parentUpper = fb.extends.toUpperCase();
+                if (fbMap.has(parentUpper)) {
+                    fbDeps.add(parentUpper);
+                }
+            }
+            deps.set(fb.name.toUpperCase(), fbDeps);
+        }
+        // Kahn's algorithm
+        const inDegree = new Map();
+        for (const fb of fbs) {
+            inDegree.set(fb.name.toUpperCase(), deps.get(fb.name.toUpperCase()).size);
+        }
+        const queue = [];
+        for (const [name, degree] of inDegree) {
+            if (degree === 0)
+                queue.push(name);
+        }
+        const sorted = [];
+        while (queue.length > 0) {
+            const name = queue.shift();
+            sorted.push(fbMap.get(name));
+            // Reduce in-degree for FBs that depend on this one
+            for (const [fbName, fbDeps] of deps) {
+                if (fbDeps.has(name)) {
+                    fbDeps.delete(name);
+                    const newDeg = inDegree.get(fbName) - 1;
+                    inDegree.set(fbName, newDeg);
+                    if (newDeg === 0)
+                        queue.push(fbName);
+                }
+            }
+        }
+        // If cycle detected, append remaining in original order
+        if (sorted.length < fbs.length) {
+            for (const fb of fbs) {
+                if (!sorted.includes(fb)) {
+                    sorted.push(fb);
+                }
+            }
+        }
+        return sorted;
+    }
+    /**
+     * Check if a function call statement is actually an FB invocation.
+     * Returns the FB type name if it is, undefined otherwise.
+     */
+    getFBInvocationType(functionName) {
+        const varType = this.currentScopeVarTypes.get(functionName.toUpperCase());
+        if (varType &&
+            (this.isFBType(varType) ||
+                this.knownProgramTypes.has(varType.toUpperCase()))) {
+            return varType;
+        }
+        return undefined;
+    }
+    /**
+     * Generate code for an FB invocation.
+     * Pattern: assign inputs → call operator() → capture outputs
+     */
+    /**
+     * Extract implicit EN/ENO arguments from a function/FB call.
+     * Returns the EN condition expression, ENO target variable, and the
+     * remaining arguments with EN/ENO stripped out.
+     */
+    extractEnEno(args) {
+        let enExpr = null;
+        let enoVar = null;
+        const filteredArgs = [];
+        for (const arg of args) {
+            const nameUpper = arg.name?.toUpperCase();
+            if (nameUpper === "EN" && !arg.isOutput) {
+                enExpr = this.generateExpression(arg.value);
+            }
+            else if (nameUpper === "ENO" && arg.isOutput) {
+                enoVar = this.generateExpression(arg.value);
+            }
+            else {
+                filteredArgs.push(arg);
+            }
+        }
+        return { enExpr, enoVar, filteredArgs };
+    }
+    /**
+     * Check if a function call argument list contains EN or ENO implicit parameters.
+     */
+    hasEnEno(args) {
+        return args.some((a) => {
+            const n = a.name?.toUpperCase();
+            return (n === "EN" && !a.isOutput) || (n === "ENO" && a.isOutput);
+        });
+    }
+    /**
+     * Emit an EN/ENO wrapper around a body-emitting callback.
+     *
+     * Two ENO sinks are reflected uniformly:
+     *   - `enoVar`              — the caller's `ENO => var` binding, if any.
+     *   - `instanceEnoTarget`   — the FB instance's implicit ENO member
+     *                             (e.g. `inst.ENO`), passed for FB calls so
+     *                             `IF inst.ENO THEN ...` reads the right
+     *                             value.  null for plain function calls.
+     *
+     * Both sinks are written every time so they can't carry stale values
+     * across calls.  Per IEC 61131-3 §6.4.1.3, ENO defaults to TRUE when
+     * EN is omitted — so an unguarded call writes TRUE to every sink it
+     * has, which also overwrites any FALSE left behind by a prior gated
+     * invocation.
+     */
+    emitEnEnoWrapper(indent, enExpr, enoVar, emitBody, instanceEnoTarget = null) {
+        const targets = [enoVar, instanceEnoTarget].filter((t) => t !== null);
+        const writeTargets = (atIndent, value) => {
+            for (const t of targets) {
+                this.emit(`${atIndent}${t} = ${value};`);
+            }
+        };
+        if (enExpr !== null) {
+            const bodyIndent = indent + this.options.indent;
+            this.emit(`${indent}if (${enExpr}) {`);
+            emitBody(bodyIndent);
+            writeTargets(bodyIndent, true);
+            this.emit(`${indent}} else {`);
+            writeTargets(bodyIndent, false);
+            this.emit(`${indent}}`);
+        }
+        else {
+            emitBody(indent);
+            writeTargets(indent, true);
+        }
+    }
+    generateFBInvocation(call, indent) {
+        const rawName = this.resolveVariableBaseName(call.functionName);
+        const instanceName = this.memberMangledNames.get(rawName.toUpperCase()) ?? rawName;
+        // Extract implicit EN/ENO parameters
+        const { enExpr, enoVar, filteredArgs } = this.extractEnEno(call.arguments);
+        // Resolve FB type for positional argument mapping
+        const fbTypeName = this.currentScopeVarTypes.get(rawName.toUpperCase());
+        const inputParamNames = fbTypeName
+            ? this.fbInputParams.get(fbTypeName.toUpperCase())
+            : undefined;
+        // Assign input parameters (named or positional)
+        let positionalIndex = 0;
+        for (const arg of filteredArgs) {
+            if (arg.isOutput)
+                continue;
+            if (arg.name) {
+                // Named argument: assign directly
+                this.emit(`${indent}${instanceName}.${arg.name} = ${this.generateExpression(arg.value)};`);
+            }
+            else if (inputParamNames && positionalIndex < inputParamNames.length) {
+                // Positional argument: map to VAR_INPUT by position
+                const paramName = inputParamNames[positionalIndex];
+                this.emit(`${indent}${instanceName}.${paramName} = ${this.generateExpression(arg.value)};`);
+                positionalIndex++;
+            }
+            else {
+                // Positional argument without type info — emit as warning comment
+                this.emit(`${indent}// WARNING: positional argument ${positionalIndex} could not be resolved`);
+                positionalIndex++;
+            }
+        }
+        // Call the FB/program execution body, wrapped with EN/ENO logic.
+        // Pass the FB instance's ENO field so source code can read
+        // `inst.ENO` after the invocation and see the right value.
+        this.emitEnEnoWrapper(indent, enExpr, enoVar, (bi) => {
+            this.emitPOUCallLine(instanceName, call.functionName, bi);
+        }, `${instanceName}.ENO`);
+        // Capture output arguments (=> syntax), excluding ENO (already handled)
+        for (const arg of filteredArgs) {
+            if (arg.name && arg.isOutput) {
+                this.emit(`${indent}${this.generateExpression(arg.value)} = ${instanceName}.${arg.name};`);
+            }
+        }
+    }
+    /**
+     * Collect all interface method names (UPPER case) for a FB's IMPLEMENTS list.
+     */
+    getInterfaceMethodNames(fb) {
+        const result = new Set();
+        if (!fb.implements)
+            return result;
+        for (const ifaceName of fb.implements) {
+            const methods = this.interfaceMethodsByInterface.get(ifaceName.toUpperCase());
+            if (methods) {
+                for (const m of methods)
+                    result.add(m);
+            }
+        }
+        return result;
+    }
+    /**
+     * If a member variable name collides with its C++ type name or an interface
+     * method name (case-insensitive), append '_' to avoid C++ errors.
+     * Populates memberMangledNames map and returns the (possibly mangled) name.
+     */
+    mangleMemberIfNeeded(name, _cppType, stTypeName) {
+        // Variable name vs type name collision (GCC -Wchanges-meaning)
+        if (this.isUserDefinedType(stTypeName)) {
+            if (name.toUpperCase() === stTypeName.toUpperCase()) {
+                const mangled = `${name}_`;
+                this.memberMangledNames.set(name.toUpperCase(), mangled);
+                return mangled;
+            }
+        }
+        // Variable name vs interface method name collision
+        if (this.currentFBInterfaceMethods.has(name.toUpperCase())) {
+            const mangled = `${name}_`;
+            this.memberMangledNames.set(name.toUpperCase(), mangled);
+            return mangled;
+        }
+        return name;
+    }
+    /**
+     * Check if a field access needs mangling — true when the field name collides
+     * with its type name (GCC -Wchanges-meaning) or with an interface method name.
+     */
+    needsFieldMangling(fieldName, fieldTypeName, parentTypeName) {
+        // Field name vs type name collision
+        if (fieldTypeName &&
+            this.isUserDefinedType(fieldTypeName) &&
+            fieldName.toUpperCase() === fieldTypeName.toUpperCase()) {
+            return true;
+        }
+        // Field name vs interface method name collision
+        if (parentTypeName) {
+            const ifaceMethods = this.fbInterfaceMethodNames.get(parentTypeName.toUpperCase());
+            if (ifaceMethods?.has(fieldName.toUpperCase())) {
+                return true;
+            }
+        }
+        return false;
+    }
+    /**
+     * Resolve the base name for a variable. Subclasses can override to add
+     * prefixes (e.g., "s." for SETUP variables in test codegen).
+     */
+    resolveVariableBaseName(name) {
+        return name;
+    }
+    /**
+     * Emit the call line for a POU (FB or program) invocation.
+     * Subclasses can override to change the call pattern (e.g., ".run()" for programs).
+     */
+    emitPOUCallLine(instanceName, _rawName, indent) {
+        this.emit(`${indent}${instanceName}();`);
+    }
+    /**
+     * Get the default value for a type.
+     */
+    getDefaultValue(typeName, initialValue) {
+        if (initialValue) {
+            // Convert enum dot-notation (TRAFFICSTATE.RED) to C++ scoped access (TRAFFICSTATE::RED)
+            const dotIdx = initialValue.indexOf(".");
+            if (dotIdx > 0) {
+                const prefix = initialValue.substring(0, dotIdx).toUpperCase();
+                if (this.enumTypeMembers.has(prefix)) {
+                    return initialValue.replace(".", "::");
+                }
+            }
+            // Bare enum initializer: Stopped → Irrigation_State::Stopped
+            const bareEntry = this.enumMemberToType.get(initialValue.toUpperCase());
+            if (bareEntry?.typeName) {
+                return `${bareEntry.typeName}::${initialValue}`;
+            }
+            // Convert TIME/LTIME literals (T#30s, TIME#1m2s) to nanoseconds
+            const upperInit = initialValue.toUpperCase();
+            if (upperInit.startsWith("T#") ||
+                upperInit.startsWith("TIME#") ||
+                upperInit.startsWith("LTIME#") ||
+                upperInit.startsWith("LT#")) {
+                const timeVal = parseTimeLiteral(initialValue);
+                return `${timeVal.nanoseconds}LL`;
+            }
+            // Convert temporal calendar literals at the PROGRAM-init path —
+            // FB initialisers route through `generateExpression` which
+            // handles these in `generateLiteralExpression`, but PROGRAM VAR
+            // initialisers come through this helper with the literal as a
+            // raw string.  Without these branches the PROGRAM constructor
+            // emits `D(DATE#1970-01-15)` verbatim and the C++ side fails
+            // to compile.  Lowering rule matches the literal-expression
+            // path: DATE → days, TOD → ns since midnight, DT → ns since
+            // epoch.  Same rule the runtime helpers consume.
+            if (upperInit.startsWith("D#") || upperInit.startsWith("DATE#")) {
+                return `${parseDateLiteralToDays(initialValue)}LL`;
+            }
+            if (upperInit.startsWith("TOD#") ||
+                upperInit.startsWith("TIME_OF_DAY#")) {
+                return `${parseTodLiteralToNs(initialValue)}LL`;
+            }
+            if (upperInit.startsWith("DT#") ||
+                upperInit.startsWith("DATE_AND_TIME#")) {
+                return `${parseDtLiteralToNs(initialValue)}LL`;
+            }
+            // Convert IEC BOOL literals to C++ bool literals
+            if (upperInit === "TRUE")
+                return "true";
+            if (upperInit === "FALSE")
+                return "false";
+            // Convert IEC string literals to the matching C++ literal shape:
+            //   'foo' (STRING)  → "foo"  (const char*)
+            //   "foo" (WSTRING) → u"foo" (const char16_t*, what IECWStringVar
+            //                            binds to — `L"…"` is wchar_t and
+            //                            32-bit on Linux/AVR, wrong type)
+            // The two literal kinds are NOT interchangeable per IEC 61131-3;
+            // a mismatch (e.g. WSTRING := 'foo') is a type error and is the
+            // type-checker's responsibility, not codegen's. Codegen just
+            // mirrors the literal it was handed.
+            if (initialValue.startsWith("'") && initialValue.endsWith("'")) {
+                const inner = initialValue.slice(1, -1);
+                const escaped = this.translateIECString(inner);
+                return `"${escaped}"`;
+            }
+            if (initialValue.startsWith('"') && initialValue.endsWith('"')) {
+                const inner = initialValue.slice(1, -1);
+                const escaped = this.translateIECString(inner);
+                return `u"${escaped}"`;
+            }
+            // Lower IEC numeric literals (based 16#FF/8#17/2#1010, decimals
+            // with underscore separators, typed prefixes like INT#5, optional
+            // sign). PROGRAM/GLOBAL VAR initialisers arrive here as raw IEC
+            // strings; without this they're emitted verbatim (`X(16#FF)`,
+            // `X(1_000)`, `X(INT#5)`) and the C++ build fails. Mirrors the
+            // expression-statement path (formatIntegerLiteral). Returns null
+            // for non-numeric initialisers (enum names, constants), which then
+            // pass through unchanged.
+            const numeric = this.lowerNumericInitializer(initialValue);
+            if (numeric !== null) {
+                return numeric;
+            }
+            return initialValue;
+        }
+        const upperType = typeName.toUpperCase();
+        if (upperType === "BOOL")
+            return "false";
+        if (upperType === "REAL" || upperType === "LREAL")
+            return "0.0";
+        if (upperType === "STRING")
+            return '""';
+        if (upperType === "WSTRING")
+            return 'u""';
+        // Check if it's an elementary type that uses numeric default
+        const numericTypes = [
+            "SINT",
+            "INT",
+            "DINT",
+            "LINT",
+            "USINT",
+            "UINT",
+            "UDINT",
+            "ULINT",
+            "BYTE",
+            "WORD",
+            "DWORD",
+            "LWORD",
+            "TIME",
+            "DATE",
+            "TOD",
+            "DT",
+            "LTIME",
+            "LDATE",
+            "LTOD",
+            "LDT",
+            "CHAR",
+            "WCHAR",
+        ];
+        if (numericTypes.includes(upperType)) {
+            return "0";
+        }
+        // User-defined types (structs, enums, arrays, subranges, type aliases)
+        // use default initialization - return empty string to skip in initializer list
+        return "";
+    }
+    /**
+     * Lower an IEC numeric literal initializer string to a C++ literal.
+     *
+     * Handles based literals (16#FF, 8#17, 2#1010), decimals/reals with
+     * IEC underscore separators (1_000, 16#FF_FF), an optional leading
+     * sign (-5, +3), and an optional IEC type prefix (INT#5, BYTE#16#AB,
+     * REAL#1.5). Reuses {@link iecBaseToCppLiteral}, the same helper the
+     * expression path uses, so declaration initialisers and statement
+     * bodies lower identically.
+     *
+     * Returns `null` when `raw` is not a recognised numeric literal, so
+     * non-numeric initialisers (enum names, named constants) pass through
+     * unchanged at the call site.
+     */
+    lowerNumericInitializer(raw) {
+        let s = raw.trim();
+        let sign = "";
+        if (s.startsWith("-") || s.startsWith("+")) {
+            sign = s[0];
+            s = s.slice(1).trimStart();
+        }
+        // Strip an optional IEC type prefix (TYPE#...). The leading
+        // identifier must start with a letter/underscore, which excludes
+        // radix markers like `16#` whose left side is numeric.
+        const typePrefix = /^[A-Za-z_][A-Za-z0-9_]*#(.+)$/.exec(s);
+        if (typePrefix) {
+            s = typePrefix[1];
+        }
+        const isNumeric = /^16#[0-9A-Fa-f][0-9A-Fa-f_]*$/.test(s) ||
+            /^8#[0-7][0-7_]*$/.test(s) ||
+            /^2#[01][01_]*$/.test(s) ||
+            /^[0-9][0-9_]*(\.[0-9][0-9_]*)?([eE][+-]?[0-9]+)?$/.test(s);
+        if (!isNumeric) {
+            return null;
+        }
+        return sign + iecBaseToCppLiteral(s);
+    }
+    /**
+     * Collect all program instances from a configuration.
+     */
+    collectProgramInstances(config) {
+        const instances = [];
+        for (const resource of config.resources) {
+            for (const task of resource.tasks) {
+                for (const inst of task.programInstances) {
+                    instances.push(inst);
+                }
+            }
+        }
+        return instances;
+    }
+    /**
+     * Count total tasks in a configuration.
+     */
+    countTasks(config) {
+        let count = 0;
+        for (const resource of config.resources) {
+            count += resource.tasks.length;
+        }
+        return count;
+    }
+    /**
+     * Collect a located variable for descriptor array generation.
+     */
+    collectLocatedVar(varName, decl, programName) {
+        if (!decl.address)
+            return;
+        const parsed = parseLocatedAddress(decl.address);
+        if (!parsed)
+            return;
+        this.locatedVars.push({
+            varName,
+            address: decl.address,
+            area: parsed.area,
+            size: parsed.size,
+            byteIndex: parsed.byteIndex,
+            bitIndex: parsed.bitIndex,
+            typeName: decl.type.name,
+            programName,
+        });
+    }
+    /**
+     * Collect a located variable from project model for descriptor array generation.
+     */
+    collectLocatedVarFromModel(decl, programName) {
+        if (!decl.address)
+            return;
+        const parsed = parseLocatedAddress(decl.address);
+        if (!parsed)
+            return;
+        this.locatedVars.push({
+            varName: decl.name,
+            address: decl.address,
+            area: parsed.area,
+            size: parsed.size,
+            byteIndex: parsed.byteIndex,
+            bitIndex: parsed.bitIndex,
+            typeName: decl.typeName,
+            programName,
+        });
+    }
+    /**
+     * Generate the located variables descriptor array in the header.
+     */
+    generateLocatedVarsDeclaration() {
+        // Library compilations (no PROGRAM, no CONFIGURATION — only FBs /
+        // functions / types) must NOT emit these symbols, otherwise the
+        // consumer's program would see two definitions when its preamble
+        // includes the library. Top-level program builds always emit them so
+        // the runtime sketch can reference `locatedVars` / `locatedVarsCount`
+        // unconditionally — including when the user has zero `AT %...`
+        // declarations (then we emit a 1-element placeholder array because
+        // C++ disallows zero-length arrays at namespace scope; the sketch's
+        // binding loop iterates `i < locatedVarsCount` so the placeholder is
+        // never accessed at runtime).
+        const hasPrograms = !!this.projectModel && this.projectModel.programs.size > 0;
+        if (!hasPrograms)
+            return;
+        const isEmpty = this.locatedVars.length === 0;
+        const arrayLen = isEmpty ? 1 : this.locatedVars.length;
+        this.emitHeader("// =============================================================================");
+        this.emitHeader("// Located Variables Descriptor Array");
+        this.emitHeader("// =============================================================================");
+        this.emitHeader("");
+        this.emitHeader("/**");
+        this.emitHeader(" * Located variable descriptors for runtime I/O binding.");
+        this.emitHeader(" * The runtime iterates this array to bind variables to I/O image tables.");
+        this.emitHeader(" */");
+        this.emitHeader("");
+        // Forward declarations for program instances
+        for (const locVar of this.locatedVars) {
+            this.emitHeader(`// Forward: ${locVar.varName} AT ${locVar.address} in Program_${locVar.programName}`);
+        }
+        if (isEmpty) {
+            this.emitHeader("// (no located variables — placeholder entry only)");
+        }
+        this.emitHeader("");
+        // The actual array will be defined in the implementation file
+        // and initialized in the constructor
+        this.emitHeader(`extern LocatedVar locatedVars[${arrayLen}];`);
+        this.emitHeader(`constexpr uint32_t locatedVarsCount = ${this.locatedVars.length};`);
+        this.emitHeader("");
+    }
+    /**
+     * Generate the located variables array definition in the implementation.
+     */
+    generateLocatedVarsDefinition() {
+        // Mirror the declaration's library-skip + placeholder logic.
+        const hasPrograms = !!this.projectModel && this.projectModel.programs.size > 0;
+        if (!hasPrograms)
+            return;
+        const isEmpty = this.locatedVars.length === 0;
+        const arrayLen = isEmpty ? 1 : this.locatedVars.length;
+        this.emit("// =============================================================================");
+        this.emit("// Located Variables Descriptor Array");
+        this.emit("// =============================================================================");
+        this.emit("");
+        this.emit(`LocatedVar locatedVars[${arrayLen}] = {`);
+        if (isEmpty) {
+            this.emit(`    { LocatedArea::Input, LocatedSize::Bit, 0, 0, {0, 0, 0}, nullptr }  // placeholder; locatedVarsCount is 0`);
+        }
+        else {
+            for (let i = 0; i < this.locatedVars.length; i++) {
+                const locVar = this.locatedVars[i];
+                const comma = i < this.locatedVars.length - 1 ? "," : "";
+                this.emit(`    { LocatedArea::${locVar.area}, LocatedSize::${locVar.size}, ` +
+                    `${locVar.byteIndex}, ${locVar.bitIndex}, {0, 0, 0}, nullptr }${comma}  // ${locVar.varName} AT ${locVar.address}`);
+            }
+        }
+        this.emit("};");
+        this.emit("");
+    }
+    /**
+     * This program's contiguous slice [offset, offset+count) of the project-wide
+     * locatedVars[] table. The table is built in program-iteration order, so a
+     * single program's located vars are contiguous. Used by the STRUCPP_THREADED
+     * located_range() override so the runtime can scope located I/O copy-in/out
+     * to the owning task.
+     */
+    locatedRangeForProgram(programName) {
+        let offset = -1;
+        let count = 0;
+        for (let i = 0; i < this.locatedVars.length; i++) {
+            if (this.locatedVars[i].programName === programName) {
+                if (offset < 0)
+                    offset = i;
+                count++;
+            }
+        }
+        return { offset: offset < 0 ? 0 : offset, count };
+    }
+    /**
+     * Generate initialization code for located variable pointers.
+     * Called from within a program constructor.
+     */
+    generateLocatedVarPointerInit(programName, indent = "    ") {
+        const progVars = this.locatedVars.filter((v) => v.programName === programName);
+        if (progVars.length === 0)
+            return;
+        this.emit(`${indent}// Initialize located variable pointers`);
+        for (const locVar of progVars) {
+            // Find the index of this variable in the global array
+            const index = this.locatedVars.findIndex((v) => v.varName === locVar.varName && v.programName === locVar.programName);
+            if (index >= 0) {
+                this.emit(`${indent}locatedVars[${index}].pointer = ${locVar.varName}.raw_ptr();`);
+            }
+        }
+    }
+    /**
+     * Emit a line to the implementation output.
+     */
+    emit(line) {
+        this.output.push(line);
+        this.currentLine++;
+    }
+    /**
+     * Emit a line to the header output.
+     */
+    emitHeader(line) {
+        this.headerOutput.push(line);
+        this.currentHeaderLine++;
+    }
+    /**
+     * Emit a #line directive before implementation code for source-level debugging.
+     */
+    emitLineDirective(stLine) {
+        if (this.options.lineDirectives) {
+            const fn = (this.options.lineDirectiveFileName ?? this.options.fileName).replaceAll("\\", "/");
+            this.emit(`#line ${stLine} "${fn}"`);
+        }
+    }
+    /**
+     * Emit a #line directive before header code for source-level debugging.
+     */
+    emitHeaderLineDirective(stLine) {
+        if (this.options.lineDirectives) {
+            const fn = (this.options.lineDirectiveFileName ?? this.options.fileName).replaceAll("\\", "/");
+            this.emitHeader(`#line ${stLine} "${fn}"`);
+        }
+    }
+    /**
+     * Record a line mapping from ST to C++.
+     * Used in Phase 3+ for debugging support.
+     */
+    recordLineMapping(stLine, cppStartLine) {
+        // currentLine points to the *next* line to be emitted, so the last
+        // emitted line is currentLine - 1.
+        const lastEmittedLine = this.currentLine - 1;
+        const existing = this.lineMap.get(stLine);
+        if (existing !== undefined) {
+            existing.cppEndLine = lastEmittedLine;
+        }
+        else {
+            this.lineMap.set(stLine, {
+                cppStartLine,
+                cppEndLine: lastEmittedLine,
+            });
+        }
+    }
+    recordHeaderLineMapping(stLine, headerStartLine) {
+        const lastEmittedHeaderLine = this.currentHeaderLine - 1;
+        const existing = this.headerLineMap.get(stLine);
+        if (existing !== undefined) {
+            existing.cppEndLine = lastEmittedHeaderLine;
+        }
+        else {
+            this.headerLineMap.set(stLine, {
+                cppStartLine: headerStartLine,
+                cppEndLine: lastEmittedHeaderLine,
+            });
+        }
+    }
+}
+/**
+ * Generate C++ code from a compilation unit.
+ * Convenience function that creates a generator and runs code generation.
+ */
+export function generateCode(ast, symbolTables, options) {
+    const generator = new CodeGenerator(symbolTables, options);
+    return generator.generate(ast);
+}
+//# sourceMappingURL=codegen.js.map

@@ -1,0 +1,594 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2025 Autonomy / OpenPLC Project
+/**
+ * STruC++ Type Code Generator
+ *
+ * Generates C++ type definitions from user-defined types (TYPE...END_TYPE blocks).
+ * Handles structs, enums, arrays, subranges, and type aliases.
+ */
+import { isElementaryType } from "../semantic/type-registry.js";
+import { formatArrayType } from "./codegen-utils.js";
+import { parseDateLiteralToDays, parseDtLiteralToNs, parseTimeLiteral, parseTodLiteralToNs, } from "../project-model.js";
+import { buildEnumMemberMap, } from "../semantic/type-utils.js";
+/**
+ * Default type code generation options
+ */
+export const defaultTypeCodeGenOptions = {
+    indent: "    ",
+    lineEnding: "\n",
+    emitChunkMarkers: false,
+};
+/**
+ * Map IEC elementary type names to C++ type names
+ */
+const IEC_TO_CPP_TYPE = {
+    BOOL: "BOOL_t",
+    BYTE: "BYTE_t",
+    WORD: "WORD_t",
+    DWORD: "DWORD_t",
+    LWORD: "LWORD_t",
+    SINT: "SINT_t",
+    INT: "INT_t",
+    DINT: "DINT_t",
+    LINT: "LINT_t",
+    USINT: "USINT_t",
+    UINT: "UINT_t",
+    UDINT: "UDINT_t",
+    ULINT: "ULINT_t",
+    __XWORD: "XWORD_t",
+    REAL: "REAL_t",
+    LREAL: "LREAL_t",
+    TIME: "TIME_t",
+    DATE: "DATE_t",
+    TIME_OF_DAY: "TOD_t",
+    TOD: "TOD_t",
+    DATE_AND_TIME: "DT_t",
+    DT: "DT_t",
+    LTIME: "LTIME_t",
+    LDATE: "LDATE_t",
+    LTOD: "LTOD_t",
+    LDT: "LDT_t",
+    CHAR: "CHAR_t",
+    WCHAR: "WCHAR_t",
+    STRING: "IECString<254>",
+    WSTRING: "IECWString<254>",
+};
+/**
+ * Map IEC elementary type names to their IECVar-wrapped C++ type names.
+ * Used for struct fields and array elements that need per-element forcing.
+ */
+export const IEC_TO_CPP_VAR_TYPE = {
+    BOOL: "IEC_BOOL",
+    BYTE: "IEC_BYTE",
+    WORD: "IEC_WORD",
+    DWORD: "IEC_DWORD",
+    LWORD: "IEC_LWORD",
+    SINT: "IEC_SINT",
+    INT: "IEC_INT",
+    DINT: "IEC_DINT",
+    LINT: "IEC_LINT",
+    USINT: "IEC_USINT",
+    UINT: "IEC_UINT",
+    UDINT: "IEC_UDINT",
+    ULINT: "IEC_ULINT",
+    __XWORD: "IEC_XWORD",
+    REAL: "IEC_REAL",
+    LREAL: "IEC_LREAL",
+    TIME: "IEC_TIME",
+    DATE: "IEC_DATE",
+    TIME_OF_DAY: "IEC_TOD",
+    TOD: "IEC_TOD",
+    DATE_AND_TIME: "IEC_DT",
+    DT: "IEC_DT",
+    LTIME: "IEC_LTIME",
+    LDATE: "IEC_LDATE",
+    LTOD: "IEC_LTOD",
+    LDT: "IEC_LDT",
+    CHAR: "IEC_CHAR",
+    WCHAR: "IEC_WCHAR",
+};
+/**
+ * Type Code Generator for user-defined types
+ */
+export class TypeCodeGenerator {
+    options;
+    output = [];
+    /** Track known enum type names (uppercase) so struct fields can use IEC_ wrapper */
+    knownEnumNames = new Set();
+    /** Reverse map: enum member name (upper case) → owning enum type */
+    enumMemberToType = new Map();
+    constructor(options = {}) {
+        this.options = { ...defaultTypeCodeGenOptions, ...options };
+    }
+    /**
+     * Generate C++ type definitions from a type registry.
+     * Types are generated in dependency order.
+     */
+    generateFromRegistry(registry) {
+        this.output = [];
+        const types = registry.getTypesInDependencyOrder();
+        return this.generateTypes(types);
+    }
+    /**
+     * Generate C++ type definitions from an array of type declarations.
+     * Assumes types are already in dependency order.
+     */
+    generateTypes(types) {
+        this.output = [];
+        this.knownEnumNames = new Set();
+        // Build reverse map for bare enum member qualification
+        this.enumMemberToType = buildEnumMemberMap(types
+            .filter((t) => t.definition.kind === "EnumDefinition")
+            .map((t) => ({
+            name: t.name,
+            members: t.definition.members.map((m) => m.name),
+        })));
+        if (types.length === 0) {
+            return "";
+        }
+        this.emit("// User-defined types");
+        this.emit("");
+        for (const type of types) {
+            if (this.options.emitChunkMarkers) {
+                this.emit(`//@chunk:begin:type:${type.name}`);
+            }
+            this.generateTypeDeclaration(type);
+            if (this.options.emitChunkMarkers) {
+                this.emit(`//@chunk:end:type:${type.name}`);
+            }
+        }
+        return this.output.join(this.options.lineEnding);
+    }
+    /**
+     * Generate a single type declaration
+     */
+    generateTypeDeclaration(type) {
+        const def = type.definition;
+        switch (def.kind) {
+            case "StructDefinition":
+                this.generateStructType(type.name, def);
+                // Struct fields already contain IECVar leaves — identity alias
+                this.emit(`using IEC_${type.name} = ${type.name};`);
+                this.emit("");
+                break;
+            case "EnumDefinition":
+                this.knownEnumNames.add(type.name.toUpperCase());
+                this.generateEnumType(type.name, def);
+                // Generate IEC_ wrapper for enum variables using IEC_ENUM
+                this.emit(`using IEC_${type.name} = IEC_ENUM<${type.name}>;`);
+                this.emit("");
+                break;
+            case "ArrayDefinition":
+                this.generateArrayType(type.name, def);
+                // Array elements already contain IECVar leaves — identity alias
+                this.emit(`using IEC_${type.name} = ${type.name};`);
+                this.emit("");
+                break;
+            case "SubrangeDefinition":
+                this.generateSubrangeType(type.name, def);
+                // Generate IEC_ wrapper aliasing to base type's wrapper
+                this.generateIecWrapperForSubrange(type.name, def);
+                break;
+            case "TypeReference":
+                this.generateTypeAlias(type.name, def);
+                // Generate IEC_ wrapper aliasing to base type's wrapper
+                this.generateIecWrapperForAlias(type.name, def);
+                break;
+        }
+    }
+    /**
+     * Generate IEC_ wrapper for a type alias
+     */
+    generateIecWrapperForAlias(name, def) {
+        const baseName = def.name.toUpperCase();
+        if (isElementaryType(baseName)) {
+            // Alias to elementary type - use the existing IEC_ wrapper
+            this.emit(`using IEC_${name} = IEC_${baseName};`);
+        }
+        else {
+            // Alias to user-defined type - use IECVar wrapper
+            this.emit(`using IEC_${name} = IECVar<${name}>;`);
+        }
+        this.emit("");
+    }
+    /**
+     * Generate IEC_ wrapper for a subrange type
+     */
+    generateIecWrapperForSubrange(name, def) {
+        const baseName = def.baseType.name.toUpperCase();
+        if (isElementaryType(baseName)) {
+            // Subrange of elementary type - use the existing IEC_ wrapper
+            this.emit(`using IEC_${name} = IEC_${baseName};`);
+        }
+        else {
+            // Subrange of user-defined type - use IECVar wrapper
+            this.emit(`using IEC_${name} = IECVar<${name}>;`);
+        }
+        this.emit("");
+    }
+    /**
+     * Generate a struct type definition
+     *
+     * ST:
+     *   MyStruct : STRUCT
+     *     x : INT;
+     *     y : REAL;
+     *   END_STRUCT;
+     *
+     * C++:
+     *   struct MyStruct {
+     *       INT_t x;
+     *       REAL_t y;
+     *   };
+     */
+    generateStructType(name, def) {
+        this.emit(`struct ${name} {`);
+        for (const field of def.fields) {
+            let cppType;
+            if (field.type.arrayDimensions && field.type.elementTypeName) {
+                // Inline array type: emit Array1D/2D/3D<WrappedElementType, bounds...>
+                const elemCpp = this.mapStructFieldTypeToCpp(field.type.elementTypeName);
+                cppType = formatArrayType(elemCpp, field.type.arrayDimensions);
+            }
+            else {
+                cppType = this.mapStructFieldTypeToCpp(field.type.name, field.type.maxLength);
+            }
+            if (field.type.referenceKind === "pointer_to") {
+                cppType += "*";
+            }
+            for (const fieldName of field.names) {
+                // Mangle field name if it matches its user-defined type name
+                // to avoid GCC -Wchanges-meaning error. Compare against the ST
+                // type name, not cppType (which may include pointer '*' suffix).
+                const emitName = !isElementaryType(field.type.name.toUpperCase()) &&
+                    fieldName.toUpperCase() === field.type.name.toUpperCase()
+                    ? `${fieldName}_`
+                    : fieldName;
+                if (field.initialValue) {
+                    const initVal = this.expressionToCpp(field.initialValue);
+                    // Array types can't be initialized with = 0; use {} instead
+                    const isArrayType = /^Array[123]D</.test(cppType);
+                    if (isArrayType && initVal === "0") {
+                        this.emit(`${this.options.indent}${cppType} ${emitName}{};`);
+                    }
+                    else {
+                        this.emit(`${this.options.indent}${cppType} ${emitName} = ${initVal};`);
+                    }
+                }
+                else {
+                    if (field.type.referenceKind === "pointer_to") {
+                        this.emit(`${this.options.indent}${cppType} ${emitName} = nullptr;`);
+                    }
+                    else {
+                        this.emit(`${this.options.indent}${cppType} ${emitName}{};`);
+                    }
+                }
+            }
+        }
+        this.emit("};");
+        this.emit("");
+    }
+    /**
+     * Generate an enum type definition
+     *
+     * Simple enum:
+     *   TrafficLight : (RED, YELLOW, GREEN);
+     * C++:
+     *   enum class TrafficLight { RED, YELLOW, GREEN };
+     *
+     * Typed enum with explicit values:
+     *   State : INT (IDLE := 0, RUNNING := 1, STOPPED := 2);
+     * C++:
+     *   enum class State : INT_t { IDLE = 0, RUNNING = 1, STOPPED = 2 };
+     */
+    generateEnumType(name, def) {
+        const baseType = def.baseType
+            ? ` : ${this.mapTypeToCpp(def.baseType.name)}`
+            : "";
+        const members = def.members.map((member) => {
+            if (member.value) {
+                const val = this.expressionToCpp(member.value);
+                return `${member.name} = ${val}`;
+            }
+            return member.name;
+        });
+        this.emit(`enum class ${name}${baseType} { ${members.join(", ")} };`);
+        this.emit("");
+    }
+    /**
+     * Generate an array type definition
+     *
+     * ST:
+     *   IntArray : ARRAY[0..9] OF INT;
+     *   Matrix : ARRAY[0..2, 0..2] OF REAL;
+     *   OffsetArray : ARRAY[3..7] OF INT;
+     *
+     * C++:
+     *   using IntArray = Array1D<INT_t, 0, 9>;
+     *   using Matrix = Array2D<REAL_t, 0, 2, 0, 2>;
+     *   using OffsetArray = Array1D<INT_t, 3, 7>;
+     *
+     * Uses Array1D/2D/3D templates which preserve index bounds for proper
+     * IEC 61131-3 array semantics (arrays can have arbitrary start indices).
+     */
+    generateArrayType(name, def) {
+        const elementType = this.mapStructFieldTypeToCpp(def.elementType.name);
+        const numDims = def.dimensions.length;
+        // Collect bounds for all dimensions (skip variable-length dimensions)
+        const bounds = [];
+        for (const dim of def.dimensions) {
+            if (dim && !dim.isVariableLength && dim.start && dim.end) {
+                const start = this.evaluateConstantExpression(dim.start);
+                const end = this.evaluateConstantExpression(dim.end);
+                bounds.push({ start, end });
+            }
+        }
+        // Generate appropriate Array template based on dimensions
+        let cppType;
+        if (numDims <= 3 && bounds.length === numDims) {
+            cppType = formatArrayType(elementType, bounds);
+        }
+        else {
+            // Fallback for higher dimensions: use nested std::array (loses bounds info)
+            // This maintains backwards compatibility but loses arbitrary index support
+            cppType = elementType;
+            for (let i = def.dimensions.length - 1; i >= 0; i--) {
+                const dim = def.dimensions[i];
+                if (dim && !dim.isVariableLength && dim.start && dim.end) {
+                    const start = this.evaluateConstantExpression(dim.start);
+                    const end = this.evaluateConstantExpression(dim.end);
+                    const size = end - start + 1;
+                    cppType = `std::array<${cppType}, ${size}>`;
+                }
+            }
+        }
+        this.emit(`using ${name} = ${cppType};`);
+        this.emit("");
+    }
+    /**
+     * Generate a subrange type definition
+     *
+     * ST:
+     *   Percentage : INT(0..100);
+     *
+     * C++:
+     *   using Percentage = INT_t;
+     *
+     * Note: Runtime bounds checking would be implemented separately.
+     * For now, we just create a type alias.
+     */
+    generateSubrangeType(name, def) {
+        const baseType = this.mapTypeToCpp(def.baseType.name);
+        const lower = this.expressionToCpp(def.lowerBound);
+        const upper = this.expressionToCpp(def.upperBound);
+        this.emit(`using ${name} = ${baseType};`);
+        this.emit(`constexpr ${baseType} ${name}_MIN = ${lower};`);
+        this.emit(`constexpr ${baseType} ${name}_MAX = ${upper};`);
+        this.emit("");
+    }
+    /**
+     * Generate a type alias
+     *
+     * ST:
+     *   MyInt : INT;
+     *
+     * C++:
+     *   using MyInt = INT_t;
+     */
+    generateTypeAlias(name, def) {
+        let cppType;
+        if (def.arrayDimensions && def.elementTypeName) {
+            // POINTER TO ARRAY[...] OF T — use array template
+            const elemCpp = this.mapTypeToCpp(def.elementTypeName);
+            cppType = formatArrayType(elemCpp, def.arrayDimensions);
+        }
+        else {
+            cppType = this.mapTypeToCpp(def.name);
+        }
+        if (def.referenceKind === "pointer_to") {
+            cppType += "*";
+        }
+        this.emit(`using ${name} = ${cppType};`);
+        this.emit("");
+    }
+    /**
+     * Map an IEC type name to its C++ equivalent (raw/unwrapped)
+     */
+    mapTypeToCpp(typeName) {
+        const upperName = typeName.toUpperCase();
+        if (isElementaryType(upperName)) {
+            return IEC_TO_CPP_TYPE[upperName] ?? `${upperName}_t`;
+        }
+        return typeName;
+    }
+    /**
+     * Map a type name to its IECVar-wrapped C++ equivalent for struct fields
+     * and array elements. Wraps elementary types with IECVar for per-field forcing.
+     * Composites (structs, arrays, FBs) use bare names since their fields
+     * already contain IECVar leaves.
+     */
+    mapStructFieldTypeToCpp(typeName, maxLength) {
+        const upperName = typeName.toUpperCase();
+        // STRING/WSTRING with optional length → IECStringVar/IECWStringVar (forceable)
+        if (upperName === "STRING") {
+            const len = maxLength ?? 254;
+            return `IECStringVar<${len}>`;
+        }
+        if (upperName === "WSTRING") {
+            const len = maxLength ?? 254;
+            return `IECWStringVar<${len}>`;
+        }
+        // Elementary types → IEC_<TYPE> (IECVar-wrapped)
+        if (isElementaryType(upperName)) {
+            return IEC_TO_CPP_VAR_TYPE[upperName] ?? `IEC_${upperName}`;
+        }
+        // Enum types → IEC_<Name> (resolves to IEC_ENUM<Name> via alias)
+        if (this.knownEnumNames.has(upperName)) {
+            return `IEC_${typeName}`;
+        }
+        // Composite types (struct, array, FB) → bare name
+        return typeName;
+    }
+    /**
+     * Convert an AST expression to C++ code
+     */
+    expressionToCpp(expr) {
+        switch (expr.kind) {
+            case "LiteralExpression":
+                return this.literalToCpp(expr);
+            case "VariableExpression":
+                return this.variableToCpp(expr);
+            case "BinaryExpression":
+                return this.binaryExprToCpp(expr);
+            case "UnaryExpression":
+                return this.unaryExprToCpp(expr);
+            case "ParenthesizedExpression":
+                return `(${this.expressionToCpp(expr.expression)})`;
+            case "FunctionCallExpression":
+                return `${expr.functionName}()`;
+            default:
+                return "0";
+        }
+    }
+    literalToCpp(expr) {
+        switch (expr.literalType) {
+            case "BOOL":
+                return expr.value === true ? "true" : "false";
+            case "STRING": {
+                // IEC STRING literals carry their surrounding single quotes
+                // in `rawValue` (`'wide hello'`); strip them before wrapping
+                // in C++ double quotes — otherwise we end up with `"'…'"`.
+                const inner = expr.rawValue.replace(/^'|'$/g, "");
+                return `"${inner}"`;
+            }
+            case "WSTRING": {
+                // IEC WSTRING literals are double-quoted; strip either form
+                // for safety. The C++ prefix is `u` (char16_t) — `L"…"`
+                // (wchar_t) is 32-bit on Linux/AVR and wouldn't bind to
+                // IECWStringVar's char16_t* ctor.
+                const inner = expr.rawValue.replace(/^["']|["']$/g, "");
+                return `u"${inner}"`;
+            }
+            case "TIME": {
+                const timeVal = parseTimeLiteral(String(expr.value));
+                return `${timeVal.nanoseconds}LL`;
+            }
+            case "DATE":
+                return `${parseDateLiteralToDays(String(expr.value))}LL`;
+            case "TIME_OF_DAY":
+                return `${parseTodLiteralToNs(String(expr.value))}LL`;
+            case "DATE_AND_TIME":
+                return `${parseDtLiteralToNs(String(expr.value))}LL`;
+            default:
+                return String(expr.value);
+        }
+    }
+    variableToCpp(expr) {
+        let result = expr.name;
+        const nameUpper = expr.name.toUpperCase();
+        // Bare enum member: Stopped → Irrigation_State::Stopped
+        const enumEntry = this.enumMemberToType.get(nameUpper);
+        if (enumEntry?.typeName && expr.fieldAccess.length === 0) {
+            return `${enumEntry.typeName}::${expr.name}`;
+        }
+        // Enum qualified access: TrafficState.RED → TrafficState::RED
+        if (this.knownEnumNames.has(nameUpper) && expr.fieldAccess.length === 1) {
+            return `${expr.name}::${expr.fieldAccess[0]}`;
+        }
+        for (const subscript of expr.subscripts) {
+            result += `[${this.expressionToCpp(subscript)}]`;
+        }
+        for (const field of expr.fieldAccess) {
+            result += `.${field}`;
+        }
+        if (expr.isDereference) {
+            result = `*${result}`;
+        }
+        return result;
+    }
+    binaryExprToCpp(expr) {
+        const left = this.expressionToCpp(expr.left);
+        const right = this.expressionToCpp(expr.right);
+        const opMap = {
+            "+": "+",
+            "-": "-",
+            "*": "*",
+            "/": "/",
+            MOD: "%",
+            "**": "/* pow */",
+            AND: "&&",
+            OR: "||",
+            XOR: "^",
+            "=": "==",
+            "<>": "!=",
+            "<": "<",
+            ">": ">",
+            "<=": "<=",
+            ">=": ">=",
+        };
+        const cppOp = opMap[expr.operator] ?? expr.operator;
+        return `${left} ${cppOp} ${right}`;
+    }
+    unaryExprToCpp(expr) {
+        const operand = this.expressionToCpp(expr.operand);
+        const opMap = {
+            NOT: "!",
+            "-": "-",
+            "+": "+",
+        };
+        const cppOp = opMap[expr.operator] ?? expr.operator;
+        return `${cppOp}${operand}`;
+    }
+    /**
+     * Evaluate a constant expression to a number.
+     * Used for array dimension calculations.
+     */
+    evaluateConstantExpression(expr) {
+        switch (expr.kind) {
+            case "LiteralExpression":
+                if (typeof expr.value === "number") {
+                    return expr.value;
+                }
+                return parseInt(String(expr.value), 10) || 0;
+            case "UnaryExpression":
+                if (expr.operator === "-") {
+                    return -this.evaluateConstantExpression(expr.operand);
+                }
+                return this.evaluateConstantExpression(expr.operand);
+            case "BinaryExpression": {
+                const left = this.evaluateConstantExpression(expr.left);
+                const right = this.evaluateConstantExpression(expr.right);
+                switch (expr.operator) {
+                    case "+":
+                        return left + right;
+                    case "-":
+                        return left - right;
+                    case "*":
+                        return left * right;
+                    case "/":
+                        return Math.floor(left / right);
+                    case "MOD":
+                        return left % right;
+                    default:
+                        return 0;
+                }
+            }
+            default:
+                return 0;
+        }
+    }
+    /**
+     * Emit a line of output
+     */
+    emit(line) {
+        this.output.push(line);
+    }
+}
+/**
+ * Generate C++ type definitions from a type registry
+ */
+export function generateTypeCode(registry, options) {
+    const generator = new TypeCodeGenerator(options);
+    return generator.generateFromRegistry(registry);
+}
+//# sourceMappingURL=type-codegen.js.map

@@ -1,0 +1,239 @@
+name: Windows Runtime Test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'resources/plc-runtime/**'
+      - '.github/workflows/test-windows-runtime.yml'
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Step 1: iec2c.exe resolves and is executable ───────────────────────
+      - name: Test iec2c.exe is present
+        shell: cmd
+        run: |
+          if not exist "resources\plc-runtime\matiec\win32-x64\iec2c.exe" (
+            echo ERROR: iec2c.exe not found
+            exit /b 1
+          )
+          echo iec2c.exe found OK
+          dir resources\plc-runtime\matiec\win32-x64\
+
+      - name: Test iec2c.exe runs (validate a minimal ST program)
+        shell: cmd
+        run: |
+          echo PROGRAM test > %TEMP%\test.st
+          echo  VAR >> %TEMP%\test.st
+          echo   x : BOOL; >> %TEMP%\test.st
+          echo  END_VAR >> %TEMP%\test.st
+          echo  x := TRUE; >> %TEMP%\test.st
+          echo END_PROGRAM >> %TEMP%\test.st
+          set "PATH=%CD%\resources\plc-runtime\matiec\win32-x64;%PATH%"
+          resources\plc-runtime\matiec\win32-x64\iec2c.exe -I resources\plc-runtime\matiec\lib -T %TEMP%\matiec-out %TEMP%\test.st
+          if %ERRORLEVEL% neq 0 (
+            echo ERROR: iec2c.exe failed to compile test program
+            exit /b 1
+          )
+          echo iec2c.exe compiled test ST successfully
+
+      # ── Step 2: Python.exe starts and all Flask deps import ───────────────
+      - name: Test Python.exe is present
+        shell: cmd
+        run: |
+          if not exist "resources\plc-runtime\python\win32-x64\python.exe" (
+            echo ERROR: python.exe not found
+            exit /b 1
+          )
+          resources\plc-runtime\python\win32-x64\python.exe --version
+          echo Python.exe OK
+
+      - name: Test Flask and all webserver deps import
+        shell: cmd
+        run: |
+          set "PYTHONPATH=%CD%\resources\plc-runtime\python\win32-x64\Lib\site-packages"
+          resources\plc-runtime\python\win32-x64\python.exe -c ^
+            "import flask, flask_login, flask_jwt_extended, flask_sqlalchemy, flask_socketio, jwt, dotenv, psutil, serial; print('ALL IMPORTS OK')"
+          if %ERRORLEVEL% neq 0 (
+            echo ERROR: One or more Flask imports failed
+            exit /b 1
+          )
+
+      # ── Step 3: OpenPLC webserver starts and listens on 8443 ─────────────
+      - name: Start OpenPLC webserver
+        shell: cmd
+        run: |
+          set "PYTHONPATH=%CD%\resources\plc-runtime\openplc-runtime-v4;%CD%\resources\plc-runtime\python\win32-x64\Lib\site-packages"
+          set "OPENPLC_RUNTIME_PATH=%TEMP%\plc_main"
+          start /b resources\plc-runtime\python\win32-x64\python.exe -m webserver.app ^
+            > %TEMP%\webserver.log 2>&1
+          echo Webserver started in background, waiting 10s...
+
+      - name: Wait for webserver to be ready
+        shell: powershell
+        run: |
+          $maxWait = 20
+          $waited = 0
+          $ready = $false
+          while ($waited -lt $maxWait) {
+            Start-Sleep -Seconds 2
+            $waited += 2
+            try {
+              $resp = Invoke-WebRequest -Uri "https://localhost:8443" `
+                -SkipCertificateCheck -TimeoutSec 3 -ErrorAction Stop
+              Write-Host "Webserver responded: $($resp.StatusCode)"
+              $ready = $true
+              break
+            } catch {
+              Write-Host "Waiting... ($waited/$maxWait s) - $($_.Exception.Message)"
+            }
+          }
+          if (-not $ready) {
+            Write-Host "ERROR: Webserver did not start within ${maxWait}s"
+            Get-Content "$env:TEMP\webserver.log" -ErrorAction SilentlyContinue
+            exit 1
+          }
+          Write-Host "Webserver is UP on port 8443"
+
+      - name: Test create-user endpoint
+        shell: powershell
+        run: |
+          $body = @{ login="volt-internal"; password="volt-test-pass-123" } | ConvertTo-Json
+          try {
+            $resp = Invoke-WebRequest -Uri "https://localhost:8443/api/create-user" `
+              -Method POST -Body $body -ContentType "application/json" `
+              -SkipCertificateCheck -TimeoutSec 10 -ErrorAction Stop
+            Write-Host "create-user: $($resp.StatusCode) $($resp.Content)"
+          } catch {
+            $code = $_.Exception.Response.StatusCode.value__
+            Write-Host "create-user returned $code (401 = already exists, both are OK)"
+            if ($code -ne 401) { exit 1 }
+          }
+
+      - name: Test login and get JWT token
+        shell: powershell
+        run: |
+          $body = @{ login="volt-internal"; password="volt-test-pass-123" } | ConvertTo-Json
+          $resp = Invoke-WebRequest -Uri "https://localhost:8443/api/login" `
+            -Method POST -Body $body -ContentType "application/json" `
+            -SkipCertificateCheck -TimeoutSec 10
+          $json = $resp.Content | ConvertFrom-Json
+          if (-not $json.access_token) {
+            Write-Host "ERROR: No access_token in login response: $($resp.Content)"
+            exit 1
+          }
+          Write-Host "JWT token obtained: $($json.access_token.Substring(0,20))..."
+          # Save token for next step
+          echo "JWT=$($json.access_token)" >> $env:GITHUB_ENV
+
+      # ── Step 4: Upload a minimal ZIP and verify g++ compiles it ──────────
+      - name: Build test ZIP (minimal ST program)
+        shell: powershell
+        run: |
+          # Create a minimal valid ZIP that OpenPLC can compile
+          $tmpDir = "$env:TEMP\volt-test-zip"
+          New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+
+          # Minimal generated.hpp
+          @"
+          #pragma once
+          #include "strucpp_runtime/include/iec_std_lib.hpp"
+          class PROGRAM0 {
+          public:
+            IEC_BOOL x;
+            void run() { x = IEC_BOOL(1); }
+          };
+          "@ | Out-File "$tmpDir\generated.hpp" -Encoding utf8
+
+          # Minimal main.cpp
+          @"
+          #include "generated.hpp"
+          PROGRAM0 prog;
+          extern "C" void plc_run() { prog.run(); }
+          "@ | Out-File "$tmpDir\main.cpp" -Encoding utf8
+
+          # generated_debug.cpp (required symbols)
+          @"
+          #include <cstdint>
+          namespace strucpp { namespace debug {
+            const uint8_t* get_debug_data() { return nullptr; }
+            uint32_t get_debug_data_size() { return 0; }
+          }}
+          "@ | Out-File "$tmpDir\generated_debug.cpp" -Encoding utf8
+
+          # CMakeLists.txt
+          @"
+          cmake_minimum_required(VERSION 3.10)
+          project(plc_program)
+          add_library(plc_program SHARED main.cpp generated_debug.cpp)
+          "@ | Out-File "$tmpDir\CMakeLists.txt" -Encoding utf8
+
+          # ZIP it
+          Compress-Archive -Path "$tmpDir\*" -DestinationPath "$env:TEMP\test-program.zip" -Force
+          Write-Host "Test ZIP created: $((Get-Item "$env:TEMP\test-program.zip").Length) bytes"
+
+      - name: Upload ZIP to OpenPLC
+        shell: powershell
+        run: |
+          $zipBytes = [System.IO.File]::ReadAllBytes("$env:TEMP\test-program.zip")
+          $boundary = "----VoltBoundary$(Get-Date -UFormat %s)"
+          $LF = "`r`n"
+          $bodyLines = @(
+            "--$boundary",
+            "Content-Disposition: form-data; name=`"file`"; filename=`"test-program.zip`"",
+            "Content-Type: application/octet-stream",
+            "",
+            [System.Text.Encoding]::GetEncoding("iso-8859-1").GetString($zipBytes),
+            "--$boundary--"
+          )
+          $bodyStr = $bodyLines -join $LF
+          $bodyBytes = [System.Text.Encoding]::GetEncoding("iso-8859-1").GetBytes($bodyStr)
+
+          $resp = Invoke-WebRequest -Uri "https://localhost:8443/api/upload-file" `
+            -Method POST `
+            -Body $bodyBytes `
+            -ContentType "multipart/form-data; boundary=$boundary" `
+            -Headers @{ Authorization = "Bearer $env:JWT" } `
+            -SkipCertificateCheck -TimeoutSec 30
+          Write-Host "Upload response: $($resp.StatusCode) $($resp.Content)"
+          if ($resp.StatusCode -ne 200) { exit 1 }
+
+      - name: Poll compilation status until SUCCESS or ERROR
+        shell: powershell
+        run: |
+          $maxWait = 60
+          $waited = 0
+          while ($waited -lt $maxWait) {
+            Start-Sleep -Seconds 3
+            $waited += 3
+            $resp = Invoke-WebRequest -Uri "https://localhost:8443/api/compilation-status" `
+              -Headers @{ Authorization = "Bearer $env:JWT" } `
+              -SkipCertificateCheck -TimeoutSec 10
+            $json = $resp.Content | ConvertFrom-Json
+            Write-Host "[$waited/$maxWait s] Status: $($json.status)"
+            if ($json.status -eq "SUCCESS") {
+              Write-Host "g++ compile SUCCESS"
+              exit 0
+            }
+            if ($json.status -eq "ERROR") {
+              Write-Host "ERROR: g++ compile failed: $($json.message)"
+              exit 1
+            }
+          }
+          Write-Host "ERROR: Compile timed out after ${maxWait}s"
+          exit 1
+
+      # ── Diagnostics on failure ────────────────────────────────────────────
+      - name: Show webserver log on failure
+        if: failure()
+        shell: cmd
+        run: |
+          echo === Webserver log ===
+          type %TEMP%\webserver.log 2>nul || echo (no log file)

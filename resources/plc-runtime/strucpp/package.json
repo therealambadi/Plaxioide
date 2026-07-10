@@ -1,0 +1,102 @@
+{
+  "name": "strucpp",
+  "version": "0.5.10",
+  "description": "IEC 61131-3 Structured Text to C++ Compiler",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
+    },
+    "./libs/*": "./libs/*",
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "node scripts/rebuild-libs.mjs",
+    "build:tsc-only": "tsc",
+    "build:stdlib": "node scripts/generate-stdlib.mjs",
+    "build:additional-fb": "node scripts/generate-additional-fb.mjs",
+    "build:libs": "node scripts/rebuild-libs.mjs",
+    "build:browser-server": "node scripts/build-browser-server.mjs",
+    "build:bundle": "npm run build && node scripts/bundle.mjs",
+    "build:pkg": "npm run build:bundle && pkg dist/strucpp-bundle.cjs --no-bytecode --public-packages \"*\" --public --targets node22-linux-x64,node22-win-x64,node22-macos-x64 --out-path dist/bin --compress GZip",
+    "build:pkg:linux": "npm run build:bundle && pkg dist/strucpp-bundle.cjs --no-bytecode --public-packages \"*\" --public --targets node22-linux-x64 --output dist/bin/strucpp-linux --compress GZip",
+    "build:pkg:win": "npm run build:bundle && pkg dist/strucpp-bundle.cjs --no-bytecode --public-packages \"*\" --public --targets node22-win-x64 --output dist/bin/strucpp-win.exe --compress GZip",
+    "build:pkg:macos": "npm run build:bundle && pkg dist/strucpp-bundle.cjs --no-bytecode --public-packages \"*\" --public --targets node22-macos-x64 --output dist/bin/strucpp-macos --compress GZip",
+    "smoke:bin": "node scripts/smoke-test.mjs",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/",
+    "typecheck": "tsc --noEmit",
+    "check:purity": "node scripts/check-purity.mjs",
+    "clean": "rm -rf dist/ libs/*.stlib libs/iec-types.json vscode-extension/bundled-libs/*.stlib vscode-extension/bundled-libs/iec-types.json",
+    "prepack": "npm run build && npm run build:browser-server",
+    "prepublishOnly": "npm run build && npm run build:browser-server",
+    "prepare": "husky"
+  },
+  "bin": {
+    "strucpp": "./dist/node/cli.js"
+  },
+  "files": [
+    "dist/",
+    "src/runtime/",
+    "libs/"
+  ],
+  "keywords": [
+    "iec61131-3",
+    "plc",
+    "structured-text",
+    "compiler",
+    "code-generator",
+    "openplc"
+  ],
+  "author": "Autonomy / OpenPLC Project <thiago.alves@autonomylogic.com>",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Autonomy-Logic/STruCpp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Autonomy-Logic/STruCpp/issues"
+  },
+  "homepage": "https://github.com/Autonomy-Logic/STruCpp#readme",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "chevrotain": "^11.0.0"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx,js,jsx}": [
+      "eslint",
+      "prettier --write"
+    ],
+    "src/**/*.{json,md}": "prettier --write"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "@yao-pkg/pkg": "^6.20.0",
+    "esbuild": "^0.27.0",
+    "eslint": "^8.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}
