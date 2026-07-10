@@ -61,27 +61,22 @@ if OLD not in src:
         print('Context:', repr(src[idx:idx+400]))
     sys.exit(1)
 
+# Use zf.read(info.filename) which avoids cross-ZipFile-instance seek issues.
+# Also use zf.infolist() from the CURRENT ZipFile instead of the passed-in valid_files
+# which came from a different ZipFile instance in analyze_zip.
 NEW = '''def safe_extract(zip_path, dest_dir, valid_files):
     """Extract files safely to a target directory."""
-    import subprocess as _sp, platform as _plt
     build_state.status = BuildStatus.UNZIPPING
 
     abs_dest = os.path.abspath(dest_dir)
-    _is_cygwin = "CYGWIN" in _plt.system().upper() or "MSYS" in _plt.system().upper()
-
-    def _win_path(p):
-        """Convert POSIX path to Windows path via cygpath (Cygwin/MSYS2 only)."""
-        if _is_cygwin:
-            try:
-                return _sp.check_output(["cygpath", "-w", p],
-                                        stderr=_sp.DEVNULL).decode().strip()
-            except Exception:
-                pass
-        return p
 
     with zipfile.ZipFile(zip_path, "r") as zf:
+        # Use infolist from THIS ZipFile instance (not from analyze_zip's closed instance)
+        entries = zf.infolist()
+
+        # Detect single root to strip
         roots = set()
-        for info in valid_files:
+        for info in entries:
             if info.filename.startswith("__MACOSX/") or info.filename.endswith(".DS_Store"):
                 continue
             parts = info.filename.split("/", 1)
@@ -89,7 +84,7 @@ NEW = '''def safe_extract(zip_path, dest_dir, valid_files):
                 roots.add(parts[0])
         strip_root = len(roots) == 1
 
-        for info in valid_files:
+        for info in entries:
             filename = info.filename.replace("\\\\", "/")
             if filename.startswith("__MACOSX/") or filename.endswith(".DS_Store") or filename.endswith("/"):
                 continue
@@ -103,11 +98,11 @@ NEW = '''def safe_extract(zip_path, dest_dir, valid_files):
 
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-            # Use Windows-native path for file creation on Cygwin/MSYS2 to avoid
-            # EINVAL (errno 22) when open()ing a file in a newly-created directory.
-            write_path = _win_path(out_path)
-            with zf.open(info) as _src, open(write_path, "wb") as _dst:
-                _dst.write(_src.read())
+            # Use zf.read() by filename string — avoids seek issues with
+            # ZipInfo objects on Cygwin/MSYS2 where cross-handle seeks fail
+            data = zf.read(info.filename)
+            with open(out_path, "wb") as _dst:
+                _dst.write(data)
 
             logger.debug("Extracted: %s", out_path)'''
 
