@@ -94,20 +94,19 @@ jobs:
             exit 1
           }
 
-          # Write a launcher .bat so Start-Process avoids redirect quoting issues
+          # Write a launcher .bat using Add-Content to avoid here-string YAML issues
           $batPath = "$env:TEMP\start-webserver.bat"
           $logOut  = "$env:TEMP\webserver-stdout.log"
           $logErr  = "$env:TEMP\webserver-stderr.log"
-          $batContent = @"
-@echo off
-set PYTHONPATH=$runtimeDir;$sitePkgs
-set OPENPLC_RUNTIME_PATH=$env:TEMP\plc_main
-set PYTHONUNBUFFERED=1
-cd /d "$runtimeDir"
-"$pythonExe" -m webserver.app > "$logOut" 2> "$logErr"
-"@
-          [System.IO.File]::WriteAllText($batPath, $batContent, [System.Text.Encoding]::ASCII)
+          Remove-Item $batPath -ErrorAction SilentlyContinue
+          Add-Content $batPath "@echo off"
+          Add-Content $batPath "set PYTHONPATH=$runtimeDir;$sitePkgs"
+          Add-Content $batPath "set OPENPLC_RUNTIME_PATH=$env:TEMP\plc_main"
+          Add-Content $batPath "set PYTHONUNBUFFERED=1"
+          Add-Content $batPath "cd /d `"$runtimeDir`""
+          Add-Content $batPath "`"$pythonExe`" -m webserver.app > `"$logOut`" 2> `"$logErr`""
           Write-Host "Launching via bat: $batPath"
+          Get-Content $batPath | ForEach-Object { Write-Host "  BAT: $_" }
           $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$batPath`"" -PassThru -WindowStyle Hidden
           $proc.Id | Out-File "$env:TEMP\webserver.pid" -Encoding utf8
           Write-Host "Webserver process started (PID $($proc.Id))"
