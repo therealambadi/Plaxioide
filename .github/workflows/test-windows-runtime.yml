@@ -30,19 +30,22 @@ jobs:
       - name: Test iec2c.exe runs (validate a minimal ST program)
         shell: cmd
         run: |
-          echo PROGRAM test > %TEMP%\test.st
-          echo  VAR >> %TEMP%\test.st
-          echo   x : BOOL; >> %TEMP%\test.st
-          echo  END_VAR >> %TEMP%\test.st
-          echo  x := TRUE; >> %TEMP%\test.st
-          echo END_PROGRAM >> %TEMP%\test.st
+          mkdir %TEMP%\matiec-out 2>nul
+          (echo PROGRAM test) > %TEMP%\test.st
+          (echo  VAR) >> %TEMP%\test.st
+          (echo   x : BOOL;) >> %TEMP%\test.st
+          (echo  END_VAR) >> %TEMP%\test.st
+          (echo  x := TRUE;) >> %TEMP%\test.st
+          (echo END_PROGRAM) >> %TEMP%\test.st
           set "PATH=%CD%\resources\plc-runtime\matiec\win32-x64;%PATH%"
           resources\plc-runtime\matiec\win32-x64\iec2c.exe -I resources\plc-runtime\matiec\lib -T %TEMP%\matiec-out %TEMP%\test.st
           if %ERRORLEVEL% neq 0 (
-            echo ERROR: iec2c.exe failed to compile test program
+            echo ERROR: iec2c.exe failed
+            dir %TEMP%\matiec-out 2>nul
             exit /b 1
           )
           echo iec2c.exe compiled test ST successfully
+          dir %TEMP%\matiec-out
 
       # ── Step 2: Python.exe starts and all Flask deps import ───────────────
       - name: Test Python.exe is present
