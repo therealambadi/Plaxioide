@@ -71,73 +71,91 @@ jobs:
 
       # ── Step 3: OpenPLC webserver starts and listens on 8443 ─────────────
       - name: Start OpenPLC webserver
-        shell: cmd
+        shell: powershell
         run: |
-          set "PYTHONPATH=%CD%\resources\plc-runtime\openplc-runtime-v4;%CD%\resources\plc-runtime\python\win32-x64\Lib\site-packages"
-          set "OPENPLC_RUNTIME_PATH=%TEMP%\plc_main"
-          start /b resources\plc-runtime\python\win32-x64\python.exe -m webserver.app ^
-            > %TEMP%\webserver.log 2>&1
-          echo Webserver started in background, waiting 10s...
+          $env:PYTHONPATH = "$PWD\resources\plc-runtime\openplc-runtime-v4;$PWD\resources\plc-runtime\python\win32-x64\Lib\site-packages"
+          $env:OPENPLC_RUNTIME_PATH = "$env:TEMP\plc_main"
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = "$PWD\resources\plc-runtime\python\win32-x64\python.exe"
+          $psi.Arguments = "-m webserver.app"
+          $psi.WorkingDirectory = "$PWD\resources\plc-runtime\openplc-runtime-v4"
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $psi.EnvironmentVariables["PYTHONPATH"] = $env:PYTHONPATH
+          $psi.EnvironmentVariables["OPENPLC_RUNTIME_PATH"] = $env:OPENPLC_RUNTIME_PATH
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          # Drain output to files asynchronously so buffer doesn't block Flask
+          $stdoutJob = [System.Threading.Tasks.Task]::Run([Action]{
+            $proc.StandardOutput.ReadToEnd() | Out-File "$env:TEMP\webserver-stdout.log" -Encoding utf8
+          })
+          $stderrJob = [System.Threading.Tasks.Task]::Run([Action]{
+            $proc.StandardError.ReadToEnd() | Out-File "$env:TEMP\webserver-stderr.log" -Encoding utf8
+          })
+          # Save PID for diagnostics
+          $proc.Id | Out-File "$env:TEMP\webserver.pid" -Encoding utf8
+          Write-Host "Webserver started (PID $($proc.Id)), waiting for Flask..."
 
       - name: Wait for webserver to be ready
-        shell: cmd
+        shell: powershell
         run: |
-          set WAITED=0
-          :loop
-          if %WAITED% GEQ 60 goto timeout
-          timeout /t 3 /nobreak >nul
-          set /a WAITED=%WAITED%+3
-          curl.exe -k -s -o nul -w "%%{http_code}" https://localhost:8443/api/status > %TEMP%\httpcode.txt 2>nul
-          set /p HTTPCODE=<%TEMP%\httpcode.txt
-          if "%HTTPCODE%"=="000" (
-            echo [%WAITED%/60 s] No connection yet...
-            goto loop
-          )
-          echo Webserver UP - HTTP %HTTPCODE% - Flask is accepting connections
-          goto done
-          :timeout
-          echo ERROR: Webserver did not start within 60s
-          type %TEMP%\webserver.log 2>nul
-          exit /b 1
-          :done
+          $waited = 0
+          $ready = $false
+          while ($waited -lt 60) {
+            Start-Sleep -Seconds 3
+            $waited += 3
+            try {
+              $code = & curl.exe -k -s -o NUL -w "%{http_code}" https://localhost:8443/api/status 2>$null
+              Write-Host "[$waited/60 s] curl returned: $code"
+              if ($code -ne "000" -and $code -ne "") {
+                Write-Host "Webserver UP - HTTP $code - Flask is accepting connections"
+                $ready = $true
+                break
+              }
+            } catch {
+              Write-Host "[$waited/60 s] curl error: $_"
+            }
+            Write-Host "[$waited/60 s] No connection yet..."
+          }
+          if (-not $ready) {
+            Write-Host "ERROR: Webserver did not start within 60s"
+            Write-Host "=== stdout ==="
+            Get-Content "$env:TEMP\webserver-stdout.log" -ErrorAction SilentlyContinue
+            Write-Host "=== stderr ==="
+            Get-Content "$env:TEMP\webserver-stderr.log" -ErrorAction SilentlyContinue
+            exit 1
+          }
 
       - name: Test create-user endpoint
-        shell: cmd
+        shell: powershell
         run: |
-          curl.exe -k -s -o %TEMP%\create-user.json -w "%%{http_code}" ^
-            -X POST https://localhost:8443/api/create-user ^
-            -H "Content-Type: application/json" ^
-            -d "{\"login\":\"volt-internal\",\"password\":\"volt-test-pass-123\"}" ^
-            > %TEMP%\create-user-code.txt 2>nul
-          set /p CODE=<%TEMP%\create-user-code.txt
-          type %TEMP%\create-user.json
-          echo.
-          echo create-user HTTP %CODE% (200=created, 401=already exists, both OK)
-          if "%CODE%"=="200" goto ok
-          if "%CODE%"=="401" goto ok
-          echo ERROR: Unexpected status %CODE%
-          exit /b 1
-          :ok
+          $code = & curl.exe -k -s -o "$env:TEMP\create-user.json" -w "%{http_code}" `
+            -X POST https://localhost:8443/api/create-user `
+            -H "Content-Type: application/json" `
+            -d '{"login":"volt-internal","password":"volt-test-pass-123"}'
+          Get-Content "$env:TEMP\create-user.json" -ErrorAction SilentlyContinue
+          Write-Host "create-user HTTP $code (200=created, 401=already exists, both OK)"
+          if ($code -ne "200" -and $code -ne "401") {
+            Write-Host "ERROR: Unexpected status $code"
+            exit 1
+          }
 
       - name: Test login and get JWT token
-        shell: cmd
+        shell: powershell
         run: |
-          curl.exe -k -s -o %TEMP%\login.json ^
-            -X POST https://localhost:8443/api/login ^
-            -H "Content-Type: application/json" ^
-            -d "{\"login\":\"volt-internal\",\"password\":\"volt-test-pass-123\"}"
-          type %TEMP%\login.json
-          echo.
-          findstr "access_token" %TEMP%\login.json >nul
-          if %ERRORLEVEL% neq 0 (
-            echo ERROR: No access_token in login response
-            exit /b 1
-          )
-          echo JWT token obtained OK
-          for /f "tokens=2 delims=:, " %%a in ('findstr "access_token" %TEMP%\login.json') do (
-            set TOKEN=%%~a
-          )
-          echo JWT=%TOKEN:"=% >> %GITHUB_ENV%
+          & curl.exe -k -s -o "$env:TEMP\login.json" `
+            -X POST https://localhost:8443/api/login `
+            -H "Content-Type: application/json" `
+            -d '{"login":"volt-internal","password":"volt-test-pass-123"}'
+          $body = Get-Content "$env:TEMP\login.json" -Raw
+          Write-Host $body
+          if ($body -notmatch '"access_token"') {
+            Write-Host "ERROR: No access_token in login response"
+            exit 1
+          }
+          Write-Host "JWT token obtained OK"
+          $token = ($body | ConvertFrom-Json).access_token
+          "JWT=$token" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
 
       # ── Step 4: Upload a minimal ZIP and verify g++ compiles it ──────────
       - name: Build test ZIP (minimal ST program)
@@ -186,57 +204,55 @@ jobs:
           Write-Host "Test ZIP created: $((Get-Item "$env:TEMP\test-program.zip").Length) bytes"
 
       - name: Upload ZIP to OpenPLC
-        shell: cmd
+        shell: powershell
         run: |
-          curl.exe -k -s -o %TEMP%\upload.json -w "%%{http_code}" ^
-            -X POST https://localhost:8443/api/upload-file ^
-            -H "Authorization: Bearer %JWT%" ^
-            -F "file=@%TEMP%\test-program.zip;type=application/zip" ^
-            > %TEMP%\upload-code.txt
-          set /p UPLOADCODE=<%TEMP%\upload-code.txt
-          type %TEMP%\upload.json
-          echo.
-          echo Upload HTTP %UPLOADCODE%
-          if "%UPLOADCODE%"=="200" goto ok
-          echo ERROR: Upload failed with HTTP %UPLOADCODE%
-          exit /b 1
-          :ok
-          echo Upload accepted
+          $code = & curl.exe -k -s -o "$env:TEMP\upload.json" -w "%{http_code}" `
+            -X POST https://localhost:8443/api/upload-file `
+            -H "Authorization: Bearer $env:JWT" `
+            -F "file=@$env:TEMP\test-program.zip;type=application/zip"
+          Get-Content "$env:TEMP\upload.json" -ErrorAction SilentlyContinue
+          Write-Host "Upload HTTP $code"
+          if ($code -ne "200") {
+            Write-Host "ERROR: Upload failed with HTTP $code"
+            exit 1
+          }
+          Write-Host "Upload accepted"
 
       - name: Poll compilation status until SUCCESS or ERROR
-        shell: cmd
+        shell: powershell
         run: |
-          set WAITED=0
-          :pollloop
-          if %WAITED% GEQ 90 goto polltimeout
-          timeout /t 4 /nobreak >nul
-          set /a WAITED=%WAITED%+4
-          curl.exe -k -s -o %TEMP%\status.json ^
-            -H "Authorization: Bearer %JWT%" ^
-            https://localhost:8443/api/compilation-status
-          type %TEMP%\status.json
-          echo.
-          findstr /i "SUCCESS" %TEMP%\status.json >nul
-          if %ERRORLEVEL%==0 (
-            echo g++ compile SUCCESS
-            goto polldone
-          )
-          findstr /i "ERROR" %TEMP%\status.json >nul
-          if %ERRORLEVEL%==0 (
-            echo ERROR: g++ compile failed
-            exit /b 1
-          )
-          echo [%WAITED%/90 s] Still compiling...
-          goto pollloop
-          :polltimeout
-          echo ERROR: Compile timed out after 90s
-          exit /b 1
-          :polldone
+          $waited = 0
+          $done = $false
+          while ($waited -lt 90) {
+            Start-Sleep -Seconds 4
+            $waited += 4
+            & curl.exe -k -s -o "$env:TEMP\status.json" `
+              -H "Authorization: Bearer $env:JWT" `
+              https://localhost:8443/api/compilation-status
+            $body = Get-Content "$env:TEMP\status.json" -Raw -ErrorAction SilentlyContinue
+            Write-Host $body
+            if ($body -imatch "SUCCESS") {
+              Write-Host "g++ compile SUCCESS"
+              $done = $true
+              break
+            }
+            if ($body -imatch "ERROR") {
+              Write-Host "ERROR: g++ compile failed"
+              exit 1
+            }
+            Write-Host "[$waited/90 s] Still compiling..."
+          }
+          if (-not $done) {
+            Write-Host "ERROR: Compile timed out after 90s"
+            exit 1
+          }
 
       # ── Diagnostics on failure ────────────────────────────────────────────
       - name: Show webserver log on failure
         if: failure()
-        shell: cmd
+        shell: powershell
         run: |
-          echo === Webserver log ===
-          type %TEMP%\webserver.log 2>nul || echo (no log file)
+          Write-Host "=== Webserver stdout ==="
+          Get-Content "$env:TEMP\webserver-stdout.log" -ErrorAction SilentlyContinue
+          Write-Host "=== Webserver stderr ==="
+          Get-Content "$env:TEMP\webserver-stderr.log" -ErrorAction SilentlyContinue
