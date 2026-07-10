@@ -20,6 +20,9 @@ jobs:
       # ── 0. Checkout ──────────────────────────────────────────────────────
       - name: Checkout volt repo
         uses: actions/checkout@v4
+        with:
+          # Disable CRLF conversion — binary test fixtures (*.zip) must not be mangled
+          autocrlf: false
 
       # ── 1. Install MSYS2 with MSYS (Cygwin-compatible POSIX) toolchain ───
       # CRITICAL: must use msystem: MSYS, NOT MINGW64.
