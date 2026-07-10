@@ -78,28 +78,32 @@ jobs:
           $runtimeDir = "$root\resources\plc-runtime\openplc-runtime-v4"
           $sitePkgs = "$root\resources\plc-runtime\python\win32-x64\Lib\site-packages"
 
-          # Set env vars in current process so Start-Process inherits them
-          $env:PYTHONPATH = "$runtimeDir;$sitePkgs"
-          $env:OPENPLC_RUNTIME_PATH = "$env:TEMP\plc_main"
-          $env:PYTHONDONTWRITEBYTECODE = "1"
-          $env:PYTHONUNBUFFERED = "1"
-
           Write-Host "Python: $pythonExe"
           Write-Host "CWD:    $runtimeDir"
-          Write-Host "PYTHONPATH: $env:PYTHONPATH"
 
-          # Verify python and webserver/app.py exist
           if (-not (Test-Path $pythonExe)) { Write-Host "ERROR: python.exe not found"; exit 1 }
           if (-not (Test-Path "$runtimeDir\webserver\app.py")) { Write-Host "ERROR: webserver/app.py not found"; exit 1 }
 
-          # Start Flask — use cmd /c wrapper so stdout/stderr go to files
-          $proc = Start-Process -FilePath "cmd.exe" `
-            -ArgumentList "/c `"$pythonExe`" -m webserver.app > `"$env:TEMP\webserver-stdout.log`" 2> `"$env:TEMP\webserver-stderr.log`"" `
-            -WorkingDirectory $runtimeDir `
-            -PassThru `
-            -WindowStyle Hidden
+          # Quick sanity: confirm webserver.app is importable before launching
+          $env:PYTHONPATH = "$runtimeDir;$sitePkgs"
+          $env:OPENPLC_RUNTIME_PATH = "$env:TEMP\plc_main"
+          $out = & $pythonExe -c "import webserver.app; print('IMPORT_OK')" 2>&1
+          Write-Host "Import check: $out"
+          if ($out -notmatch "IMPORT_OK") {
+            Write-Host "ERROR: webserver.app import failed — Flask or deps missing"
+            exit 1
+          }
+
+          # Write a launcher .bat so Start-Process doesn't need to deal with redirect quoting
+          $batPath = "$env:TEMP\start-webserver.bat"
+          $logOut  = "$env:TEMP\webserver-stdout.log"
+          $logErr  = "$env:TEMP\webserver-stderr.log"
+          "@echo off`r`nset PYTHONPATH=$runtimeDir;$sitePkgs`r`nset OPENPLC_RUNTIME_PATH=$env:TEMP\plc_main`r`nset PYTHONUNBUFFERED=1`r`ncd /d `"$runtimeDir`"`r`n`"$pythonExe`" -m webserver.app > `"$logOut`" 2> `"$logErr`"`r`n" | Out-File $batPath -Encoding ascii -NoNewline
+
+          Write-Host "Launching via bat: $batPath"
+          $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$batPath`"" -PassThru -WindowStyle Hidden
           $proc.Id | Out-File "$env:TEMP\webserver.pid" -Encoding utf8
-          Write-Host "Webserver started via cmd wrapper (PID $($proc.Id))"
+          Write-Host "Webserver process started (PID $($proc.Id))"
 
       - name: Wait for webserver to be ready
         shell: powershell
