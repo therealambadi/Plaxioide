@@ -169,6 +169,18 @@ jobs:
             # Copy entire gcc libexec tree (cc1plus, cc1, lto1, lto-wrapper, collect2, ...)
             cp -r "$CC1DIR"/. "$BUNDLE$CC1DIR/"
             echo "cc1plus dir: $CC1DIR  ($(du -sh "$CC1DIR" | cut -f1))"
+
+            # Collect DLLs for ALL gcc libexec binaries (cc1.exe, cc1plus.exe, lto1.exe, etc.)
+            # These have their own transitive deps (msys-mpc-3.dll, msys-mpfr-6.dll, etc.)
+            echo "=== Collecting DLLs for gcc libexec binaries ==="
+            find "$CC1DIR" -name "*.exe" | while read exe; do
+              ldd "$exe" 2>&1 | grep -v "Windows\|system32\|SysWOW\|not found" | \
+                grep "\.dll" | awk '{print $3}' | sort -u | while read f; do
+                  if [ -f "$f" ]; then
+                    cp -n "$f" "$BUNDLE/bin/" 2>/dev/null && echo "  DLL for $(basename $exe): $(basename $f)"
+                  fi
+                done
+            done
           fi
 
           # ── C++ standard library headers ───────────────────────────────────
