@@ -1,0 +1,237 @@
+name: Extract MSYS2 Bundle
+
+# Run manually to produce the msys2-win32-x64 bundle artifact.
+# After it completes: download the artifact, unzip into
+# resources/plc-runtime/msys2-win32-x64/, and commit.
+on:
+  workflow_dispatch:
+
+jobs:
+  extract:
+    name: Build + extract minimal MSYS2 bundle
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Disable git CRLF conversion
+        shell: pwsh
+        run: git config --global core.autocrlf false
+
+      - name: Checkout volt repo
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 (MSYS toolchain)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          update: true
+          install: >-
+            base-devel
+            gcc
+            make
+            cmake
+            pkg-config
+            python
+            python-pip
+            python-setuptools
+            git
+            patch
+            openssl
+            openssl-devel
+            unzip
+
+      # ── Build plc_main (we need its DLL list, not just the binary) ──────────
+      - name: Clone + patch OpenPLC Runtime
+        run: |
+          git clone https://github.com/Autonomy-Logic/openplc-runtime.git /tmp/openplc-runtime
+          cd /tmp/openplc-runtime
+          git checkout cb1060d
+          patch -p1 < "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/openplc-runtime-macos-cb1060d.patch"
+
+      - name: Apply Windows patches (W1-W12)
+        run: |
+          cd /tmp/openplc-runtime
+          python3 - <<'PYEOF'
+          import sys
+          path = 'core/src/plc_app/plc_state_manager.cpp'
+          src = open(path).read()
+          old = '#ifdef __APPLE__\n    /* On macOS, pthread_cond_timedwait uses CLOCK_REALTIME (the condvar was\n     * initialized without pthread_condattr_setclock, which macOS doesn\'t\n     * support for CLOCK_MONOTONIC).  Use CLOCK_REALTIME here to match. */\n    clock_gettime(CLOCK_REALTIME, &next_tick);\n#else\n    clock_gettime(CLOCK_MONOTONIC, &next_tick);\n#endif'
+          new = '#if defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)\n    /* macOS/MSYS2/Cygwin: pthread_cond_timedwait uses CLOCK_REALTIME.\n     * pthread_condattr_setclock(CLOCK_MONOTONIC) is unsupported. */\n    clock_gettime(CLOCK_REALTIME, &next_tick);\n#else\n    clock_gettime(CLOCK_MONOTONIC, &next_tick);\n#endif'
+          if old in src:
+              open(path, 'w').write(src.replace(old, new))
+              print('W1: OK')
+          else:
+              idx = src.find('CLOCK_REALTIME')
+              print(f'W1: anchor not found (CLOCK_REALTIME at {idx})', file=sys.stderr)
+          PYEOF
+
+          python3 "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/w6_patch_app.py"
+          python3 "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/w8_fix_safe_extract.py"
+          python3 "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/w10_makefile_lrt.py"
+          python3 "$GITHUB_WORKSPACE/openplc-editor-development/openplc-runtime-macos/w12_cond_clock.py"
+
+          # W2: SCHED_FIFO drain guard
+          python3 - <<'PYEOF'
+          import sys
+          path = 'core/src/plc_app/plc_state_manager.cpp'
+          src = open(path).read()
+          old = '    sched_param param;\n    param.sched_priority = sched_get_priority_max(SCHED_FIFO);\n    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);'
+          new = '#ifndef __MSYS__\n    sched_param param;\n    param.sched_priority = sched_get_priority_max(SCHED_FIFO);\n    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);\n#endif'
+          if old in src:
+              open(path, 'w').write(src.replace(old, new))
+              print('W2: OK')
+          else:
+              print('W2: anchor not found or already applied', file=sys.stderr)
+          PYEOF
+
+          # W3: /proc/meminfo fallback
+          python3 - <<'PYEOF'
+          import sys, re
+          path = 'core/src/plc_app/plc_state_manager.cpp'
+          src = open(path).read()
+          old = '    FILE *file = fopen("/proc/meminfo", "r");'
+          new = (
+              '#ifdef __MSYS__\n'
+              '    // Use wmic to read available memory on Windows/MSYS2\n'
+              '    FILE *file = popen("wmic OS get FreePhysicalMemory /Value 2>/dev/null", "r");\n'
+              '#else\n'
+              '    FILE *file = fopen("/proc/meminfo", "r");\n'
+              '#endif'
+          )
+          if old in src:
+              open(path, 'w').write(src.replace(old, new, 1))
+              print('W3: OK')
+          else:
+              print('W3: anchor not found or already applied', file=sys.stderr)
+          PYEOF
+
+      - name: Build plc_main with all Windows patches
+        run: |
+          cd /tmp/openplc-runtime
+          mkdir -p build && cd build
+          cmake .. -G "Unix Makefiles" 2>&1
+          make -j$(nproc) plc_main 2>&1
+          echo "=== plc_main built ==="
+          ls -lh plc_main
+
+      # ── Extract bundle ───────────────────────────────────────────────────────
+      - name: Collect bundle — plc_main runtime DLLs (Problem A)
+        run: |
+          BUNDLE=/tmp/msys2-bundle
+          mkdir -p "$BUNDLE/bin"
+
+          # plc_main binary itself
+          cp /tmp/openplc-runtime/build/plc_main "$BUNDLE/bin/plc_main.exe"
+
+          # All non-Windows DLLs plc_main links against
+          echo "=== plc_main DLL deps ==="
+          ldd /tmp/openplc-runtime/build/plc_main 2>&1 | \
+            grep -v "Windows\|system32\|SysWOW\|not found" | \
+            grep "\.dll" | awk '{print $3}' | sort -u | while read f; do
+              if [ -f "$f" ]; then
+                cp "$f" "$BUNDLE/bin/"
+                echo "  Copied DLL: $(basename $f)  ($(du -sh "$f" | cut -f1))"
+              fi
+            done
+
+      - name: Collect bundle — compiler toolchain (Problem B)
+        run: |
+          BUNDLE=/tmp/msys2-bundle
+
+          # ── Compiler binaries ──────────────────────────────────────────────
+          mkdir -p "$BUNDLE/usr/bin"
+          for tool in g++ g++-15 gcc gcc-15 make bash sh as ld ar ranlib strip objcopy nm; do
+            BIN=$(which $tool 2>/dev/null) || continue
+            cp "$BIN" "$BUNDLE/usr/bin/"
+          done
+
+          # ── Compiler driver DLLs ───────────────────────────────────────────
+          for tool in g++ make bash as; do
+            BIN=$(which $tool 2>/dev/null) || continue
+            ldd "$BIN" 2>&1 | grep -v "Windows\|system32\|SysWOW\|not found" | \
+              grep "\.dll" | awk '{print $3}' | sort -u | while read f; do
+                [ -f "$f" ] && cp -n "$f" "$BUNDLE/bin/"
+              done
+          done
+
+          # ── cc1plus (g++ front-end — the large one) ────────────────────────
+          CC1=$(g++ -print-prog-name=cc1plus 2>/dev/null)
+          if [ -n "$CC1" ] && [ -f "$CC1" ]; then
+            CC1DIR=$(dirname "$CC1")
+            mkdir -p "$BUNDLE$CC1DIR"
+            # Copy entire gcc libexec tree (cc1plus, cc1, lto1, lto-wrapper, collect2, ...)
+            cp -r "$CC1DIR"/. "$BUNDLE$CC1DIR/"
+            echo "cc1plus dir: $CC1DIR  ($(du -sh "$CC1DIR" | cut -f1))"
+          fi
+
+          # ── C++ standard library headers ───────────────────────────────────
+          # g++ needs these at compile time: /usr/lib/gcc/x86_64-pc-cygwin/<ver>/include/c++/
+          # and /usr/include/ for POSIX headers (sys/socket.h, dlfcn.h, pthread.h, ...)
+          GCC_VER=$(g++ -dumpversion 2>/dev/null)
+          GCC_ARCH=$(g++ -dumpmachine 2>/dev/null)
+          GCC_INC_CXX="/usr/lib/gcc/$GCC_ARCH/$GCC_VER/include/c++"
+          GCC_INC_BASE="/usr/lib/gcc/$GCC_ARCH/$GCC_VER/include"
+
+          if [ -d "$GCC_INC_CXX" ]; then
+            mkdir -p "$BUNDLE/usr/lib/gcc/$GCC_ARCH/$GCC_VER/include"
+            cp -r "$GCC_INC_CXX" "$BUNDLE/usr/lib/gcc/$GCC_ARCH/$GCC_VER/include/"
+            echo "C++ headers: $GCC_INC_CXX  ($(du -sh "$GCC_INC_CXX" | cut -f1))"
+          fi
+          if [ -d "$GCC_INC_BASE" ]; then
+            cp -rn "$GCC_INC_BASE"/. "$BUNDLE/usr/lib/gcc/$GCC_ARCH/$GCC_VER/include/"
+            echo "GCC headers: $GCC_INC_BASE"
+          fi
+
+          # POSIX/system headers
+          mkdir -p "$BUNDLE/usr/include"
+          cp -rn /usr/include/. "$BUNDLE/usr/include/"
+          echo "System headers: /usr/include  ($(du -sh /usr/include | cut -f1))"
+
+          # ── GCC linker scripts + startup objects ───────────────────────────
+          GCC_LIB="/usr/lib/gcc/$GCC_ARCH/$GCC_VER"
+          if [ -d "$GCC_LIB" ]; then
+            mkdir -p "$BUNDLE/usr/lib/gcc/$GCC_ARCH/$GCC_VER"
+            # Copy .a files (libgcc, libstdc++), .spec, .o (crtbegin etc)
+            cp "$GCC_LIB"/*.a "$BUNDLE/usr/lib/gcc/$GCC_ARCH/$GCC_VER/" 2>/dev/null || true
+            cp "$GCC_LIB"/*.o "$BUNDLE/usr/lib/gcc/$GCC_ARCH/$GCC_VER/" 2>/dev/null || true
+            cp "$GCC_LIB"/*.spec "$BUNDLE/usr/lib/gcc/$GCC_ARCH/$GCC_VER/" 2>/dev/null || true
+            echo "GCC lib: $GCC_LIB  ($(du -sh "$GCC_LIB" | cut -f1))"
+          fi
+
+          # System .a files needed by linker (libc, libpthread, libdl, etc.)
+          mkdir -p "$BUNDLE/usr/lib"
+          for lib in \
+            /usr/lib/libc.dll.a /usr/lib/libpthread.a \
+            /usr/lib/libdl.dll.a /usr/lib/libm.dll.a \
+            /usr/lib/libpthread.dll.a \
+            /usr/lib/W32api; do
+            [ -e "$lib" ] && cp -rn "$lib" "$BUNDLE/usr/lib/" && echo "Lib: $lib"
+          done
+
+          # crt objects in /usr/lib
+          cp /usr/lib/crt*.o "$BUNDLE/usr/lib/" 2>/dev/null || true
+
+          echo ""
+          echo "=== Bundle summary ==="
+          du -sh "$BUNDLE"
+          echo ""
+          du -sh "$BUNDLE"/*/
+
+      - name: Zip bundle for upload
+        shell: pwsh
+        run: |
+          $bundle = "C:\msys64\tmp\msys2-bundle"
+          $out    = "C:\msys64\tmp\msys2-bundle.zip"
+          Write-Host "Zipping $bundle -> $out"
+          Compress-Archive -Path "$bundle\*" -DestinationPath $out -Force
+          $size = (Get-Item $out).Length / 1MB
+          Write-Host "Zip size: $([math]::Round($size, 1)) MB"
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: msys2-win32-x64-bundle
+          path: C:\msys64\tmp\msys2-bundle.zip
+          retention-days: 7
