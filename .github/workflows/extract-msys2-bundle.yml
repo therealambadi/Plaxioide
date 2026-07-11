@@ -217,12 +217,14 @@ jobs:
             echo "GCC lib: $GCC_LIB  ($(du -sh "$GCC_LIB" | cut -f1))"
           fi
 
-          # System .a files needed by linker (libc, libpthread, libdl, etc.)
+          # System .a import libraries needed by linker (libc, libpthread, libdl, libmsys-2.0, etc.)
           mkdir -p "$BUNDLE/usr/lib"
+          # Copy ALL .dll.a import libraries — linker needs these to resolve -lmsys-2.0, -lc, etc.
+          cp /usr/lib/*.dll.a "$BUNDLE/usr/lib/" 2>/dev/null || true
+          ls /usr/lib/*.dll.a | wc -l | xargs -I{} echo "Copied {} .dll.a import libraries"
+          # Copy static libs
           for lib in \
-            /usr/lib/libc.dll.a /usr/lib/libpthread.a \
-            /usr/lib/libdl.dll.a /usr/lib/libm.dll.a \
-            /usr/lib/libpthread.dll.a \
+            /usr/lib/libpthread.a \
             /usr/lib/W32api; do
             [ -e "$lib" ] && cp -rn "$lib" "$BUNDLE/usr/lib/" && echo "Lib: $lib"
           done

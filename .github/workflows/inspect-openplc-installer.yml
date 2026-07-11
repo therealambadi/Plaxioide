@@ -1,0 +1,244 @@
+name: Inspect OpenPLC Installer
+
+# Runs the official OpenPLC Runtime 4.1.8 Windows installer on a clean runner
+# and enumerates exactly what it installs — specifically looking for:
+#   - cc1plus.exe, g++, make, bash, msys-*.dll (compiler toolchain)
+#   - Whether a full working compile step is possible with ONLY what it installs
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Run installer + enumerate files
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download OpenPLC Runtime installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Write-Host "Downloading OpenPLC_Runtime_4.1.8_Setup.exe (~219 MB)..."
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          gh release download openplc-installer-v418 --repo therealambadi/volt `
+            --pattern "OpenPLC_Runtime_4.1.8_Setup.exe" --dir "C:\"
+          $sw.Stop()
+          $size = [math]::Round((Get-Item "C:\OpenPLC_Runtime_4.1.8_Setup.exe").Length / 1MB, 1)
+          Write-Host "Downloaded: $size MB in $([math]::Round($sw.Elapsed.TotalSeconds,1)) s"
+
+      - name: Run installer silently
+        run: |
+          Write-Host "Running installer (silent mode)..."
+          $proc = Start-Process -FilePath "C:\OpenPLC_Runtime_4.1.8_Setup.exe" `
+            -ArgumentList "/SILENT", "/NORESTART" `
+            -Wait -PassThru
+          Write-Host "Installer exit code: $($proc.ExitCode)"
+          Start-Sleep -Seconds 5
+
+      - name: Find installation directory
+        run: |
+          # Check known Inno Setup default locations
+          $candidates = @(
+            "C:\Program Files\OpenPLC Runtime",
+            "C:\Program Files (x86)\OpenPLC Runtime",
+            "C:\OpenPLC Runtime",
+            "$env:LOCALAPPDATA\OpenPLC Runtime",
+            "$env:APPDATA\OpenPLC Runtime",
+            "C:\Users\runneradmin\AppData\Local\Programs\OpenPLC Runtime"
+          )
+          $found = $null
+          foreach ($p in $candidates) {
+            if (Test-Path $p) {
+              $found = $p
+              Write-Host "Found installation at: $p"
+              break
+            }
+          }
+          if (-not $found) {
+            Write-Host "Searching all drives for OpenPLC..."
+            $found = Get-ChildItem "C:\", "D:\" -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match "OpenPLC" } | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $found) {
+            Write-Host "Checking registry..."
+            $reg = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -match "OpenPLC" }
+            if ($reg) {
+              Write-Host "Registry entry: $($reg.InstallLocation)"
+              $found = $reg.InstallLocation
+            }
+          }
+          if ($found) {
+            "INSTALL_DIR=$found" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+            Write-Host "Installation dir: $found"
+          } else {
+            Write-Host "ERROR: Could not find installation directory"
+            # List what's on C:\ root
+            Get-ChildItem "C:\" | Select-Object Name, LastWriteTime | Format-Table
+            exit 1
+          }
+
+      - name: Full file enumeration
+        run: |
+          $dir = $env:INSTALL_DIR
+          Write-Host "=== Full contents of: $dir ==="
+          Write-Host ""
+          Get-ChildItem -Path $dir -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object FullName |
+            ForEach-Object {
+              $rel = $_.FullName.Substring($dir.Length + 1)
+              $size = if ($_.PSIsContainer) { "<DIR>" } else { "$([math]::Round($_.Length/1KB, 1))KB" }
+              "$rel  ($size)"
+            }
+
+      - name: Check specifically for compiler toolchain files
+        run: |
+          $dir = $env:INSTALL_DIR
+          Write-Host "=== COMPILER TOOLCHAIN AUDIT ==="
+          Write-Host ""
+
+          $targets = @("cc1plus.exe", "cc1.exe", "g++.exe", "gcc.exe", "make.exe",
+                       "bash.exe", "as.exe", "ld.exe", "cmake.exe")
+          foreach ($t in $targets) {
+            $found = Get-ChildItem -Path $dir -Recurse -Name $t -ErrorAction SilentlyContinue
+            if ($found) {
+              foreach ($f in $found) {
+                $full = Join-Path $dir $f
+                $size = [math]::Round((Get-Item $full).Length / 1MB, 2)
+                Write-Host "FOUND: $f  ($size MB)"
+              }
+            } else {
+              Write-Host "NOT FOUND: $t"
+            }
+          }
+
+          Write-Host ""
+          Write-Host "=== MSYS/Cygwin DLLs ==="
+          Get-ChildItem -Path $dir -Recurse -Filter "msys-*.dll" -ErrorAction SilentlyContinue |
+            ForEach-Object { "  $($_.Name)  $([math]::Round($_.Length/1MB,2)) MB  $($_.FullName)" }
+          Get-ChildItem -Path $dir -Recurse -Filter "cygwin*.dll" -ErrorAction SilentlyContinue |
+            ForEach-Object { "  $($_.Name)  $([math]::Round($_.Length/1MB,2)) MB  $($_.FullName)" }
+
+          Write-Host ""
+          Write-Host "=== Directory size breakdown ==="
+          Get-ChildItem -Path $dir -Directory |
+            ForEach-Object {
+              $size = [math]::Round((Get-ChildItem $_.FullName -Recurse -ErrorAction SilentlyContinue |
+                Measure-Object -Property Length -Sum).Sum / 1MB, 1)
+              "$($_.Name)  $size MB"
+            } | Sort-Object { [double]($_ -replace '.*  ([0-9.]+) MB','$1') } -Descending
+
+          Write-Host ""
+          Write-Host "=== Total install size ==="
+          $total = [math]::Round((Get-ChildItem $dir -Recurse -ErrorAction SilentlyContinue |
+            Measure-Object -Property Length -Sum).Sum / 1MB, 0)
+          Write-Host "$total MB"
+
+      - name: Test compile via REST API (if webserver found)
+        run: |
+          $dir = $env:INSTALL_DIR
+
+          # Find python.exe and webserver entry point
+          $pythonExe = Get-ChildItem -Path $dir -Recurse -Name "python.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $pythonExe) {
+            Write-Host "python.exe not found in install dir — skipping webserver test"
+            exit 0
+          }
+          $pythonFull = Join-Path $dir $pythonExe
+          Write-Host "Found python: $pythonFull"
+
+          # Find app.py or openplc entry point
+          $appPy = Get-ChildItem -Path $dir -Recurse -Name "app.py" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $appPy) {
+            Write-Host "app.py not found — skipping webserver test"
+            exit 0
+          }
+          $appDir = Split-Path (Join-Path $dir $appPy)
+          Write-Host "Webserver dir: $appDir"
+
+          # Start webserver
+          $sitePkgs = Get-ChildItem -Path $dir -Recurse -Name "site-packages" -Directory -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          $env:PYTHONPATH = "$appDir;$sitePkgs"
+          $env:OPENPLC_RUNTIME_PATH = "$env:TEMP\plc_main"
+
+          $batPath = "$env:TEMP\start-ws.bat"
+          Remove-Item $batPath -ErrorAction SilentlyContinue
+          Add-Content $batPath "@echo off"
+          Add-Content $batPath "set PYTHONPATH=$appDir;$sitePkgs"
+          Add-Content $batPath "set OPENPLC_RUNTIME_PATH=$env:TEMP\plc_main"
+          Add-Content $batPath "cd /d `"$appDir`""
+          Add-Content $batPath "`"$pythonFull`" -m webserver.app > `"$env:TEMP\ws.log`" 2>&1"
+          Start-Process "cmd.exe" -ArgumentList "/c `"$batPath`"" -WindowStyle Hidden
+
+          # Wait for webserver
+          $ready = $false
+          for ($i = 0; $i -lt 20; $i++) {
+            Start-Sleep 3
+            try {
+              $code = & curl.exe -k -s -o NUL -w "%{http_code}" https://localhost:8443/api/status 2>$null
+              if ($code -ne "000") { $ready = $true; Write-Host "Webserver UP: HTTP $code"; break }
+            } catch {}
+          }
+          if (-not $ready) {
+            Write-Host "Webserver did not start"
+            Get-Content "$env:TEMP\ws.log" -ErrorAction SilentlyContinue | Select-Object -Last 20
+            exit 0
+          }
+
+          # Login
+          '{"username":"admin","password":"admin"}' | Out-File "$env:TEMP\creds.json" -Encoding utf8 -NoNewline
+          & curl.exe -k -s -o "$env:TEMP\login.json" -X POST https://localhost:8443/api/login `
+            -H "Content-Type: application/json" --data-binary "@$env:TEMP\creds.json"
+          $loginBody = Get-Content "$env:TEMP\login.json" -Raw
+          Write-Host "Login response: $loginBody"
+
+          if ($loginBody -notmatch "access_token") {
+            # Try creating user first
+            & curl.exe -k -s -o "$env:TEMP\cu.json" -X POST https://localhost:8443/api/create-user `
+              -H "Content-Type: application/json" --data-binary "@$env:TEMP\creds.json"
+            & curl.exe -k -s -o "$env:TEMP\login.json" -X POST https://localhost:8443/api/login `
+              -H "Content-Type: application/json" --data-binary "@$env:TEMP\creds.json"
+            $loginBody = Get-Content "$env:TEMP\login.json" -Raw
+          }
+          if ($loginBody -notmatch "access_token") { Write-Host "Cannot get JWT"; exit 0 }
+          $jwt = ($loginBody | ConvertFrom-Json).access_token
+          Write-Host "JWT obtained"
+
+          # Upload motor-start proof zip
+          $zip = "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures\motor-start-proof.zip"
+          $code = & curl.exe -k -s -o "$env:TEMP\upload.json" -w "%{http_code}" `
+            -X POST https://localhost:8443/api/upload-file `
+            -H "Authorization: Bearer $jwt" `
+            -F "file=@$zip;type=application/zip"
+          Write-Host "Upload HTTP $code"
+          Get-Content "$env:TEMP\upload.json" -ErrorAction SilentlyContinue
+
+          # Poll compile status
+          Write-Host "Polling compilation status..."
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep 4
+            & curl.exe -k -s -o "$env:TEMP\status.json" -H "Authorization: Bearer $jwt" https://localhost:8443/api/compilation-status
+            $body = Get-Content "$env:TEMP\status.json" -Raw -ErrorAction SilentlyContinue
+            Write-Host "[$($i*4)/120s] $body"
+            if ($body -imatch "SUCCESS") {
+              Write-Host "COMPILE SUCCESS via official installer!"
+              break
+            }
+            if ($body -imatch "FAILED") {
+              Write-Host "COMPILE FAILED via official installer"
+              Get-Content "$env:TEMP\ws.log" -ErrorAction SilentlyContinue | Select-Object -Last 20
+              break
+            }
+          }
