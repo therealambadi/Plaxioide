@@ -224,34 +224,25 @@ jobs:
           echo ""
           du -sh "$BUNDLE"/*/
 
-      - name: Print bundle summary and write path file
+      - name: Print bundle summary and write path file into workspace
         run: |
           cd /tmp/msys2-bundle
           echo "=== Final bundle contents summary ==="
           du -sh . */
-          # Write the Windows path to a file so the next PowerShell step can find it
-          cygpath -w /tmp/msys2-bundle > /tmp/bundle-winpath.txt
-          cat /tmp/bundle-winpath.txt
+          # Write the Windows path into workspace root where PowerShell can reliably find it
+          WS=$(cygpath "$GITHUB_WORKSPACE")
+          cygpath -w /tmp/msys2-bundle > "$WS/bundle-winpath.txt"
+          echo "Wrote bundle path: $(cat "$WS/bundle-winpath.txt")"
 
       - name: Zip bundle (PowerShell Compress-Archive)
         shell: pwsh
         run: |
-          # Read the Windows path we wrote from the MSYS2 step
-          $bundleWinPath = Get-Content "C:\msys64\tmp\bundle-winpath.txt" -Raw -ErrorAction SilentlyContinue
-          if (-not $bundleWinPath) {
-            # Fallback: search common MSYS2 tmp locations
-            $candidates = @("C:\msys64\tmp\msys2-bundle", "C:\msys2\tmp\msys2-bundle")
-            foreach ($c in $candidates) {
-              if (Test-Path $c) { $bundleWinPath = $c; break }
-            }
-          }
-          $bundleWinPath = $bundleWinPath.Trim()
-          if (-not $bundleWinPath -or -not (Test-Path $bundleWinPath)) {
-            Write-Host "ERROR: bundle dir not found. Listing C:\msys64\tmp:"
-            Get-ChildItem "C:\msys64\tmp" -ErrorAction SilentlyContinue
+          $bundleWinPath = (Get-Content "$env:GITHUB_WORKSPACE\bundle-winpath.txt" -Raw).Trim()
+          Write-Host "Bundle dir: $bundleWinPath"
+          if (-not (Test-Path $bundleWinPath)) {
+            Write-Host "ERROR: bundle dir not found at: $bundleWinPath"
             exit 1
           }
-          Write-Host "Bundle dir: $bundleWinPath"
           $out = "$env:GITHUB_WORKSPACE\msys2-bundle.zip"
           Write-Host "Zipping to: $out"
           Compress-Archive -Path "$bundleWinPath\*" -DestinationPath $out -Force
