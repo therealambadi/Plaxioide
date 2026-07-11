@@ -367,8 +367,8 @@ jobs:
           echo ""
           echo "=== iec2c.exe ldd (for comparison) ==="
           # iec2c.exe is MinGW-built; compare its deps to plc_main (MSYS2-built)
-          IECEXE="$(find /c /d /e /tmp -name 'iec2c.exe' 2>/dev/null | head -1)"
-          [ -n "$IECEXE" ] && ldd "$IECEXE" 2>&1 || echo "(iec2c.exe not found)"
+          IECEXE="/d/a/volt/volt/resources/plc-runtime/matiec/win32-x64/iec2c.exe"
+          [ -f "$IECEXE" ] && ldd "$IECEXE" 2>&1 || echo "(iec2c.exe not found at expected path)"
 
           echo ""
           echo "=== Full MSYS2 DLL inventory under /usr/bin ==="
