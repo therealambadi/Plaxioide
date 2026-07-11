@@ -11,6 +11,9 @@ name: Windows Bundle Zero-Setup Proof
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   bundle-proof:
     name: Bundle zero-setup compile + motor-start proof
@@ -32,14 +35,14 @@ jobs:
 
       # ── Download + extract the MSYS2 bundle ─────────────────────────────────
       - name: Download MSYS2 bundle from GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $url = "https://github.com/therealambadi/volt/releases/download/msys2-bundle-v1/msys2-bundle.zip"
-          $out = "$env:TEMP\msys2-bundle.zip"
-          Write-Host "Downloading MSYS2 bundle (~85 MB)..."
+          Write-Host "Downloading MSYS2 bundle (~85 MB) via gh cli..."
           $sw = [System.Diagnostics.Stopwatch]::StartNew()
-          Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+          gh release download msys2-bundle-v1 --repo therealambadi/volt --pattern "msys2-bundle.zip" --dir "$env:TEMP"
           $sw.Stop()
-          $size = [math]::Round((Get-Item $out).Length / 1MB, 1)
+          $size = [math]::Round((Get-Item "$env:TEMP\msys2-bundle.zip").Length / 1MB, 1)
           Write-Host "Downloaded $size MB in $([math]::Round($sw.Elapsed.TotalSeconds, 1)) s"
 
       - name: Extract bundle
