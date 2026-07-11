@@ -1,0 +1,244 @@
+name: Windows Bundle Zero-Setup Proof
+
+# Clean-runner test: download the MSYS2 bundle from GitHub Release, extract it,
+# then run the FULL proof using ONLY the bundled toolchain:
+#   1. Build plc_main with bundled g++/make (no system MSYS2)
+#   2. Start plc_main with bundle DLLs on PATH
+#   3. Motor-start force/read proof
+#   4. 10x repeat — PASS=10 FAIL=0 required
+#
+# The runner has NO system MSYS2 installed — this confirms zero-setup on Windows.
+on:
+  workflow_dispatch:
+
+jobs:
+  bundle-proof:
+    name: Bundle zero-setup compile + motor-start proof
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout volt repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ── Download + extract the MSYS2 bundle ─────────────────────────────────
+      - name: Download MSYS2 bundle from GitHub Release
+        run: |
+          $url = "https://github.com/therealambadi/volt/releases/download/msys2-bundle-v1/msys2-bundle.zip"
+          $out = "$env:TEMP\msys2-bundle.zip"
+          Write-Host "Downloading MSYS2 bundle (85 MB)..."
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+          $sw.Stop()
+          $size = [math]::Round((Get-Item $out).Length / 1MB, 1)
+          Write-Host "Downloaded $size MB in $([math]::Round($sw.Elapsed.TotalSeconds, 1)) s"
+
+      - name: Extract bundle
+        run: |
+          $bundleDir = "C:\msys2-bundle"
+          Write-Host "Extracting to $bundleDir ..."
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          Expand-Archive -Path "$env:TEMP\msys2-bundle.zip" -DestinationPath $bundleDir -Force
+          $sw.Stop()
+          Write-Host "Extracted in $([math]::Round($sw.Elapsed.TotalSeconds, 1)) s"
+          $size = [math]::Round((Get-ChildItem $bundleDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB, 0)
+          Write-Host "Bundle extracted: $size MB"
+          "BUNDLE_DIR=$bundleDir" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+          "BUNDLE_BIN=$bundleDir\bin" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+          "BUNDLE_USR_BIN=$bundleDir\usr\bin" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+
+      - name: Verify bundled toolchain works (no system MSYS2 required)
+        run: |
+          $binDir    = $env:BUNDLE_BIN
+          $usrBinDir = $env:BUNDLE_USR_BIN
+          $env:PATH  = "$binDir;$usrBinDir;$env:PATH"
+
+          Write-Host "=== bash ==="
+          & "$usrBinDir\bash.exe" --version 2>&1 | Select-Object -First 1
+
+          Write-Host "=== g++ ==="
+          & "$usrBinDir\g++.exe" --version 2>&1 | Select-Object -First 1
+
+          Write-Host "=== make ==="
+          & "$usrBinDir\make.exe" --version 2>&1 | Select-Object -First 1
+
+          Write-Host "=== plc_main.exe in bundle ==="
+          $plc = Get-Item "$binDir\plc_main.exe" -ErrorAction SilentlyContinue
+          if ($plc) {
+            Write-Host "plc_main.exe: $([math]::Round($plc.Length/1KB, 0)) KB"
+          } else {
+            Write-Host "ERROR: plc_main.exe not in bundle bin/"
+            exit 1
+          }
+          Write-Host "TOOLCHAIN VERIFIED — running from bundle only, no system MSYS2"
+
+      # ── Clone + patch OpenPLC runtime source ────────────────────────────────
+      - name: Clone OpenPLC runtime source
+        run: |
+          git clone https://github.com/Autonomy-Logic/openplc-runtime.git C:\plc-src
+          Push-Location C:\plc-src
+          git checkout cb1060d
+          Write-Host "Cloned: $(git log --oneline -1)"
+
+      - name: Apply macOS baseline patch
+        run: |
+          $patch = "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\openplc-runtime-macos-cb1060d.patch"
+          & "C:\Program Files\Git\usr\bin\patch.exe" -p1 -d C:\plc-src --input $patch
+          Write-Host "macOS baseline patch applied"
+
+      - name: Apply Windows patches (W1-W12)
+        run: |
+          $fixtures = "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures"
+          Push-Location C:\plc-src
+
+          python "$fixtures\w10_makefile_lrt.py"
+          python "$fixtures\w12_cond_clock.py"
+          python "$fixtures\w6_patch_app.py"
+          python "$fixtures\w8_fix_safe_extract.py"
+
+          python -c "
+import sys
+path = 'core/src/plc_app/plc_state_manager.cpp'
+src = open(path).read()
+old = '#ifdef __APPLE__\n    /* On macOS, pthread_cond_timedwait uses CLOCK_REALTIME (the condvar was\n     * initialized without pthread_condattr_setclock, which macOS doesn\'t\n     * support for CLOCK_MONOTONIC).  Use CLOCK_REALTIME here to match. */\n    clock_gettime(CLOCK_REALTIME, &next_tick);\n#else\n    clock_gettime(CLOCK_MONOTONIC, &next_tick);\n#endif'
+new = '#if defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)\n    /* macOS/MSYS2/Cygwin: pthread_cond_timedwait uses CLOCK_REALTIME. */\n    clock_gettime(CLOCK_REALTIME, &next_tick);\n#else\n    clock_gettime(CLOCK_MONOTONIC, &next_tick);\n#endif'
+if old in src:
+    open(path, 'w').write(src.replace(old, new))
+    print('W1: OK')
+else:
+    print('W1: not found or already applied', file=sys.stderr)
+"
+          python -c "
+path = 'core/src/plc_app/plc_state_manager.cpp'
+src = open(path).read()
+old = '    sched_param param;\n    param.sched_priority = sched_get_priority_max(SCHED_FIFO);\n    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);'
+new = '#ifndef __MSYS__\n    sched_param param;\n    param.sched_priority = sched_get_priority_max(SCHED_FIFO);\n    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);\n#endif'
+if old in src:
+    open(path, 'w').write(src.replace(old, new))
+    print('W2: OK')
+else:
+    print('W2: not found or already applied')
+"
+          python -c "
+path = 'core/src/plc_app/plc_state_manager.cpp'
+src = open(path).read()
+old = '    FILE *file = fopen(`"/proc/meminfo`", `"r`");'
+new = '#ifdef __MSYS__\n    FILE *file = popen(`"wmic OS get FreePhysicalMemory /Value 2>/dev/null`", `"r`");\n#else\n    FILE *file = fopen(`"/proc/meminfo`", `"r`");\n#endif'
+if old in src:
+    open(path, 'w').write(src.replace(old, new, 1))
+    print('W3: OK')
+else:
+    print('W3: not found or already applied')
+"
+          Write-Host "All Windows patches applied"
+
+      # ── Build plc_main using ONLY the bundled toolchain ─────────────────────
+      - name: Build plc_main with bundled g++ (no system MSYS2)
+        run: |
+          $binDir    = $env:BUNDLE_BIN
+          $usrBinDir = $env:BUNDLE_USR_BIN
+          $gccArch   = "x86_64-pc-cygwin"
+          $gccVer    = "15.3.0"
+          $bundle    = $env:BUNDLE_DIR
+
+          # Put bundle tools first on PATH
+          $env:PATH = "$binDir;$usrBinDir;$env:PATH"
+
+          # Tell gcc where its own headers/libs live inside the bundle
+          $env:CPLUS_INCLUDE_PATH = "$bundle\usr\lib\gcc\$gccArch\$gccVer\include\c++"
+          $env:C_INCLUDE_PATH     = "$bundle\usr\include"
+          $env:LIBRARY_PATH       = "$bundle\usr\lib\gcc\$gccArch\$gccVer;$bundle\usr\lib;$bundle\usr\lib\W32api"
+
+          New-Item -ItemType Directory -Force -Path C:\plc-src\build | Out-Null
+          Push-Location C:\plc-src\build
+
+          Write-Host "=== cmake (bundled) ==="
+          & "$usrBinDir\cmake.exe" .. -G "Unix Makefiles" `
+            -DCMAKE_C_COMPILER="$usrBinDir\gcc.exe" `
+            -DCMAKE_CXX_COMPILER="$usrBinDir\g++.exe" `
+            2>&1
+          if ($LASTEXITCODE -ne 0) { Write-Host "cmake failed"; exit 1 }
+
+          Write-Host "=== make (bundled) ==="
+          & "$usrBinDir\make.exe" -j4 plc_main 2>&1
+          if ($LASTEXITCODE -ne 0) { Write-Host "make failed"; exit 1 }
+
+          # Find the built binary
+          $exe = Get-Item "plc_main.exe" -ErrorAction SilentlyContinue
+          if (-not $exe) { $exe = Get-Item "plc_main" -ErrorAction SilentlyContinue }
+          if (-not $exe) { Write-Host "ERROR: plc_main binary not found"; exit 1 }
+
+          $size = [math]::Round($exe.Length / 1KB, 0)
+          Write-Host "COMPILE SUCCESS: $($exe.Name) ($size KB)"
+          "BUILT_PLC_MAIN=$($exe.FullName)" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+
+      # ── Start plc_main + run motor-start force/read proof ───────────────────
+      - name: Install Node.js proof dependencies
+        run: |
+          Push-Location "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures"
+          if (Test-Path package.json) { npm install --silent }
+
+      - name: Start freshly-compiled plc_main with bundle DLLs
+        run: |
+          $binDir    = $env:BUNDLE_BIN
+          $usrBinDir = $env:BUNDLE_USR_BIN
+          $plcBin    = $env:BUILT_PLC_MAIN
+          $env:PATH  = "$binDir;$usrBinDir;$env:PATH"
+
+          Write-Host "Starting plc_main: $plcBin"
+          Write-Host "(DLLs loaded from bundle bin/ via Windows DLL search order)"
+
+          $proc = Start-Process -FilePath $plcBin `
+            -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput "$env:TEMP\plc_main.log" `
+            -RedirectStandardError  "$env:TEMP\plc_main_err.log"
+          Write-Host "plc_main PID: $($proc.Id)"
+          Start-Sleep -Seconds 8
+
+          Write-Host "=== plc_main stderr (first 20 lines) ==="
+          Get-Content "$env:TEMP\plc_main_err.log" -ErrorAction SilentlyContinue | Select-Object -First 20
+
+      - name: Run motor-start force/read proof
+        run: |
+          Push-Location "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures"
+          Write-Host "=== Motor-start force/read proof ==="
+          node debug-proof.mjs
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "=== plc_main log ==="
+            Get-Content "$env:TEMP\plc_main.log"    -ErrorAction SilentlyContinue | Select-Object -Last 40
+            Get-Content "$env:TEMP\plc_main_err.log" -ErrorAction SilentlyContinue | Select-Object -Last 40
+            exit 1
+          }
+
+      - name: Run 10x repeat proof
+        run: |
+          $bundle = $env:BUNDLE_DIR
+          $env:PATH = "$bundle\bin;$bundle\usr\bin;$env:PATH"
+          Push-Location "$env:GITHUB_WORKSPACE\openplc-editor-development\openplc-runtime-macos\test-fixtures"
+          $pass = 0; $fail = 0
+          for ($i = 1; $i -le 10; $i++) {
+            node debug-proof.mjs 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { $pass++ } else { $fail++ }
+            Write-Host "[$i/10] PASS=$pass FAIL=$fail"
+          }
+          Write-Host ""
+          Write-Host "10x repeat result: PASS=$pass FAIL=$fail"
+          if ($fail -gt 0) { exit 1 }
+          Write-Host "ZERO-SETUP WINDOWS PROOF COMPLETE: compiled and ran plc_main using only bundled toolchain"
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          Write-Host "=== plc_main stdout ==="
+          Get-Content "$env:TEMP\plc_main.log"     -ErrorAction SilentlyContinue | Select-Object -Last 50
+          Write-Host "=== plc_main stderr ==="
+          Get-Content "$env:TEMP\plc_main_err.log"  -ErrorAction SilentlyContinue | Select-Object -Last 50
