@@ -67,11 +67,15 @@ jobs:
               print(f'W1: anchor not found (CLOCK_REALTIME at {idx})', file=sys.stderr)
           PYEOF
 
-          WS=$(cygpath "$GITHUB_WORKSPACE")
-          python3 "$WS/openplc-editor-development/openplc-runtime-macos/w6_patch_app.py"
-          python3 "$WS/openplc-editor-development/openplc-runtime-macos/w8_fix_safe_extract.py"
-          python3 "$WS/openplc-editor-development/openplc-runtime-macos/w10_makefile_lrt.py"
-          python3 "$WS/openplc-editor-development/openplc-runtime-macos/w12_cond_clock.py"
+          FIXTURES="$(cygpath "$GITHUB_WORKSPACE")/openplc-editor-development/openplc-runtime-macos/test-fixtures"
+          cp "$FIXTURES/w6_patch_app.py" /tmp/w6_patch_app.py
+          cp "$FIXTURES/w8_fix_safe_extract.py" /tmp/w8_fix_safe_extract.py
+          cp "$FIXTURES/w10_makefile_lrt.py" /tmp/w10_makefile_lrt.py
+          cp "$FIXTURES/w12_cond_clock.py" /tmp/w12_cond_clock.py
+          python3 /tmp/w10_makefile_lrt.py
+          python3 /tmp/w12_cond_clock.py
+          python3 /tmp/w6_patch_app.py
+          python3 /tmp/w8_fix_safe_extract.py
 
           # W2: SCHED_FIFO drain guard
           python3 - <<'PYEOF'
