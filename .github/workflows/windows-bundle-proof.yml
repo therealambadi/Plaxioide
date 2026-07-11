@@ -100,7 +100,7 @@ jobs:
           python "$f\w12_cond_clock.py"
           Write-Host "All Windows patches applied"
 
-      # ── Build plc_main using ONLY the bundled toolchain ─────────────────────
+      # ── Build plc_main: system cmake for Makefile gen, bundled g++ for compile ─
       - name: Build plc_main with bundled g++ (no system MSYS2)
         run: |
           $binDir  = $env:BUNDLE_BIN
@@ -109,21 +109,36 @@ jobs:
           $gccArch = "x86_64-pc-cygwin"
           $gccVer  = "15.3.0"
 
-          $env:PATH              = "$binDir;$usrBin;$env:PATH"
+          # Compiler and linker: bundled g++ (carries msys-2.0.dll via same-dir DLL search)
+          # cmake: system cmake (cmake just generates Makefiles, does not compile)
+          # make: bundled GNU make
+          $env:PATH = "$binDir;$usrBin;$env:PATH"
+
+          # Tell bundled gcc where to find headers + libs inside the bundle
           $env:CPLUS_INCLUDE_PATH = "$bundle\usr\lib\gcc\$gccArch\$gccVer\include\c++"
           $env:C_INCLUDE_PATH     = "$bundle\usr\include"
           $env:LIBRARY_PATH       = "$bundle\usr\lib\gcc\$gccArch\$gccVer;$bundle\usr\lib;$bundle\usr\lib\W32api"
 
+          # Verify system cmake is available (pre-installed on GH Actions runners)
+          $cmakePath = (Get-Command cmake -ErrorAction SilentlyContinue).Source
+          if (-not $cmakePath) {
+            # Try common paths
+            $cmakePath = "C:\Program Files\CMake\bin\cmake.exe"
+          }
+          Write-Host "cmake: $cmakePath"
+          & $cmakePath --version 2>&1 | Select-Object -First 1
+
           New-Item -ItemType Directory -Force -Path C:\plc-src\build | Out-Null
           Push-Location C:\plc-src\build
 
-          Write-Host "=== cmake (bundled) ==="
-          & "$usrBin\cmake.exe" .. -G "Unix Makefiles" `
+          Write-Host "=== cmake (system, generates Makefiles) ==="
+          & $cmakePath .. -G "Unix Makefiles" `
             -DCMAKE_C_COMPILER="$usrBin\gcc.exe" `
-            -DCMAKE_CXX_COMPILER="$usrBin\g++.exe"
+            -DCMAKE_CXX_COMPILER="$usrBin\g++.exe" `
+            -DCMAKE_MAKE_PROGRAM="$usrBin\make.exe"
           if ($LASTEXITCODE -ne 0) { Write-Host "cmake FAILED"; exit 1 }
 
-          Write-Host "=== make (bundled) ==="
+          Write-Host "=== make (bundled g++ compiles all translation units) ==="
           & "$usrBin\make.exe" -j4 plc_main
           if ($LASTEXITCODE -ne 0) { Write-Host "make FAILED"; exit 1 }
 
