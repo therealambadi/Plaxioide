@@ -339,6 +339,70 @@ jobs:
           echo "=== Binary ==="
           ls -lh plc_main* 2>/dev/null
 
+      # ── 10b. DEPENDENCY AUDIT ─────────────────────────────────────────────
+      # Dump the exact DLL dependency tree for plc_main.exe and new_libplc.so
+      # (the compiled PLC program). This is Problem A data — what must be
+      # bundled alongside the binary on a machine with no MSYS2 installed.
+      - name: "[AUDIT] Dump DLL dependencies of plc_main + new_libplc.so"
+        run: |
+          echo "=== ldd plc_main ==="
+          ldd /tmp/openplc-runtime/build/plc_main 2>&1 || true
+
+          echo ""
+          echo "=== objdump -p plc_main (DLL imports) ==="
+          objdump -p /tmp/openplc-runtime/build/plc_main 2>&1 | grep "DLL Name:" | sort -u || true
+
+          echo ""
+          echo "=== MSYS2 DLL locations ==="
+          # Show where each dependency lives so we know which are MSYS2 vs Windows system
+          ldd /tmp/openplc-runtime/build/plc_main 2>&1 | grep -v "not found\|Windows\|system32\|SysWOW" | grep -i "\.dll" | awk '{print $3}' | sort -u | while read f; do
+            [ -f "$f" ] && echo "$f  ($(du -sh "$f" 2>/dev/null | cut -f1))"
+          done || true
+
+          echo ""
+          echo "=== plc_main binary info ==="
+          file /tmp/openplc-runtime/build/plc_main
+          size /tmp/openplc-runtime/build/plc_main 2>/dev/null || true
+
+          echo ""
+          echo "=== iec2c.exe ldd (for comparison) ==="
+          # iec2c.exe is MinGW-built; compare its deps to plc_main (MSYS2-built)
+          IECEXE="$(find /c /d /e /tmp -name 'iec2c.exe' 2>/dev/null | head -1)"
+          [ -n "$IECEXE" ] && ldd "$IECEXE" 2>&1 || echo "(iec2c.exe not found)"
+
+          echo ""
+          echo "=== Full MSYS2 DLL inventory under /usr/bin ==="
+          # List all msys-*.dll and libgcc/libstdc++ variants present
+          ls /usr/bin/msys-*.dll /usr/bin/cygwin*.dll 2>/dev/null | sort || echo "(none matching)"
+          ls /usr/bin/msys-2.0.dll 2>/dev/null && echo "msys-2.0.dll present" || echo "msys-2.0.dll NOT present"
+          echo ""
+          echo "=== Size of msys-2.0.dll ==="
+          ls -lh /usr/bin/msys-2.0.dll 2>/dev/null || echo "not found"
+
+      # ── 10c. PROBLEM A — Minimal DLL bundle test ──────────────────────────
+      # Copy plc_main + its non-Windows DLL deps to a clean directory.
+      # Then run plc_main from that directory WITHOUT MSYS2 on PATH to test
+      # whether it self-contains.
+      - name: "[AUDIT] Problem A — collect non-Windows DLLs needed by plc_main"
+        run: |
+          mkdir -p /tmp/plc-bundle
+          cp /tmp/openplc-runtime/build/plc_main /tmp/plc-bundle/
+
+          echo "=== Collecting MSYS2/non-system DLLs ==="
+          ldd /tmp/openplc-runtime/build/plc_main 2>&1 | grep -v "Windows\|system32\|SysWOW\|not found" | grep "\.dll" | awk '{print $3}' | sort -u | while read f; do
+            if [ -f "$f" ]; then
+              cp "$f" /tmp/plc-bundle/
+              echo "Copied: $(basename $f)  ($(du -sh "$f" | cut -f1))"
+            fi
+          done
+
+          echo ""
+          echo "=== Bundle contents ==="
+          ls -lh /tmp/plc-bundle/
+          echo ""
+          echo "=== Bundle total size ==="
+          du -sh /tmp/plc-bundle/
+
       # ── 11. Python deps + webserver ───────────────────────────────────────
       # MSYS2 Python enforces PEP 668 — must use a venv for pip installs.
       # plc_main embeds libpython and scans the system path for plugins, so we
@@ -601,6 +665,72 @@ jobs:
           cmake .. -G "Unix Makefiles" 2>&1
           make -j$(nproc) plc_main 2>&1
           ls -lh plc_main
+
+      # ── PROBLEM B AUDIT — compiler tool dependency graph ─────────────────
+      # g++, make, cmake are needed at RUNTIME on the user's machine (not just
+      # our CI) because Volt compiles the user's ST→C++ program on-device.
+      # Capture their DLL deps so we know the minimal toolchain bundle size.
+      - name: "[AUDIT] Problem B — compiler tool DLL dependencies"
+        run: |
+          echo "=== g++ ==="
+          which g++ && g++ --version | head -1
+          ldd $(which g++) 2>&1 | grep -v "Windows\|system32\|SysWOW" | grep "\.dll" || true
+
+          echo ""
+          echo "=== make ==="
+          which make && make --version | head -1
+          ldd $(which make) 2>&1 | grep -v "Windows\|system32\|SysWOW" | grep "\.dll" || true
+
+          echo ""
+          echo "=== cmake ==="
+          which cmake && cmake --version | head -1
+          ldd $(which cmake) 2>&1 | grep -v "Windows\|system32\|SysWOW" | grep "\.dll" || true
+
+          echo ""
+          echo "=== bash ==="
+          ldd $(which bash) 2>&1 | grep -v "Windows\|system32\|SysWOW" | grep "\.dll" || true
+
+          echo ""
+          echo "=== as (assembler, needed by g++) ==="
+          ldd $(which as) 2>&1 | grep -v "Windows\|system32\|SysWOW" | grep "\.dll" || true
+
+          echo ""
+          echo "=== cc1plus (g++ front-end) ==="
+          CC1=$(g++ -print-prog-name=cc1plus 2>/dev/null)
+          [ -n "$CC1" ] && ldd "$CC1" 2>&1 | grep -v "Windows\|system32\|SysWOW" | grep "\.dll" || true
+
+          echo ""
+          echo "=== Unique non-system DLLs across all compiler tools ==="
+          for tool in $(which g++) $(which make) $(which bash) $(which as); do
+            ldd "$tool" 2>&1
+          done | grep -v "Windows\|system32\|SysWOW\|not found" | grep "\.dll" | awk '{print $3}' | sort -u | while read f; do
+            [ -f "$f" ] && echo "$(basename $f)  $(du -sh "$f" | cut -f1)  $f"
+          done
+
+          echo ""
+          echo "=== Minimal toolchain bundle estimate ==="
+          TOTAL=0
+          for tool in $(which g++) $(which make) $(which bash) $(which as); do
+            ldd "$tool" 2>&1
+          done | grep -v "Windows\|system32\|SysWOW\|not found" | grep "\.dll" | awk '{print $3}' | sort -u | while read f; do
+            [ -f "$f" ] && du -b "$f"
+          done | awk '{sum+=$1} END {printf "Non-system DLLs: %.1f MB\n", sum/1048576}'
+
+          echo ""
+          echo "=== Compiler binary sizes ==="
+          for tool in $(which g++) $(which make) $(which cmake) $(which bash) $(which as); do
+            ls -lh "$tool" 2>/dev/null
+          done
+          # cc1plus is the heaviest g++ component
+          CC1=$(g++ -print-prog-name=cc1plus 2>/dev/null)
+          [ -n "$CC1" ] && ls -lh "$CC1"
+          # Also find libexec/gcc tree
+          GCC_LIBEXEC=$(g++ -print-libgcc-file-name 2>/dev/null | xargs dirname 2>/dev/null)
+          [ -n "$GCC_LIBEXEC" ] && du -sh "$GCC_LIBEXEC" 2>/dev/null || true
+
+          echo ""
+          echo "=== Full MSYS2 base install size ==="
+          du -sh /usr/ 2>/dev/null | head -5 || true
 
       - name: Install Python deps
         run: |
