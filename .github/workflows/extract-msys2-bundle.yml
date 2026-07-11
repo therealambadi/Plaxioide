@@ -224,19 +224,20 @@ jobs:
           echo ""
           du -sh "$BUNDLE"/*/
 
-      - name: Zip bundle for upload
-        shell: pwsh
+      - name: Zip bundle into workspace (MSYS2 shell)
         run: |
-          $bundle = "C:\msys64\tmp\msys2-bundle"
-          $out    = "C:\msys64\tmp\msys2-bundle.zip"
-          Write-Host "Zipping $bundle -> $out"
-          Compress-Archive -Path "$bundle\*" -DestinationPath $out -Force
-          $size = (Get-Item $out).Length / 1MB
-          Write-Host "Zip size: $([math]::Round($size, 1)) MB"
+          # Write zip to workspace root so PowerShell can find it via D:\a\volt\volt\
+          cd /tmp/msys2-bundle
+          echo "=== Final bundle contents summary ==="
+          du -sh . */
+          echo "=== Zipping ==="
+          WS=$(cygpath "$GITHUB_WORKSPACE")
+          zip -r "$WS/msys2-bundle.zip" . 2>&1 | tail -5
+          echo "Zip complete: $(du -sh "$WS/msys2-bundle.zip" | cut -f1)"
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
           name: msys2-win32-x64-bundle
-          path: C:\msys64\tmp\msys2-bundle.zip
+          path: msys2-bundle.zip
           retention-days: 7
