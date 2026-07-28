@@ -96,9 +96,50 @@
 	justify-content: flex-end;
 }
 
+/* Plaxio: Cursor-style left cluster — sidebar toggle + back/forward navigation arrows */
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .titlebar-nav-container {
+	display: flex;
+	align-items: center;
+	height: 100%;
+	gap: 2px;
+	margin-left: 8px;
+	-webkit-app-region: no-drag;
+}
+
+.monaco-workbench .part.titlebar .titlebar-nav-container .plc-sidebar-toggle {
+	width: 24px;
+	height: 24px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 16px;
+	border-radius: 5px;
+	cursor: pointer;
+	color: var(--vscode-titleBar-activeForeground);
+	opacity: 0.8;
+}
+
+.monaco-workbench .part.titlebar .titlebar-nav-container .plc-sidebar-toggle:hover {
+	background-color: rgba(255, 255, 255, 0.08);
+	opacity: 1;
+}
+
+.monaco-workbench .part.titlebar .titlebar-nav-container .monaco-action-bar .action-item.icon .action-label.codicon {
+	font-size: 16px;
+}
+
+/* Plaxio: keep the left cluster clear of the macOS traffic lights in windowed mode (flush left in fullscreen) */
+.monaco-workbench.mac:not(.web):not(.fullscreen) .part.titlebar > .titlebar-container > .titlebar-left > .titlebar-nav-container {
+	margin-left: 78px;
+}
+
 
 
 /* Window title text */
+.monaco-workbench .part.titlebar > .titlebar-container {
+	position: relative; /* Plaxio: anchor for absolute-centered window title */
+}
+
 .monaco-workbench .part.titlebar > .titlebar-container > .titlebar-center > .window-title {
 	flex: 0 1 auto;
 	font-size: 12px;
@@ -107,6 +148,9 @@
 	text-overflow: ellipsis;
 	margin-left: auto;
 	margin-right: auto;
+	position: absolute; /* Plaxio: center the title relative to the full titlebar, not the flex columns */
+	left: 50%;
+	transform: translateX(-50%);
 }
 
 .monaco-workbench.web .part.titlebar > .titlebar-container > .titlebar-center > .window-title,

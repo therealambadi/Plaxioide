@@ -10,7 +10,7 @@ import { Ollama } from 'ollama';
 import OpenAI, { ClientOptions, AzureOpenAI } from 'openai';
 import { MistralCore } from '@mistralai/mistralai/core.js';
 import { fimComplete } from '@mistralai/mistralai/funcs/fimComplete.js';
-import { Tool as GeminiTool, FunctionDeclaration, GoogleGenAI, ThinkingConfig, Schema, Type } from '@google/genai';
+import { GoogleGenAI, Tool as GeminiTool, FunctionDeclaration, Schema, Type } from '@google/genai';
 import { GoogleAuth } from 'google-auth-library'
 /* eslint-enable */
 
@@ -333,7 +333,7 @@ const _sendOpenAICompatibleChat = async ({ messages, onText, onFinalMessage, onE
 	let toolId = ''
 	let toolParamsStr = ''
 
-	openai.chat.completions
+	await openai.chat.completions
 		.create(options)
 		.then(async response => {
 			_setAborter(() => response.controller.abort())
@@ -690,8 +690,9 @@ const toGeminiFunctionDecl = (toolInfo: InternalToolInfo) => {
 		parameters: {
 			type: Type.OBJECT,
 			properties: Object.entries(params).reduce((acc, [key, value]) => {
+				const paramType = (value as any).type === 'object' ? Type.OBJECT : (value as any).type === 'array' ? Type.ARRAY : Type.STRING
 				acc[key] = {
-					type: Type.STRING,
+					type: paramType,
 					description: value.description
 				};
 				return acc;
@@ -730,7 +731,7 @@ const sendGeminiChat = async ({
 	mcpTools,
 }: SendChatParams_Internal) => {
 
-	if (providerName !== 'gemini') throw new Error(`Sending Gemini chat, but provider was ${providerName}`)
+	if (providerName !== 'gemini' && providerName !== 'googleVertex') throw new Error(`Sending Gemini chat, but provider was ${providerName}`)
 
 	const thisConfig = settingsOfProvider[providerName]
 
@@ -747,20 +748,21 @@ const sendGeminiChat = async ({
 	const reasoningInfo = getSendableReasoningInfo('Chat', providerName, modelName_, modelSelectionOptions, overridesOfModel) // user's modelName_ here
 	// const includeInPayload = providerReasoningIOSettings?.input?.includeInPayload?.(reasoningInfo) || {}
 
-	const thinkingConfig: ThinkingConfig | undefined = !reasoningInfo?.isReasoningEnabled ? undefined
-		: reasoningInfo.type === 'budget_slider_value' ?
-			{ thinkingBudget: reasoningInfo.reasoningBudget }
-			: undefined
-
 	// tools
 	const potentialTools = geminiTools(chatMode, mcpTools)
 	const toolConfig = potentialTools && specialToolFormat === 'gemini-style' ?
 		potentialTools
 		: undefined
 
-	// instance
-	const genAI = new GoogleGenAI({ apiKey: thisConfig.apiKey });
-
+	// Use the configured Vertex API key. The previous configuration only tried
+	// Application Default Credentials, so API-key users could wait indefinitely.
+	const vertexConfig = settingsOfProvider['googleVertex'];
+	const genAI = new GoogleGenAI({
+		vertexai: true,
+		project: vertexConfig.project,
+		location: vertexConfig.region,
+		apiKey: vertexConfig.apiKey,
+	})
 
 	// manually parse out tool results if XML
 	if (!specialToolFormat) {
@@ -776,38 +778,34 @@ const sendGeminiChat = async ({
 	let toolName = ''
 	let toolParamsStr = ''
 	let toolId = ''
+	const allGeminiParts: any[] = []
 
-
-	genAI.models.generateContentStream({
-		model: modelName,
-		config: {
-			systemInstruction: separateSystemMessage,
-			thinkingConfig: thinkingConfig,
-			tools: toolConfig,
-		},
-		contents: messages as GeminiLLMChatMessage[],
-	})
-		.then(async (stream) => {
-			_setAborter(() => { stream.return(fullTextSoFar); });
-
-			// Process the stream
+	try {
+			const stream = await genAI.models.generateContentStream({
+				model: modelName,
+				config: {
+					systemInstruction: separateSystemMessage,
+					tools: toolConfig,
+					maxOutputTokens: 65536,
+				},
+				contents: messages,
+			})
+			_setAborter(() => { stream.return(fullTextSoFar) })
 			for await (const chunk of stream) {
-				// message
+				const parts = (chunk as any).candidates?.[0]?.content?.parts
+				if (parts) allGeminiParts.push(...parts)
+
 				const newText = chunk.text ?? ''
 				fullTextSoFar += newText
 
-				// tool call
 				const functionCalls = chunk.functionCalls
 				if (functionCalls && functionCalls.length > 0) {
-					const functionCall = functionCalls[0] // Get the first function call
+					const functionCall = functionCalls[0]
 					toolName = functionCall.name ?? ''
 					toolParamsStr = JSON.stringify(functionCall.args ?? {})
 					toolId = functionCall.id ?? ''
 				}
 
-				// (do not handle reasoning yet)
-
-				// call onText
 				onText({
 					fullText: fullTextSoFar,
 					fullReasoning: fullReasoningSoFar,
@@ -815,33 +813,28 @@ const sendGeminiChat = async ({
 				})
 			}
 
-			// on final
 			if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
-				onError({ message: 'Void: Response from model was empty.', fullError: null })
+				onError({ message: 'Gemini returned an empty response. This usually means the request was too large or was blocked by the safety filter. Try breaking your request into smaller parts or rephrasing it.', fullError: null })
 			} else {
-				if (!toolId) toolId = generateUuid() // ids are empty, but other providers might expect an id
+				if (!toolId) toolId = generateUuid()
 				const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId)
 				const toolCallObj = toolCall ? { toolCall } : {}
-				onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, ...toolCallObj });
+				onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, _geminiParts: allGeminiParts, ...toolCallObj })
 			}
-		})
-		.catch(error => {
+		} catch (error: any) {
 			const message = error?.message
 			if (typeof message === 'string') {
-
 				if (error.message?.includes('API key')) {
-					onError({ message: invalidApiKeyMessage(providerName), fullError: error });
+					onError({ message: invalidApiKeyMessage(providerName), fullError: error })
+				} else if (error?.message?.includes('429')) {
+					onError({ message: 'Rate limit reached. ' + error, fullError: error })
+				} else {
+					onError({ message: error + '', fullError: error })
 				}
-				else if (error?.message?.includes('429')) {
-					onError({ message: 'Rate limit reached. ' + error, fullError: error });
-				}
-				else
-					onError({ message: error + '', fullError: error });
+			} else {
+				onError({ message: error + '', fullError: error })
 			}
-			else {
-				onError({ message: error + '', fullError: error });
-			}
-		})
+	}
 };
 
 
@@ -855,89 +848,11 @@ type CallFnOfProvider = {
 }
 
 export const sendLLMMessageToProviderImplementation = {
-	anthropic: {
-		sendChat: sendAnthropicChat,
-		sendFIM: null,
-		list: null,
-	},
-	openAI: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: null,
-		list: null,
-	},
-	xAI: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: null,
-		list: null,
-	},
-	gemini: {
-		sendChat: (params) => sendGeminiChat(params),
-		sendFIM: null,
-		list: null,
-	},
-	mistral: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: (params) => sendMistralFIM(params),
-		list: null,
-	},
-	ollama: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: sendOllamaFIM,
-		list: ollamaList,
-	},
-	openAICompatible: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params), // using openai's SDK is not ideal (your implementation might not do tools, reasoning, FIM etc correctly), talk to us for a custom integration
-		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
-		list: null,
-	},
-	openRouter: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
-		list: null,
-	},
-	vLLM: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
-		list: (params) => _openaiCompatibleList(params),
-	},
-	deepseek: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: null,
-		list: null,
-	},
-	groq: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: null,
-		list: null,
-	},
-
-	lmStudio: {
-		// lmStudio has no suffix parameter in /completions, so sendFIM might not work
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
-		list: (params) => _openaiCompatibleList(params),
-	},
-	liteLLM: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: (params) => _sendOpenAICompatibleFIM(params),
-		list: null,
-	},
 	googleVertex: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
+		sendChat: (params: SendChatParams_Internal) => sendGeminiChat(params),
 		sendFIM: null,
 		list: null,
 	},
-	microsoftAzure: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: null,
-		list: null,
-	},
-	awsBedrock: {
-		sendChat: (params) => _sendOpenAICompatibleChat(params),
-		sendFIM: null,
-		list: null,
-	},
-
 } satisfies CallFnOfProvider
 
 

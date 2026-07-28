@@ -12,20 +12,14 @@ import {
 
 import * as nls from '../../../../nls.js';
 
-// import { Codicon } from '../../../../base/common/codicons.js';
-// import { localize } from '../../../../nls.js';
-// import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
-// import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
-
 
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
-// import { IDisposable } from '../../../../base/common/lifecycle.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
@@ -37,15 +31,18 @@ import { mountSidebar } from './react/out/sidebar-tsx/index.js';
 
 import { Codicon } from '../../../../base/common/codicons.js';
 import { Orientation } from '../../../../base/browser/ui/sash/sash.js';
-// import { IDisposable } from '../../../../base/common/lifecycle.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../../editor/browser/editorExtensions.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
+import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
+import { IStorageService, StorageScope } from '../../../../platform/storage/common/storage.js';
+import { IChatThreadService } from './chatThreadService.js';
+import { VOLT_PENDING_MESSAGE_KEY } from '../../../browser/parts/editor/editorGroupWatermark.js';
 
-// compare against search.contribution.ts and debug.contribution.ts, scm.contribution.ts (source control)
 
 // ---------- Define viewpane ----------
 
@@ -63,23 +60,15 @@ class SidebarViewPane extends ViewPane {
 		@IOpenerService openerService: IOpenerService,
 		@ITelemetryService telemetryService: ITelemetryService,
 		@IHoverService hoverService: IHoverService,
-		// @ICodeEditorService private readonly editorService: ICodeEditorService,
-		// @IContextKeyService private readonly editorContextKeyService: IContextKeyService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService)
-
 	}
-
-
 
 	protected override renderBody(parent: HTMLElement): void {
 		super.renderBody(parent);
-		// parent.style.overflow = 'auto'
 		parent.style.userSelect = 'text'
 
-		// gets set immediately
 		this.instantiationService.invokeFunction(accessor => {
-			// mount react
 			const disposeFn: (() => void) | undefined = mountSidebar(parent, accessor)?.dispose;
 			this._register(toDisposable(() => disposeFn?.()))
 		});
@@ -93,68 +82,43 @@ class SidebarViewPane extends ViewPane {
 
 }
 
-
-
 // ---------- Register viewpane inside the void container ----------
 
-// const voidThemeIcon = Codicon.symbolObject;
-// const voidViewIcon = registerIcon('void-view-icon', voidThemeIcon, localize('voidViewIcon', 'View icon of the Void chat view.'));
-
-// called VIEWLET_ID in other places for some reason
 export const VOID_VIEW_CONTAINER_ID = 'workbench.view.void'
 export const VOID_VIEW_ID = VOID_VIEW_CONTAINER_ID
 
-// Register view container
 const viewContainerRegistry = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry);
 const container = viewContainerRegistry.registerViewContainer({
 	id: VOID_VIEW_CONTAINER_ID,
-	title: nls.localize2('voidContainer', 'Chat'), // this is used to say "Void" (Ctrl + L)
+	title: nls.localize2('voidContainer', 'Chat'),
 	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VOID_VIEW_CONTAINER_ID, {
 		mergeViewWithContainerWhenSingleView: true,
 		orientation: Orientation.HORIZONTAL,
 	}]),
 	hideIfEmpty: false,
 	order: 1,
-
 	rejectAddedViews: true,
 	icon: Codicon.symbolMethod,
-
-
 }, ViewContainerLocation.AuxiliaryBar, { doNotRegisterOpenCommand: true, isDefault: true });
 
-
-
-// Register search default location to the container (sidebar)
 const viewsRegistry = Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry);
 viewsRegistry.registerViews([{
 	id: VOID_VIEW_ID,
-	hideByDefault: false, // start open
-	// containerIcon: voidViewIcon,
-	name: nls.localize2('voidChat', ''), // this says ... : CHAT
+	hideByDefault: false,
+	name: nls.localize2('voidChat', ''),
 	ctorDescriptor: new SyncDescriptor(SidebarViewPane),
 	canToggleVisibility: false,
-	canMoveView: false, // can't move this out of its container
+	canMoveView: false,
 	weight: 80,
 	order: 1,
-	// singleViewPaneContainerTitle: 'hi',
-
-	// openCommandActionDescriptor: {
-	// 	id: VOID_VIEW_CONTAINER_ID,
-	// 	keybindings: {
-	// 		primary: KeyMod.CtrlCmd | KeyCode.KeyL,
-	// 	},
-	// 	order: 1
-	// },
 }], container);
 
-
-// open sidebar
 export const VOID_OPEN_SIDEBAR_ACTION_ID = 'void.openSidebar'
 registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VOID_OPEN_SIDEBAR_ACTION_ID,
-			title: 'Open Void Sidebar',
+			title: 'Open Plaxio Sidebar',
 		})
 	}
 	run(accessor: ServicesAccessor): void {
@@ -167,8 +131,37 @@ export class SidebarStartContribution implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.startupVoidSidebar';
 	constructor(
 		@ICommandService private readonly commandService: ICommandService,
+		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
+		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
+		@IStorageService private readonly storageService: IStorageService,
+		@IChatThreadService private readonly chatThreadService: IChatThreadService,
 	) {
-		this.commandService.executeCommand(VOID_OPEN_SIDEBAR_ACTION_ID)
+		const isEmpty = () => this.contextService.getWorkbenchState() === WorkbenchState.EMPTY;
+
+		const applyLayout = () => {
+			if (isEmpty()) {
+				this.layoutService.setPartHidden(true, Parts.SIDEBAR_PART);
+				this.layoutService.setPartHidden(true, Parts.ACTIVITYBAR_PART);
+			} else {
+				this.layoutService.setPartHidden(false, Parts.ACTIVITYBAR_PART);
+				this.layoutService.setPartHidden(false, Parts.SIDEBAR_PART);
+				this.commandService.executeCommand(VOID_OPEN_SIDEBAR_ACTION_ID);
+
+				// Fire any pending startup message into the AI chat
+				const pendingMessage = this.storageService.get(VOLT_PENDING_MESSAGE_KEY, StorageScope.PROFILE);
+				if (pendingMessage) {
+					this.storageService.remove(VOLT_PENDING_MESSAGE_KEY, StorageScope.PROFILE);
+					// Delay so sidebar React tree is fully mounted before sending
+					setTimeout(() => {
+						const thread = this.chatThreadService.getCurrentThread();
+						this.chatThreadService.addUserMessageAndStreamResponse({ userMessage: pendingMessage, threadId: thread.id });
+					}, 1500);
+				}
+			}
+		};
+
+		applyLayout();
+		this.contextService.onDidChangeWorkbenchState(applyLayout);
 	}
 }
 registerWorkbenchContribution2(SidebarStartContribution.ID, SidebarStartContribution, WorkbenchPhase.AfterRestored);

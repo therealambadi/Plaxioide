@@ -7,8 +7,8 @@
 // 'void.settingsServiceStorage'
 // 'void.settingsServiceStorageI' // 1.0.2
 
-// 1.0.3
-export const VOID_SETTINGS_STORAGE_KEY = 'void.settingsServiceStorageII'
+// 1.0.4 — bumped to clear cached region/model settings (gemini-3.5-flash, global region)
+export const VOID_SETTINGS_STORAGE_KEY = 'void.settingsServiceStorageIV'
 
 
 // past values:

@@ -28,10 +28,22 @@
 
 .monaco-workbench .part.auxiliarybar > .title > .title-label {
 	flex: 1;
+	display: flex !important; /* Plaxio: show "Chat" as plain left-aligned text (Cursor-style), icons stay right */
+	align-items: center;
+	min-width: 0;
 }
 
 .monaco-workbench .part.auxiliarybar > .title > .title-label h2 {
 	text-transform: uppercase;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.03em;
+	margin-left: 8px;
+	padding-bottom: 1px;
+	color: var(--vscode-sideBarTitle-foreground, #cccccc);
+	background: none;
+	border-radius: 0;
+	border-bottom: 2px solid var(--vscode-sideBarTitle-foreground, #cccccc);
 }
 
 .monaco-workbench .part.auxiliarybar > .title > .composite-bar-container {

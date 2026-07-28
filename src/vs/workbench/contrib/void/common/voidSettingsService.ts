@@ -214,7 +214,13 @@ const _validatedModelState = (state: Omit<VoidSettingsState, '_modelOptions'>): 
 const defaultState = () => {
 	const d: VoidSettingsState = {
 		settingsOfProvider: deepClone(defaultSettingsOfProvider),
-		modelSelectionOfFeature: { 'Chat': null, 'Ctrl+K': null, 'Autocomplete': null, 'Apply': null, 'SCM': null },
+		modelSelectionOfFeature: {
+			'Chat': { providerName: 'googleVertex', modelName: 'gemini-2.5-flash' },
+			'Ctrl+K': { providerName: 'googleVertex', modelName: 'gemini-2.5-flash' },
+			'Autocomplete': { providerName: 'googleVertex', modelName: 'gemini-2.5-flash' },
+			'Apply': { providerName: 'googleVertex', modelName: 'gemini-2.5-flash' },
+			'SCM': { providerName: 'googleVertex', modelName: 'gemini-2.5-flash' },
+		},
 		globalSettings: deepClone(defaultGlobalSettings),
 		optionsOfModelSelection: { 'Chat': {}, 'Ctrl+K': {}, 'Autocomplete': {}, 'Apply': {}, 'SCM': {} },
 		overridesOfModel: deepClone(defaultOverridesOfModel),
@@ -339,6 +345,16 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 		this.state = readS
 		this.state = _stateWithMergedDefaultModels(this.state)
 		this.state = _validatedModelState(this.state);
+
+		// HARDCODED — Plaxio always uses Vertex AI gemini-2.5-flash. Users cannot change provider or model.
+		const voltDefaultModel = { providerName: 'googleVertex' as const, modelName: 'gemini-2.5-flash' };
+		for (const f of (['Chat', 'Ctrl+K', 'Autocomplete', 'Apply', 'SCM'] as const)) {
+			this.state.modelSelectionOfFeature[f] = { ...voltDefaultModel };
+		}
+		// Always force these — never read from saved state
+		this.state.settingsOfProvider.googleVertex.project = 'videogen-496506';
+		this.state.settingsOfProvider.googleVertex.region = 'us-central1';
+		this.state.settingsOfProvider.googleVertex._didFillInProviderSettings = true;
 
 
 		this._resolver();

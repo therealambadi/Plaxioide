@@ -157,7 +157,6 @@ export abstract class Part extends Component implements ISerializableView {
 		footerContainer.classList.add('footer');
 
 		this.footerArea = footerContainer;
-		this.partLayout?.setFooterVisibility(true);
 		this.relayout();
 	}
 
@@ -279,7 +278,7 @@ class PartLayout {
 	}
 
 	setFooterVisibility(visible: boolean): void {
-		this.footerVisible = visible;
+		this.footerVisible = false;
 	}
 
 	setHeaderVisibility(visible: boolean): void {

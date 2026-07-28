@@ -56,8 +56,8 @@ export type OpenAILLMChatMessage = {
 export type GeminiLLMChatMessage = {
 	role: 'model'
 	parts: (
-		| { text: string; }
-		| { functionCall: { id: string; name: ToolName, args: Record<string, unknown> } }
+		| { text: string; thought?: boolean; thoughtSignature?: string; }
+		| { functionCall: { id: string; name: ToolName, args: Record<string, unknown> }; thoughtSignature?: string; }
 	)[];
 } | {
 	role: 'user';

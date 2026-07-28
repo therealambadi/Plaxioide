@@ -202,3 +202,187 @@
 .void-scrollable-element *::-webkit-scrollbar-corner {
 	background-color: var(--void-bg-3) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   PLAXIO SHELL — Cursor-inspired layout & styling (permanent, theme-independent)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+
+/* ─── Title Bar ────────────────────────────────────────────────────────────── */
+.monaco-workbench .part.titlebar {
+	font-size: 12px !important;
+}
+
+/* ─── Activity Bar — top mode (sidebar title row) ──────────────────────────── */
+
+/* Title row height — match Cursor's compact header */
+.monaco-workbench .part.sidebar > .title.has-composite-bar {
+	height: 40px !important;
+	min-height: 40px !important;
+	max-height: 40px !important;
+}
+
+/* composite-bar-container: horizontal flex */
+.monaco-workbench .part.sidebar > .title > .composite-bar-container,
+.monaco-workbench .part.sidebar > .title > .composite-bar-container > .composite-bar,
+.monaco-workbench .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar,
+.monaco-workbench .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar > .actions-container {
+	display: flex !important;
+	flex-direction: row !important;
+	align-items: center !important;
+	height: 40px !important;
+}
+
+/* Each icon tab — Cursor-sized, well-spaced */
+.monaco-workbench .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item,
+.monaco-workbench .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.icon {
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	height: 40px !important;
+	min-width: 40px !important;
+	width: 40px !important;
+	padding: 0 !important;
+}
+
+/* The codicon label — 20px like Cursor */
+.monaco-workbench .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item .action-label.codicon,
+.monaco-workbench .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item .action-label {
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	position: static !important;
+	left: auto !important;
+	font-size: 20px !important;
+	width: 20px !important;
+	height: 20px !important;
+	line-height: 1 !important;
+	color: var(--vscode-activityBar-inactiveForeground, #999) !important;
+}
+
+/* Active icon — brighter */
+.monaco-workbench .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked .action-label {
+	color: var(--vscode-activityBar-foreground, #fff) !important;
+}
+
+/* Override the sidebarpart.css ::before { position:absolute; left:5px } */
+.monaco-workbench .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item .action-label::before,
+.monaco-workbench .part.sidebar > .header-or-footer > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item .action-label::before {
+	position: static !important;
+	left: auto !important;
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	font-size: 20px !important;
+}
+
+/* SVG-based icon labels (non-codicon) — background positioned center */
+.monaco-workbench .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.icon .action-label:not(.codicon) {
+	width: 20px !important;
+	height: 20px !important;
+	background-size: 20px !important;
+	background-position: center !important;
+}
+
+/* Hide the active item indicator bar (Cursor doesn't have it in top mode) */
+.monaco-workbench .part.sidebar > .title .active-item-indicator {
+	display: none !important;
+}
+
+/* Collapse the EXPLORER composite title row (icons are in .header-or-footer, not .title) */
+.monaco-workbench .part.sidebar > .composite.title:not(.has-composite-bar) {
+	height: 0 !important;
+	min-height: 0 !important;
+	overflow: hidden !important;
+	padding: 0 !important;
+	margin: 0 !important;
+	border: none !important;
+}
+
+/* Hide sidebar footer + auxiliarybar header/footer */
+.monaco-workbench .part.sidebar > .header-or-footer.footer,
+.monaco-workbench .part.auxiliarybar > .header-or-footer {
+	display: none !important;
+}
+
+/* ─── Viewlets chevron: no press/focus glitch ──────────────────────────────── */
+.monaco-workbench .plc-viewlets-chevron {
+	border: 1px solid transparent;
+	box-sizing: border-box;
+}
+
+.monaco-workbench .plc-viewlets-chevron:active,
+.monaco-workbench .plc-viewlets-chevron.clicked,
+.monaco-workbench .plc-viewlets-chevron:focus {
+	background: var(--vscode-activityBarTop-hoverBackground, rgba(255, 255, 255, 0.05)) !important;
+	border: 1px solid transparent !important;
+	outline: none !important;
+}
+
+/* ─── Sidebar right border ─────────────────────────────────────────────────── */
+.monaco-workbench .part.sidebar {
+	border-right: 1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.08)) !important;
+}
+
+/* ─── Editor Tabs ──────────────────────────────────────────────────────────── */
+.monaco-workbench .part.editor > .content .editor-group-container > .title .tabs-container .tab {
+	height: 32px !important;
+	line-height: 32px !important;
+	font-size: 12px !important;
+	padding: 0 12px !important;
+}
+
+.monaco-workbench .part.editor > .content .editor-group-container > .title {
+	height: 32px !important;
+}
+
+/* ─── Status Bar ───────────────────────────────────────────────────────────── */
+.monaco-workbench .part.statusbar {
+	height: 24px !important;
+	font-size: 11px !important;
+}
+
+/* ─── Sidebar section headers — no border lines (Cursor style) ─────────────── */
+.monaco-workbench .pane-header {
+	height: 28px !important;
+	line-height: 28px !important;
+	font-size: 11px !important;
+	font-weight: 500 !important;
+	text-transform: uppercase !important;
+	letter-spacing: 0.03em !important;
+	border-top: none !important;
+	border-bottom: none !important;
+}
+
+/* Remove the split-view separator lines between sidebar sections */
+.monaco-workbench .part.sidebar .monaco-split-view2.separator-border > .monaco-scrollable-element > .split-view-container > .split-view-view:not(:first-child)::before {
+	display: none !important;
+}
+
+/* Also remove pane-header top border */
+.monaco-workbench .part.sidebar .pane > .pane-header {
+	border-top: none !important;
+}
+
+/* ─── Command Palette ──────────────────────────────────────────────────────── */
+.monaco-workbench .quick-input-widget {
+	border-radius: 8px !important;
+	overflow: hidden !important;
+	box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important;
+}
+
+/* ─── Context menus ────────────────────────────────────────────────────────── */
+.monaco-workbench .context-view .monaco-menu {
+	border-radius: 6px !important;
+	overflow: hidden !important;
+}
+
+/* ─── Scrollbars ───────────────────────────────────────────────────────────── */
+.monaco-workbench ::-webkit-scrollbar {
+	width: 8px !important;
+	height: 8px !important;
+}
+
+.monaco-workbench ::-webkit-scrollbar-thumb {
+	border-radius: 4px !important;
+}

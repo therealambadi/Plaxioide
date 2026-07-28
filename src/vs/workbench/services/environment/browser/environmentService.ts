@@ -249,7 +249,7 @@ export class BrowserWorkbenchEnvironmentService implements IBrowserWorkbenchEnvi
 	get skipWelcome(): boolean { return this.payload?.get('skipWelcome') === 'true'; }
 
 	@memoize
-	get disableWorkspaceTrust(): boolean { return !this.options.enableWorkspaceTrust; }
+	get disableWorkspaceTrust(): boolean { return this.options.enableWorkspaceTrust === false; }
 
 	@memoize
 	get profile(): string | undefined { return this.payload?.get('profile'); }

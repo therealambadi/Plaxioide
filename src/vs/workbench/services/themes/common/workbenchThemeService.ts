@@ -39,7 +39,7 @@ export enum ThemeSettings {
 }
 
 export enum ThemeSettingDefaults {
-	COLOR_THEME_DARK = 'Default Dark+', // Void changed this from 'Default Dark Modern'
+	COLOR_THEME_DARK = 'Plaxio Dark', // Plaxio: use our custom dark theme
 	COLOR_THEME_LIGHT = 'Default Light Modern',
 	COLOR_THEME_HC_DARK = 'Default High Contrast',
 	COLOR_THEME_HC_LIGHT = 'Default High Contrast Light',
@@ -51,31 +51,31 @@ export enum ThemeSettingDefaults {
 	PRODUCT_ICON_THEME = 'Default',
 }
 
-export const COLOR_THEME_DARK_INITIAL_COLORS = { // Void changed this to match dark+
-	'activityBar.activeBorder': '#ffffff',
-	'activityBar.background': '#333333',
-	'activityBar.border': '#454545',
-	'activityBar.foreground': '#ffffff',
-	'activityBar.inactiveForeground': '#ffffff66',
-	'editorGroup.border': '#444444',
-	'editorGroupHeader.tabsBackground': '#252526',
-	'editorGroupHeader.tabsBorder': '#252526',
-	'statusBar.background': '#007ACC',
-	'statusBar.border': '#454545',
-	'statusBar.foreground': '#ffffff',
-	'statusBar.noFolderBackground': '#68217A',
-	'tab.activeBackground': '#2D2D2D',
-	'tab.activeBorder': '#ffffff',
-	'tab.activeBorderTop': '#007ACC',
+export const COLOR_THEME_DARK_INITIAL_COLORS = { // Plaxio: Cursor-inspired initial colors
+	'activityBar.activeBorder': '#528BFF',
+	'activityBar.background': '#181818',
+	'activityBar.border': '#252525',
+	'activityBar.foreground': '#FFFFFF',
+	'activityBar.inactiveForeground': '#7A7A7A',
+	'editorGroup.border': '#252525',
+	'editorGroupHeader.tabsBackground': '#181818',
+	'editorGroupHeader.tabsBorder': '#252525',
+	'statusBar.background': '#181818',
+	'statusBar.border': '#252525',
+	'statusBar.foreground': '#8B8B8B',
+	'statusBar.noFolderBackground': '#181818',
+	'tab.activeBackground': '#1e1e1e',
+	'tab.activeBorder': '#1e1e1e',
+	'tab.activeBorderTop': '#528BFF',
 	'tab.activeForeground': '#ffffff',
-	'tab.border': '#252526',
-	'textLink.foreground': '#3794ff',
-	'titleBar.activeBackground': '#3C3C3C',
+	'tab.border': '#252525',
+	'textLink.foreground': '#528BFF',
+	'titleBar.activeBackground': '#171717',
 	'titleBar.activeForeground': '#CCCCCC',
-	'titleBar.border': '#454545',
-	'titleBar.inactiveBackground': '#2C2C2C',
+	'titleBar.border': '#252525',
+	'titleBar.inactiveBackground': '#171717',
 	'titleBar.inactiveForeground': '#999999',
-	'welcomePage.tileBackground': '#252526'
+	'welcomePage.tileBackground': '#252525'
 };
 
 export const COLOR_THEME_LIGHT_INITIAL_COLORS = {

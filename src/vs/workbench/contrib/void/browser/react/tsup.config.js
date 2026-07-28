@@ -13,6 +13,7 @@ export default defineConfig({
 		'./src2/void-tooltip/index.tsx',
 		'./src2/void-onboarding/index.tsx',
 		'./src2/quick-edit-tsx/index.tsx',
+		'./src2/plc-editor-tsx/index.tsx',
 		'./src2/diff/index.tsx',
 	],
 	outDir: './out',
@@ -34,10 +35,18 @@ export default defineConfig({
 	external: [ // these imports should be kept external ../../../ are external (this is just an optimization so the output file doesn't re-implement functions)
 		new RegExp('../../../*.js'
 			.replaceAll('.', '\\.')
-			.replaceAll('*', '.*'))
+			.replaceAll('*', '.*')),
 	],
 	treeshake: true,
 	esbuildOptions(options) {
 		options.outbase = 'src2'  // tries copying the folder hierarchy starting at src2
+		// Only externalize modules that are accessed via require() at runtime inside
+		// async functions — NOT modules that transitive deps (socket.io-client, etc.)
+		// import at bundle time. 'events'/'buffer'/'util' have browser shims that
+		// esbuild inlines when bundling; externalizing them breaks those shims.
+		options.external = [
+			...(options.external ?? []),
+			'child_process', 'fs', 'os', 'path', 'crypto',
+		]
 	}
 })

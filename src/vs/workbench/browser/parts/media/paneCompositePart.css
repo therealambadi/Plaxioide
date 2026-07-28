@@ -17,7 +17,7 @@
 }
 
 .monaco-workbench .pane-composite-part > .title.has-composite-bar > .title-label {
-	display: none;
+	display: flex;
 }
 
 .monaco-workbench .pane-composite-part.empty > .title.has-composite-bar > .title-label {
@@ -28,6 +28,8 @@
 	padding-left: 4px;
 	padding-right: 4px;
 	background-color: var(--vscode-activityBarTop-background);
+	min-height: 35px; /* Plaxio: keep strip tall enough so icons don't clip */
+	box-sizing: border-box;
 }
 
 .monaco-workbench .pane-composite-part:not(.empty) > .header {
@@ -45,6 +47,12 @@
 
 .monaco-workbench .pane-composite-part > .header-or-footer .composite-bar-container {
 	flex: 1;
+	align-items: center;
+	justify-content: center;
+}
+
+.monaco-workbench .pane-composite-part > .header-or-footer > .composite-bar-container > .composite-bar > .monaco-action-bar .actions-container {
+	gap: 4px;
 }
 
 .monaco-workbench .pane-composite-part > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-label.codicon-more,
@@ -75,8 +83,27 @@
 
 .monaco-workbench .pane-composite-part > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item.icon,
 .monaco-workbench .pane-composite-part > .header-or-footer > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item.icon {
-	height: 35px; /* matches height of composite container */
-	padding: 0 3px;
+	height: 28px; /* uniform square hit area */
+	width: 28px;
+	padding: 0;
+	border-radius: 5px;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+}
+
+.monaco-workbench .pane-composite-part > .header-or-footer > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.icon:not(.checked):hover {
+	background-color: var(--vscode-activityBarTop-hoverBackground, rgba(255, 255, 255, 0.05));
+}
+
+.monaco-workbench .pane-composite-part > .header-or-footer > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.icon .action-label.codicon {
+	font-size: 16px;
+	line-height: 1; /* Plaxio: prevent glyph clipping at the bottom */
+	height: 100%;
+	box-sizing: border-box; /* Plaxio: keep 2px padding inside the 28px item so the label doesn't overflow and get clipped */
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
 
@@ -228,7 +255,7 @@
 .monaco-workbench .pane-composite-part > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.icon .badge.compact .badge-content,
 .monaco-workbench .pane-composite-part > .header-or-footer > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.icon .badge.compact .badge-content {
 	position: absolute;
-	top: 17px;
+	top: 14px; /* Plaxio: keep 13px badge fully inside the 28px action item (was 17px, clipped 2px at bottom) */
 	right: 0px;
 	font-size: 9px;
 	font-weight: 600;
@@ -281,12 +308,10 @@
 
 .monaco-workbench .pane-composite-part > .title > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item.icon.checked,
 .monaco-workbench .pane-composite-part > .header-or-footer > .composite-bar-container >.composite-bar > .monaco-action-bar .action-item.icon.checked {
-	background-color: var(--vscode-activityBarTop-activeBackground);
+	background-color: var(--vscode-activityBarTop-activeBackground, rgba(255, 255, 255, 0.08));
 }
 
-.monaco-workbench .pane-composite-part > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked .active-item-indicator:before,
 .monaco-workbench .pane-composite-part > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item:focus .active-item-indicator:before,
-.monaco-workbench .pane-composite-part > .header-or-footer > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.checked .active-item-indicator:before,
 .monaco-workbench .pane-composite-part > .header-or-footer > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item:focus .active-item-indicator:before {
 	content: "";
 	position: absolute;
@@ -297,6 +322,8 @@
 	border-top-width: 1px;
 	border-top-style: solid;
 }
+
+/* Plaxio: no underline for checked items — the active background pill is enough */
 
 .monaco-workbench .pane-composite-part > .title > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.clicked:not(.checked):focus .active-item-indicator:before,
 .monaco-workbench .pane-composite-part > .header-or-footer > .composite-bar-container > .composite-bar > .monaco-action-bar .action-item.clicked:not(.checked):focus .active-item-indicator:before {

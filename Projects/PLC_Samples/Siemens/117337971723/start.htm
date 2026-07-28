@@ -1,0 +1,269 @@
+﻿<!DOCTYPE html SYSTEM "about:legacy-compat">
+<html lang="de-de">
+<head>
+    <title></title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <!--meta http-equiv="refresh" content="0;url=de-DE/index.html"-->
+    <link rel="shortcut icon" href="en-US/img/favicon.ico"/>
+    <link rel="apple-touch-icon" href="en-US/img/apple-touch-icon.png" />
+    <script src="en-US/js/assets/jquery-2.2.3.min.js"></script>
+    <script src="en-US/js/languagedata.js"></script>
+
+    <script type="text/javascript">
+
+        var g_defaultLanguage = "en-US"; //Diese Variable muss beim Generieren erzeugt werden
+        var g_defaultPage = "index.html";
+        var g_debug = false;
+
+        ; "use strict";
+        (function ($) {
+            window.startpage = new function () {
+
+                var self = this;
+                // history API support
+                self.historySupport = window.history.pushState !== undefined && typeof window.history.pushState === "function";
+                self.isHistoryCall = false;
+                self.defaultLanguage = null;
+                self.debug = g_debug;
+
+                self.log = function (info) {
+                    if (self.debug) {
+                        console.log(info);
+                    }
+                }
+                self.init = function () {
+                    /// <summary>
+                    /// initialize class
+                    /// </summary>
+                    if (typeof (g_supportedGuiLanguages) == "undefined") {
+                        self.log("init g_supportedGuiLanguages not available (check production)");
+                        window.location = g_defaultLanguage + "/" + g_defaultPage;
+                        return;
+                    }
+
+                    self.defaultLanguage = self.getDefaultLanguage();
+                    self.initEventHashChange();
+                    self.checkHashAndNavigate();
+                };
+                self.initEventHashChange = function () {
+                    /// <summary>
+                    /// initialize event - hashchange
+                    /// </summary>
+                    $(window).bind('hashchange', function (e) {
+                        self.log("initEventHashChange: hashchanged");
+                        self.checkHashAndNavigate();
+                    });
+                }
+
+                self.checkHashAndNavigate = function () {
+                    /// <summary>
+                    /// get hash
+                    /// </summary>
+                    var hash = window.location.hash.substring(1); //Puts hash in variable, and removes the # character
+                    if (hash && hash != "") {
+                        self.navigateTo(hash);
+                    }
+                    else {
+                        self.navigateTo("");
+                    }
+                }
+
+                self.getPathOnly = function (windowLocationPathname) {
+                    /// <summary>
+                    /// get path from  window.location.pathname
+                    /// </summary>
+                    /// <param name="windowLocationPathname">window.location.pathname</param>
+                    /// <returns type="">only the path</returns>
+                    var pathArray = windowLocationPathname.split('/');
+                    var newURL = ""
+                    for (i = 1; i < pathArray.length - 1; i++) {
+                        newURL += pathArray[i];
+                        newURL += "/";
+                    }
+                    return newURL;
+                }
+                self.formatLanguage = function (language) {
+                    /// <summary>
+                    /// check and format language to  [lower]-[upper] e.g. de-DE
+                    /// </summary>
+                    /// <param name="language"></param>
+                    /// <returns type=""></returns>
+                    var parts = null;
+                    if (language && language.indexOf("-") > -1) {
+                        self.log("formatLanguage from language:" + language);
+                        parts = language.split("-");
+                        language = parts[0].toLowerCase();
+                        language += "-" + parts[1].toUpperCase();
+                        self.log("formatLanguage to language:" + language);
+                    }
+                    return language
+                }
+                self.navigateTo = function (hash) {
+                    /// <summary>
+                    /// naigate to document with hash
+                    /// </summary>
+                    /// <param name="hash"></param>
+
+                    var data = self.checkParameterFormatInHash(hash)
+                    if (data.debug) {
+                        self.debug = true;
+                    }
+                    if (data && data.language) {
+                        var lang = self.formatLanguage(data.language);
+                        self.log("navigateTo - parameter language:" + lang);
+                        if (g_supportedGuiLanguages && g_supportedGuiLanguages[lang]) {
+                            self.log("navigateTo - exists parameter language:" + lang);
+                            self.defaultLanguage = lang;
+                            self.log("navigateTo - self.defaultLanguage:" + self.defaultLanguage);
+                        }
+                    }
+
+                    if (g_supportedGuiLanguages && g_supportedGuiLanguages[self.defaultLanguage]) {
+                        var redirect = self.defaultLanguage + "/" + g_defaultPage;
+                        if (hash) {
+                            redirect += "#" + hash;
+                        }
+                        var newURL = "";
+                        self.log("navigateTo - redirect:" + redirect);
+
+                        //var secondLevelLocation = pathArray[0];
+                        //var parts = window.location.pathname.split('/');
+                        if (window.location.protocol.toLowerCase().indexOf("http") > -1) {
+                            //Http Call
+                            var locationPath = self.getPathOnly(window.location.pathname);
+                            self.log("navigateTo - >> Http Call - window.location.protocol:" + window.location.protocol);
+                            self.log("navigateTo - >> Http Call - window.location.host:" + window.location.host);
+                            newURL = window.location.protocol + "//" + window.location.host + "/" + locationPath;
+                            newURL += redirect;
+                            self.log("navigateTo - >> Http Call - newURL:" + newURL);
+                        }
+                        else {
+                            //File Call: (local)
+                            newURL = self.getPathOnly(window.location.pathname);
+                            newURL += redirect;
+                            //Bugfix for local navigation
+                            if (newURL.indexOf('%20') > 0) {
+                                newURL = newURL.replace(/%20/g, ' ');
+                            }
+                            //Bugfix Firefox redirect (TFS:7625)
+                            if (newURL.indexOf("file://") == -1) {
+                                newURL = "file://" + newURL;
+                            }
+                            self.log("navigateTo - >> File Call - newURL:" + newURL);
+                        }
+
+                        if (self.debug) {
+                            if (!confirm("Debugger-Stop: Wollen sie redirecten?")) {
+                                return;
+                            }
+                        }
+
+                        window.location = newURL;
+                    }
+                }
+
+                //#region --- helpers ---
+                self.checkParameterFormatInHash = function (hash) {
+                    /// <summary>
+                    /// .n.a future
+                    /// </summary>
+                    /// <param name="hash" type="string">der Hash</param>
+                    /// <returns type="object">Object mit den Paramtern aus dem Hash</returns>
+                    var pLanguage = null; //language
+                    var pDocumentPublishName = null; //documentPublishName
+                    var pMapId = null; //mapId
+                    var pHtmlFileName = null //htmlFileName
+                    var pDebug = null //debug
+                    var pTreeId = null //treeid
+                    var pApplicationId = null //applicationid
+
+                    var paramList = null;
+                    if (hash) {
+                        if (hash || hash.indexOf('&') > -1) {
+                            self.log("checkParameterFormatInHash -hash:" + hash);
+                            if (hash.indexOf('&') > -1) {
+                                paramList = hash.split('&');
+                            }
+                            else {
+                                paramList = new Array();
+                                paramList[paramList.length] = hash;
+                            }
+                            if (paramList && paramList.length) {
+                                for (var i = 0; i < paramList.length; i++) {
+                                    var keyValuePair = paramList[i].split("=");
+                                    var key = keyValuePair[0];
+                                    var value = keyValuePair[1];
+                                    if (key) {
+                                        switch (key.toLowerCase()) {
+                                            case "language":
+                                                pLanguage = value;
+                                                break;
+                                            case "documentpublishname":
+                                                pDocumentPublishName = value;
+                                                break;
+                                            case "mapid":
+                                                pMapId = value;
+                                                break;
+                                            case "htmlfilename":
+                                                pHtmlFileName = value;
+                                                break;
+                                            case "debug":
+                                                pDebug = (value && value.toLowerCase() == "true");
+                                                break;
+                                            case "applicationid":
+                                                pApplicationId = value;
+                                                break;
+                                            case "treeid":
+                                                pTreeId = value;
+                                                break;
+                                            default:
+                                                self.log("checkParameterFormatInHash - parameter not supported:" + key);
+                                                break;
+                                        }
+                                    }
+
+
+
+                                }
+                            }
+                        }
+
+                    }
+
+
+                    return { language: pLanguage, documentPublishName: pDocumentPublishName, mapId: pMapId, htmlFileName: pHtmlFileName, debug: pDebug, treeId: pTreeId, applicationId: pApplicationId };
+                }
+                self.getDefaultLanguage = function () {
+                    /// <summary>
+                    /// get the default language
+                    /// </summary>
+                    /// <returns type="sring">e.g de-DE</returns>
+                    return g_defaultLanguage;
+                }
+                //#endregion --- helpers ---
+            }
+        })(window.jQuery);
+
+
+
+        $(document).ready(function () {
+
+            try {
+                console.log("window.startpage.init()");
+                $(function () { window.startpage.init(); });
+            }
+            catch (e) {
+                window.location = g_defaultLanguage + "/" + g_defaultPage;
+            }
+        });
+
+    </script>
+</head>
+
+<body></body>
+</html>

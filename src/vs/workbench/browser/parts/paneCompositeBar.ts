@@ -334,13 +334,21 @@ export class PaneCompositeBar extends Disposable {
 		return compositeActions;
 	}
 
+	private static readonly _plaxioHiddenViewContainers = new Set([
+		'workbench.view.debug', 'workbench.view.remote',
+		'workbench.view.extension.test', 'workbench.view.extension.references-view',
+		'workbench.view.extensions',
+	]);
+
 	private onDidRegisterViewContainers(viewContainers: readonly ViewContainer[]): void {
 		for (const viewContainer of viewContainers) {
 			this.addComposite(viewContainer);
 
-			// Pin it by default if it is new
 			const cachedViewContainer = this.cachedViewContainers.filter(({ id }) => id === viewContainer.id)[0];
-			if (!cachedViewContainer) {
+			if (PaneCompositeBar._plaxioHiddenViewContainers.has(viewContainer.id)) {
+				this.compositeBar.unpin(viewContainer.id);
+				this.hideComposite(viewContainer.id);
+			} else if (!cachedViewContainer || viewContainer.id === 'workbench.view.plcEditor') {
 				this.compositeBar.pin(viewContainer.id);
 			}
 
@@ -645,6 +653,15 @@ export class PaneCompositeBar extends Disposable {
 	}
 
 	private storeCachedViewContainersState(cachedViewContainers: ICachedViewContainer[]): void {
+		// Always keep Logic (plcEditor) in the activity bar
+		if (this.options.pinnedViewContainersKey === 'workbench.activity.pinnedViewlets2') {
+			if (!cachedViewContainers.some((v) => v.id === 'workbench.view.plcEditor')) {
+				cachedViewContainers = [...cachedViewContainers, {
+					id: 'workbench.view.plcEditor', name: 'Logic', pinned: true, order: 7, visible: true, isBuiltin: true, views: [{}]
+				}];
+				cachedViewContainers.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+			}
+		}
 		const pinnedViewContainers = this.getPinnedViewContainers();
 		this.setPinnedViewContainers(cachedViewContainers.map(({ id, pinned, order }) => ({
 			id,
@@ -673,7 +690,8 @@ export class PaneCompositeBar extends Disposable {
 	}
 
 	private setPinnedViewContainers(pinnedViewContainers: IPinnedViewContainer[]): void {
-		this.pinnedViewContainersValue = JSON.stringify(pinnedViewContainers);
+		const filtered = pinnedViewContainers.filter(v => !PaneCompositeBar._plaxioHiddenViewContainers.has(v.id));
+		this.pinnedViewContainersValue = JSON.stringify(filtered);
 	}
 
 	private _pinnedViewContainersValue: string | undefined;
@@ -693,7 +711,20 @@ export class PaneCompositeBar extends Disposable {
 	}
 
 	private getStoredPinnedViewContainersValue(): string {
-		return this.storageService.get(this.options.pinnedViewContainersKey, StorageScope.PROFILE, '[]');
+		const raw = this.storageService.get(this.options.pinnedViewContainersKey, StorageScope.PROFILE, '[]');
+		try {
+			const parsed: IPinnedViewContainer[] = JSON.parse(raw);
+			const filtered = parsed.filter(v => !PaneCompositeBar._plaxioHiddenViewContainers.has(v.id));
+			// Always ensure the Logic (plcEditor) tab is pinned in the activity bar
+			if (this.options.pinnedViewContainersKey === 'workbench.activity.pinnedViewlets2') {
+				const hasLogic = filtered.some((v) => v.id === 'workbench.view.plcEditor');
+				if (!hasLogic) {
+					filtered.push({ id: 'workbench.view.plcEditor', pinned: true, visible: false, order: 7 });
+					filtered.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+				}
+			}
+			return JSON.stringify(filtered);
+		} catch { return raw; }
 	}
 
 	private setStoredPinnedViewContainersValue(value: string): void {
@@ -705,7 +736,8 @@ export class PaneCompositeBar extends Disposable {
 	}
 
 	private setPlaceholderViewContainers(placeholderViewContainers: IPlaceholderViewContainer[]): void {
-		this.placeholderViewContainersValue = JSON.stringify(placeholderViewContainers);
+		const filtered = placeholderViewContainers.filter(v => !PaneCompositeBar._plaxioHiddenViewContainers.has(v.id));
+		this.placeholderViewContainersValue = JSON.stringify(filtered);
 	}
 
 	private _placeholderViewContainersValue: string | undefined;

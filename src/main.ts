@@ -10,7 +10,11 @@ import { performance } from 'perf_hooks';
 import { configurePortable } from './bootstrap-node.js';
 import { bootstrapESM } from './bootstrap-esm.js';
 import { fileURLToPath } from 'url';
-import { app, protocol, crashReporter, Menu, contentTracing } from 'electron';
+import { createRequire as __createRequire } from 'module';
+// Workaround: Electron 34 on macOS 27 cannot static-ESM-import the 'electron' built-in module
+// (cjsPreparseModuleExports fails because the built-in has no CJS module.exports wrapper).
+// Using createRequire at runtime works because by then the process context is ready.
+const { app, protocol, crashReporter, Menu, contentTracing } = __createRequire(import.meta.url)('electron') as typeof import('electron');
 import minimist from 'minimist';
 import { product } from './bootstrap-meta.js';
 import { parse } from './vs/base/common/jsonc.js';
@@ -185,6 +189,13 @@ app.once('ready', function () {
 	}
 });
 
+// ── Dev-mode React bundle watcher ────────────────────────────────────────────
+// When VSCODE_DEV=1, watch the compiled React bundles using Node's native
+// fs.watch (kernel-level, no polling, works in Electron's main process).
+// HMR intentionally disabled — auto-reload interrupts active AI tasks.
+// To apply React changes: run buildandrun.sh which does a clean relaunch.
+function startReactHMR() { }
+
 async function onReady() {
 	perf.mark('code/mainAppReady');
 
@@ -197,6 +208,9 @@ async function onReady() {
 		await startup(codeCachePath, nlsConfig);
 	} catch (error) {
 		console.error(error);
+	} finally {
+		// Start HMR after app startup (runs in dev mode regardless of startup errors)
+		startReactHMR();
 	}
 }
 

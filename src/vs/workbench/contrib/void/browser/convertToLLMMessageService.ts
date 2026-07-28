@@ -36,6 +36,7 @@ type SimpleLLMMessage = {
 	role: 'assistant';
 	content: string;
 	anthropicReasoning: AnthropicReasoning[] | null;
+	geminiParts?: any[]; // raw Gemini parts with thoughtSignature for replay
 }
 
 
@@ -150,15 +151,16 @@ const prepareMessages_anthropic_tools = (messages: SimpleLLMMessage[], supportsA
 				const content = currMsg.content
 				newMessages[i] = {
 					role: 'assistant',
-					content: content ? [...currMsg.anthropicReasoning, { type: 'text' as const, text: content }] : currMsg.anthropicReasoning
-				}
+					content: content ? [...currMsg.anthropicReasoning, { type: 'text' as const, text: content }] : currMsg.anthropicReasoning,
+					geminiParts: currMsg.geminiParts,
+				} as any
 			}
 			else {
 				newMessages[i] = {
 					role: 'assistant',
 					content: currMsg.content,
-					// strip away anthropicReasoning
-				}
+					geminiParts: currMsg.geminiParts,
+				} as any
 			}
 			continue
 		}
@@ -218,8 +220,9 @@ const prepareMessages_XML_tools = (messages: SimpleLLMMessage[], supportsAnthrop
 			}
 			llmChatMessages.push({
 				role: 'assistant',
-				content
-			})
+				content,
+				...((c as any).geminiParts ? { geminiParts: (c as any).geminiParts } : {}),
+			} as any)
 		}
 		// add user or tool to the previous user message
 		else if (c.role === 'user' || c.role === 'tool') {
@@ -444,10 +447,19 @@ const prepareOpenAIOrAnthropicMessages = ({
 
 type GeminiUserPart = (GeminiLLMChatMessage & { role: 'user' })['parts'][0]
 type GeminiModelPart = (GeminiLLMChatMessage & { role: 'model' })['parts'][0]
-const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[]) => {
+const prepareGeminiMessages = (messages: AnthropicLLMChatMessage[], geminiPartsMap?: Map<number, any[]>) => {
 	let latestToolName: ToolName | undefined = undefined
-	const messages2: GeminiLLMChatMessage[] = messages.map((m): GeminiLLMChatMessage | null => {
+	const messages2: GeminiLLMChatMessage[] = messages.map((m, idx): GeminiLLMChatMessage | null => {
 		if (m.role === 'assistant') {
+			// If we have stored raw Gemini parts with thoughtSignatures, use them directly
+			const storedParts = geminiPartsMap?.get(idx)
+			if (storedParts && storedParts.length > 0) {
+				// Track the latest tool name for subsequent functionResponse messages
+				for (const p of storedParts) {
+					if (p.functionCall) latestToolName = p.functionCall.name
+				}
+				return { role: 'model', parts: storedParts } as GeminiLLMChatMessage
+			}
 			if (typeof m.content === 'string') {
 				return { role: 'model', parts: [{ text: m.content }] }
 			}
@@ -506,10 +518,17 @@ const prepareMessages = (params: {
 	const specialFormat = params.specialToolFormat // this is just for ts stupidness
 
 	// if need to convert to gemini style of messaes, do that (treat as anthropic style, then convert to gemini style)
-	if (params.providerName === 'gemini' || specialFormat === 'gemini-style') {
+	if (params.providerName === 'gemini' || params.providerName === 'googleVertex' || specialFormat === 'gemini-style') {
 		const res = prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat === 'gemini-style' ? 'anthropic-style' : undefined })
 		const messages = res.messages as AnthropicLLMChatMessage[]
-		const messages2 = prepareGeminiMessages(messages)
+		// Build geminiPartsMap from converted messages — geminiParts was preserved through prepareMessages_anthropic_tools
+		const geminiPartsMap = new Map<number, any[]>()
+		messages.forEach((m, idx) => {
+			if (m.role === 'assistant' && (m as any).geminiParts?.length) {
+				geminiPartsMap.set(idx, (m as any).geminiParts)
+			}
+		})
+		const messages2 = prepareGeminiMessages(messages, geminiPartsMap.size > 0 ? geminiPartsMap : undefined)
 		return { messages: messages2, separateSystemMessage: res.separateSystemMessage }
 	}
 
@@ -522,7 +541,7 @@ const prepareMessages = (params: {
 export interface IConvertToLLMMessageService {
 	readonly _serviceBrand: undefined;
 	prepareLLMSimpleMessages: (opts: { simpleMessages: SimpleLLMMessage[], systemMessage: string, modelSelection: ModelSelection | null, featureName: FeatureName }) => { messages: LLMChatMessage[], separateSystemMessage: string | undefined }
-	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
+	prepareLLMChatMessages: (opts: { chatMessages: ChatMessage[], chatMode: ChatMode, modelSelection: ModelSelection | null, isFollowUpTurn?: boolean }) => Promise<{ messages: LLMChatMessage[], separateSystemMessage: string | undefined }>
 	prepareFIMMessage(opts: { messages: LLMFIMMessage, }): { prefix: string, suffix: string, stopTokens: string[] }
 }
 
@@ -576,24 +595,51 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 
 
 	// system message
-	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined) => {
+	private _generateChatMessagesSystemMessage = async (chatMode: ChatMode, specialToolFormat: 'openai-style' | 'anthropic-style' | 'gemini-style' | undefined, userMessage?: string, isFollowUpTurn?: boolean) => {
 		const workspaceFolders = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath)
 
 		const openedURIs = this.modelService.getModels().filter(m => m.isAttachedToEditor()).map(m => m.uri.fsPath) || [];
 		const activeURI = this.editorService.activeEditor?.resource?.fsPath;
 
+		// On follow-up turns in agent loop, use reduced system message to cut input tokens
+		if (isFollowUpTurn) {
+			const wsPath = workspaceFolders[0] || '/unknown'
+			const minimalPrompt = `You are Plaxio, an IEC 61131-3 PLC programming assistant. Continue executing the task.
+The full schema and rules were provided in the first system message — refer to them.
+
+CRITICAL REMINDERS:
+- Workspace folder: ${wsPath}
+- ALL file paths MUST be absolute paths inside the workspace (e.g. "${wsPath}/filename.ld.json")
+- NEVER use bare filenames like "/file.json" — always prefix with the workspace path above
+- For PLC programs: use plc_write_program tool (saves .ld.json, .fbd.json, .sfc.json). Do NOT use rewrite_file for PLC program JSON. Do NOT auto-export ST.
+- For ST files: use plc_export_st tool ONLY when user explicitly asks
+- For HMI simulation: MANDATORY 7-step workflow — plaxio_get_project → plc_get_program → build JSON → save as ${wsPath}/<name>_hmi.json via rewrite_file → plaxio_save_view (full project JSON) → plaxio_set_tag_value (all tags, one call). ALL 7 steps required. File MUST be named *_hmi.json. Build real SVG geometry in svgcontent. NEVER call plaxio_generate_view.
+- NEVER mention tool names in user-facing responses. NEVER say "FUXA" — say "Plaxio Simulator".
+- NEVER narrate what you are about to do. Just do it silently and report only the final result.
+- ERROR HANDLING: When a tool fails, NEVER retry the exact same call. Diagnose and try a corrected approach. After 2 failures on the same step, skip it and tell the user what succeeded and what could not be completed.
+- KEEP RESPONSES MINIMAL. One short sentence after finishing. Do not list steps taken.
+- Only use rewrite_file/create_file_or_folder for non-PLC files (config, _hmi.json, docs, etc.)
+- Active file: ${activeURI || 'none'}`
+			console.log(`[Plaxio Perf] Follow-up turn: using minimal system prompt (${minimalPrompt.length} chars instead of full)`)
+			return minimalPrompt
+		}
+
+		const t0 = performance.now()
 		const directoryStr = await this.directoryStrService.getAllDirectoriesStr({
 			cutOffMessage: chatMode === 'agent' || chatMode === 'gather' ?
 				`...Directories string cut off, use tools to read more...`
 				: `...Directories string cut off, ask user for more if necessary...`
 		})
+		const t1 = performance.now()
 
 		const includeXMLToolDefinitions = !specialToolFormat
 
 		const mcpTools = this.mcpService.getMCPTools()
 
 		const persistentTerminalIDs = this.terminalToolService.listPersistentTerminalIds()
-		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions })
+		const systemMessage = chat_systemMessage({ workspaceFolders, openedURIs, directoryStr, activeURI, persistentTerminalIDs, chatMode, mcpTools, includeXMLToolDefinitions, userMessage })
+		const t2 = performance.now()
+		console.log(`[Plaxio Perf] Directory scan: ${(t1 - t0).toFixed(0)}ms, Prompt assembly: ${(t2 - t1).toFixed(0)}ms, System prompt length: ${systemMessage.length} chars`)
 		return systemMessage
 	}
 
@@ -613,6 +659,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 					role: m.role,
 					content: m.displayContent,
 					anthropicReasoning: m.anthropicReasoning,
+					geminiParts: (m as any).geminiParts,
 				})
 			}
 			else if (m.role === 'tool') {
@@ -667,7 +714,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		})
 		return { messages, separateSystemMessage };
 	}
-	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection }) => {
+	prepareLLMChatMessages: IConvertToLLMMessageService['prepareLLMChatMessages'] = async ({ chatMessages, chatMode, modelSelection, isFollowUpTurn }) => {
 		if (modelSelection === null) return { messages: [], separateSystemMessage: undefined }
 
 		const { overridesOfModel } = this.voidSettingsService.state
@@ -680,7 +727,8 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		} = getModelCapabilities(providerName, modelName, overridesOfModel)
 
 		const { disableSystemMessage } = this.voidSettingsService.state.globalSettings;
-		const fullSystemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat)
+		const lastUserMsg = [...chatMessages].reverse().find(m => m.role === 'user')
+		const fullSystemMessage = await this._generateChatMessagesSystemMessage(chatMode, specialToolFormat, lastUserMsg?.content, isFollowUpTurn)
 		const systemMessage = disableSystemMessage ? '' : fullSystemMessage;
 
 		const modelSelectionOptions = this.voidSettingsService.state.optionsOfModelSelection['Chat'][modelSelection.providerName]?.[modelSelection.modelName]

@@ -41,11 +41,22 @@ function code() {
 	export VSCODE_CLI=1
 	export ELECTRON_ENABLE_STACK_DUMPING=1
 	export ELECTRON_ENABLE_LOGGING=1
+	export GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS:-/Users/ambadi/Desktop/plc/videogen-496506-ed4ee8f8ddda.json}"
+	# Required: must be unset so require('electron') resolves the built-in Electron module,
+	# not the node_modules/electron npm package (which is just a path string).
+	unset ELECTRON_RUN_AS_NODE
 
 	DISABLE_TEST_EXTENSION="--disable-extension=vscode.vscode-api-tests"
 	if [[ "$@" == *"--extensionTestsPath"* ]]; then
 		DISABLE_TEST_EXTENSION=""
 	fi
+
+	# Kill any existing Volt/Void dev instance before launching
+	pkill -f "$NAME.app/Contents/MacOS/Electron" 2>/dev/null || true
+	sleep 0.5
+
+	# Remove stale socket so this launch creates a fresh instance instead of reusing an old one
+	rm -f "$HOME/Library/Application Support/code-oss-dev/1.99-main.sock" 2>/dev/null || true
 
 	# Launch Code
 	exec "$CODE" . $DISABLE_TEST_EXTENSION "$@"

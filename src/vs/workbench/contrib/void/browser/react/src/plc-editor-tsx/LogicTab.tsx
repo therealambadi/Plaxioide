@@ -61,10 +61,32 @@ const SubTabButton: React.FC<{
 );
 
 // ── Main LogicTab ─────────────────────────────────────────────────────────────
-export const LogicTab: React.FC<{ lockedLanguage?: EditorLanguage; onSwitchToCode?: () => void }> = ({ lockedLanguage }) => {
+export interface LoadProgramPayload {
+  language: EditorLanguage;
+  program: any;
+  tags: import('./logicStore.js').TagEntry[];
+  fileName: string;
+}
+
+export const LogicTab: React.FC<{ lockedLanguage?: EditorLanguage; onSwitchToCode?: () => void; loadProgram?: LoadProgramPayload | null }> = ({ lockedLanguage, loadProgram, onSwitchToCode }) => {
   const storeLanguage     = useLogicStoreSelector(s => s.activeLanguage);
   const activeLanguage    = lockedLanguage ?? storeLanguage;
   const crossRefPanelOpen = useLogicStoreSelector(s => s.crossRefPanelOpen);
+
+  // When the host passes a loadProgram payload (new file opened), load it into the store
+  useEffect(() => {
+    if (!loadProgram) return;
+    const { language, program, tags, fileName } = loadProgram;
+    logicStore.setActiveLanguage(language);
+    if (language === 'LD') logicStore.loadLadderProgram(program);
+    else if (language === 'FBD') logicStore.loadFBDProgram(program);
+    else if (language === 'SFC') logicStore.loadSFCProgram(program);
+    if (tags.length > 0) {
+      logicStore.setTagDatabase(tags);
+      logicStore.addAllTagsToWatchList(); // auto-populate tag monitor with all tags from this file
+    }
+    logicStore.addConsoleEntry('success', `Loaded ${language} program from ${fileName} (${tags.length} tags)`);
+  }, [loadProgram]);
 
   // Initialize CLM graph from logicStore on first mount
   useEffect(() => {
@@ -141,8 +163,7 @@ export const LogicTab: React.FC<{ lockedLanguage?: EditorLanguage; onSwitchToCod
       fontSize: 13,
       overflow: 'hidden',
     }}>
-      {/* ── Sub-tab bar (hidden when a single language is locked via file open) ── */}
-      {!lockedLanguage && (
+      {/* ── Sub-tab bar ── */}
       <div
         role="tablist"
         style={{
@@ -155,7 +176,7 @@ export const LogicTab: React.FC<{ lockedLanguage?: EditorLanguage; onSwitchToCod
           overflow: 'hidden',
         }}
       >
-        {([
+        {!lockedLanguage && ([
           ['LD',  'Ladder (LD)',   'IEC 61131-3 Ladder Diagram'],
           ['FBD', 'FBD',           'Function Block Diagram'],
           ['SFC', 'SFC',           'Sequential Function Chart'],
@@ -168,6 +189,14 @@ export const LogicTab: React.FC<{ lockedLanguage?: EditorLanguage; onSwitchToCod
             onClick={() => logicStore.setActiveLanguage(id)}
           />
         ))}
+        {lockedLanguage && (
+          <span style={{
+            padding: '0 14px', fontSize: 13, fontWeight: 600,
+            color: 'var(--vscode-tab-activeForeground)', alignSelf: 'center',
+          }}>
+            {lockedLanguage === 'LD' ? 'Ladder (LD)' : lockedLanguage === 'FBD' ? 'Function Block (FBD)' : 'Sequential Function Chart (SFC)'}
+          </span>
+        )}
         <div style={{ flex: 1 }} />
         <span style={{
           padding: '0 12px', fontSize: 10, letterSpacing: '0.04em',
@@ -177,7 +206,6 @@ export const LogicTab: React.FC<{ lockedLanguage?: EditorLanguage; onSwitchToCod
           IEC 61131-3
         </span>
       </div>
-      )}
 
       {/* ── Toolbar ── */}
       <LogicToolbar onExportPNG={exportPNG} onExportPDF={exportPDF} />

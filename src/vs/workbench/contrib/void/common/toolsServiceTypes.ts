@@ -60,6 +60,22 @@ export type BuiltinToolCallParams = {
 	'open_persistent_terminal': { cwd: string | null },
 	'run_persistent_command': { command: string; persistentTerminalId: string },
 	'kill_persistent_terminal': { persistentTerminalId: string },
+	// ---
+	'import_vendor_file': { uri: URI },
+	// ---
+	'plc_get_program': {},
+	'plc_validate': {},
+	'plc_write_program': { programJson: string },
+	'plc_set_tag_database': { tagsJson: string },
+	'plc_export_vendor': { format: 'PLCopen' | 'L5X' | 'SimaticML' },
+	'plc_export_st': {},
+	'plc_convert_language': { from: 'LD' | 'FBD' | 'SFC'; to: 'LD' | 'FBD' | 'SFC' | 'ST' },
+	// ---
+	'plaxio_get_project': {},
+	'plaxio_generate_view': { pouName?: string },
+	'plaxio_save_view': { viewJson: string },
+	'plaxio_set_tag_value': { tags: Array<{ tagName: string; value: string | number | boolean }> },
+	'plc_add_verify_property': { propertiesJson: string },
 }
 
 // RESULT OF TOOL CALL
@@ -81,6 +97,22 @@ export type BuiltinToolResultType = {
 	'run_persistent_command': { result: string; resolveReason: TerminalResolveReason; },
 	'open_persistent_terminal': { persistentTerminalId: string },
 	'kill_persistent_terminal': {},
+	// ---
+	'import_vendor_file': { projectName: string; pouCount: number; tagCount: number; unmappedCount: number; warnings: string[] },
+	// ---
+	'plc_get_program': { program: string },
+	'plc_validate': { issues: Array<{ message: string; severity: 'error' | 'warn'; location: string }> },
+	'plc_write_program': { ok: boolean; validationIssues: Array<{ message: string; severity: 'error' | 'warn'; location: string }>; stCode: string; stCodeForStrucpp: string; pouName: string },
+	'plc_set_tag_database': { ok: boolean; tagCount: number },
+	'plc_export_vendor': { content: string; format: string; fileName: string },
+	'plc_export_st': { stCode: string; stCodeForStrucpp: string; pouName: string; fileName: string },
+	'plc_convert_language': { sourceProgram: string; targetLanguage: string; guidance: string },
+	// ---
+	'plaxio_get_project': { project: string },
+	'plaxio_generate_view': { ok: boolean; viewName: string },
+	'plaxio_save_view': { viewId: string; viewName: string },
+	'plaxio_set_tag_value': { set: number; failed: string[] },
+	'plc_add_verify_property': { added: string[]; count: number },
 }
 
 

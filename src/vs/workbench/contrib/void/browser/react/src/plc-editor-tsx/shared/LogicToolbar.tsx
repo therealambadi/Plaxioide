@@ -1,13 +1,13 @@
 /*
  * LogicToolbar — top toolbar for the PLC Logic tab.
  * Styled with Void --void-* and --vscode-* tokens.
- *
- * Run/Stop are stubbed — will be wired to the JS simulation engine.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { logicStore, useLogicStoreSelector } from '../logicStore.js';
 import { useUndoRedo } from '../undoRedoStore.js';
+import { simulationEngine } from '../simulation/engine.js';
+import { buildCLMFromStore } from '../clm/builder.js';
 
 interface LogicToolbarProps {
   onExportPNG?: () => void;
@@ -56,19 +56,76 @@ export const LogicToolbar: React.FC<LogicToolbarProps> = ({ onExportPNG: _onExpo
   const zoom = useLogicStoreSelector(s => s.zoom);
   const showGrid = useLogicStoreSelector(s => s.showGrid);
   const scanRate = useLogicStoreSelector(s => s.scanRate);
+  const tagDatabase = useLogicStoreSelector(s => s.tagDatabase);
+  const ladderProgram = useLogicStoreSelector(s => s.ladderProgram);
   const { undo, redo, canUndo, canRedo } = useUndoRedo();
-  const [_launching, _setLaunching] = useState(false);
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatchIdx, setSearchMatchIdx] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Compute search matches: element IDs whose tag name includes the query
+  const searchMatches: Array<{ elementId: string; rungId: string }> = (() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    const results: Array<{ elementId: string; rungId: string }> = [];
+    for (const rung of ladderProgram.rungs) {
+      for (const el of rung.elements) {
+        const name = el.kind === 'block' ? (el as any).instanceName ?? '' : (el as any).tag?.name ?? '';
+        if (name.toLowerCase().includes(q)) results.push({ elementId: el.id, rungId: rung.id });
+      }
+      for (const branch of rung.branches) {
+        for (const el of branch.elements) {
+          const name = el.kind === 'block' ? (el as any).instanceName ?? '' : (el as any).tag?.name ?? '';
+          if (name.toLowerCase().includes(q)) results.push({ elementId: el.id, rungId: rung.id });
+        }
+      }
+    }
+    // Also search tag database names
+    for (const tag of tagDatabase) {
+      if (tag.name.toLowerCase().includes(q) && !results.some(r => r.elementId === tag.name)) {
+        // no-op — tag database matches inform count but elements are the nav targets
+      }
+    }
+    return results;
+  })();
+
+  // Navigate to current match
+  const navigateToMatch = useCallback((idx: number) => {
+    if (searchMatches.length === 0) return;
+    const match = searchMatches[idx % searchMatches.length];
+    logicStore.setSelection([match.elementId], match.rungId);
+  }, [searchMatches]);
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') { setSearchOpen(false); setSearchQuery(''); return; }
+    if (e.key === 'Enter') {
+      const next = (searchMatchIdx + 1) % Math.max(searchMatches.length, 1);
+      setSearchMatchIdx(next);
+      navigateToMatch(next);
+    }
+  };
 
   const isRunning = monitorMode === 'running';
-  const isMonitoring = monitorMode !== 'stopped';
 
-  // Stubbed — will be wired to JS simulation engine in the next phase
   const handleRun = useCallback(() => {
-    console.log('[LogicToolbar] Run — simulation engine not yet wired');
+    const state = logicStore.getState();
+    const clm = buildCLMFromStore(state.ladderProgram, state.fbdProgram, state.sfcProgram, state.tagDatabase);
+    const initialValues: Record<string, any> = {};
+    for (const tag of state.tagDatabase) {
+      if (tag.forcedValue !== undefined) {
+        simulationEngine.forceTag(tag.name, tag.forcedValue === 'TRUE' || tag.forcedValue === 'true' ? true : tag.forcedValue === 'FALSE' || tag.forcedValue === 'false' ? false : tag.forcedValue);
+      }
+      initialValues[tag.name] = tag.forcedValue ?? tag.initialValue ?? tag.liveValue ?? false;
+    }
+    simulationEngine.start(clm, state.scanRate, initialValues);
+    logicStore.setMonitorMode('running');
   }, []);
 
   const handleStop = useCallback(() => {
-    console.log('[LogicToolbar] Stop — simulation engine not yet wired');
+    simulationEngine.stop();
+    logicStore.setMonitorMode('stopped');
   }, []);
 
   return (
@@ -80,32 +137,30 @@ export const LogicToolbar: React.FC<LogicToolbarProps> = ({ onExportPNG: _onExpo
       height: 36, boxSizing: 'border-box', flexShrink: 0,
       overflow: 'hidden',
     }}>
+      {/* Single Run/Stop toggle button */}
       <Btn
-        title={isRunning ? 'PLC running — click Stop to halt' : 'Run simulation'}
+        title={isRunning ? 'Stop simulation' : 'Run simulation'}
         active={isRunning}
+        danger={isRunning}
         onClick={isRunning ? handleStop : handleRun}
       >
-        {isRunning ? '⏹' : '▶'} {isRunning ? 'Stop' : 'Run'}
+        {isRunning ? '⏹ Stop' : '▶ Run'}
       </Btn>
 
-      <Btn title="Stop simulation" disabled={!isMonitoring} danger onClick={handleStop}>
-        ⏹ Stop
-      </Btn>
-
-      {isMonitoring && <>
-        <Sep />
-        <span style={{ color: 'var(--vscode-descriptionForeground)', fontSize: 11 }}>Scan:</span>
-        <select
-          value={scanRate}
-          onChange={e => logicStore.setScanRate(Number(e.target.value))}
-          style={{
-            background: 'var(--vscode-input-background)', border: '1px solid var(--vscode-input-border, #3c3c3c)',
-            borderRadius: 3, color: 'var(--vscode-foreground)', fontSize: 11, padding: '1px 4px',
-          }}
-        >
-          {[10, 50, 100, 500, 1000].map(v => <option key={v} value={v}>{v < 1000 ? `${v}ms` : '1s'}</option>)}
-        </select>
-      </>}
+      {/* Scan rate — always visible */}
+      <Sep />
+      <span style={{ color: 'var(--vscode-descriptionForeground)', fontSize: 11 }}>Scan:</span>
+      <select
+        value={scanRate}
+        onChange={e => logicStore.setScanRate(Number(e.target.value))}
+        style={{
+          background: 'var(--vscode-input-background)', border: '1px solid var(--vscode-input-border, #3c3c3c)',
+          borderRadius: 3, color: 'var(--vscode-foreground)', fontSize: 11, padding: '1px 4px',
+          cursor: 'pointer',
+        }}
+      >
+        {[10, 50, 100, 500, 1000].map(v => <option key={v} value={v}>{v < 1000 ? `${v}ms` : '1s'}</option>)}
+      </select>
 
       <Sep />
 
@@ -127,7 +182,32 @@ export const LogicToolbar: React.FC<LogicToolbarProps> = ({ onExportPNG: _onExpo
 
       <Sep />
 
-      <Btn title="Search tags" onClick={() => {}}>🔍 Search</Btn>
+      {searchOpen ? (
+        <>
+          <input
+            ref={searchInputRef}
+            autoFocus
+            value={searchQuery}
+            onChange={e => { setSearchQuery(e.target.value); setSearchMatchIdx(0); }}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Search tags…"
+            style={{
+              background: 'var(--vscode-input-background)', border: '1px solid var(--vscode-input-border, #3c3c3c)',
+              borderRadius: 3, color: 'var(--vscode-foreground)', fontSize: 11, padding: '2px 6px',
+              outline: 'none', width: 140, flexShrink: 0,
+            }}
+          />
+          <span style={{ color: 'var(--vscode-descriptionForeground)', fontSize: 11, flexShrink: 0 }}>
+            {searchQuery ? `${searchMatches.length} result${searchMatches.length !== 1 ? 's' : ''}` : ''}
+          </span>
+          <Btn title="Close search (Esc)" onClick={() => { setSearchOpen(false); setSearchQuery(''); }}>✕</Btn>
+        </>
+      ) : (
+        <Btn title="Search tags" onClick={() => { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0); }}>🔍 Search</Btn>
+      )}
+
+      <div style={{ flex: 1 }} />
+      <Btn title="Open Export tab" onClick={() => window.postMessage({ type: 'volt:open-export' }, '*')}>⬆ Export</Btn>
 
     </div>
   );

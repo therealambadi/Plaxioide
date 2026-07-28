@@ -42,8 +42,14 @@ import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 
 
 // related to retrying when LLM message has error
-const CHAT_RETRIES = 3
+const CHAT_RETRIES = 2
 const RETRY_DELAY = 2500
+const RATE_LIMIT_BASE_DELAY = 10000 // 10s base for 429, doubles each attempt
+
+function isRateLimitError(error: any): boolean {
+	const msg = String(error?.message ?? error ?? '')
+	return msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('rate_limit') || msg.includes('Rate limit') || msg.includes('Too Many Requests')
+}
 
 
 const findStagingSelectionIndex = (currentSelections: StagingSelectionItem[] | undefined, newSelection: StagingSelectionItem): number | null => {
@@ -280,7 +286,7 @@ export interface IChatThreadService {
 	editUserMessageAndStreamResponse({ userMessage, messageIdx, threadId }: { userMessage: string, messageIdx: number, threadId: string }): Promise<void>;
 
 	// call to add a message
-	addUserMessageAndStreamResponse({ userMessage, threadId }: { userMessage: string, threadId: string }): Promise<void>;
+	addUserMessageAndStreamResponse({ userMessage, displayMessage, attachedFileMeta, threadId }: { userMessage: string, displayMessage?: string, attachedFileMeta?: Array<{ name: string; ext: string; kind: 'text' | 'image'; dataUrl?: string }>, threadId: string }): Promise<void>;
 
 	// approve/reject
 	approveLatestToolRequest(threadId: string): void;
@@ -777,11 +783,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
 
 			const chatMessages = this.state.allThreads[threadId]?.messages ?? []
+			const tPrepStart = performance.now()
 			const { messages, separateSystemMessage } = await this._convertToLLMMessagesService.prepareLLMChatMessages({
 				chatMessages,
 				modelSelection,
-				chatMode
+				chatMode,
+				isFollowUpTurn: nMessagesSent > 1,
 			})
+			const tPrepEnd = performance.now()
+			console.log(`[Plaxio Perf] prepareLLMChatMessages: ${(tPrepEnd - tPrepStart).toFixed(0)}ms`)
 
 			if (interruptedWhenIdle) {
 				this._setStreamState(threadId, undefined)
@@ -795,12 +805,16 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				nAttempts += 1
 
 				type ResTypes =
-					| { type: 'llmDone', toolCall?: RawToolCallObj, info: { fullText: string, fullReasoning: string, anthropicReasoning: AnthropicReasoning[] | null } }
+					| { type: 'llmDone', toolCall?: RawToolCallObj, info: { fullText: string, fullReasoning: string, anthropicReasoning: AnthropicReasoning[] | null, geminiParts?: any[] } }
 					| { type: 'llmError', error?: { message: string; fullError: Error | null; } }
 					| { type: 'llmAborted' }
 
 				let resMessageIsDonePromise: (res: ResTypes) => void // resolves when user approves this tool use (or if tool doesn't require approval)
 				const messageIsDonePromise = new Promise<ResTypes>((res, rej) => { resMessageIsDonePromise = res })
+
+				const tLLMStart = performance.now()
+				let tFirstToken: number | null = null
+					let tokenChunks = 0
 
 				const llmCancelToken = this._llmMessageService.sendLLMMessage({
 					messagesType: 'chatMessages',
@@ -812,10 +826,13 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					logging: { loggingName: `Chat - ${chatMode}`, loggingExtras: { threadId, nMessagesSent, chatMode } },
 					separateSystemMessage: separateSystemMessage,
 					onText: ({ fullText, fullReasoning, toolCall }) => {
+						tokenChunks++
+							if (!tFirstToken) { tFirstToken = performance.now(); console.log(`[Plaxio Perf] Time to first token: ${(tFirstToken - tLLMStart).toFixed(0)}ms`) }
 						this._setStreamState(threadId, { isRunning: 'LLM', llmInfo: { displayContentSoFar: fullText, reasoningSoFar: fullReasoning, toolCallSoFar: toolCall ?? null }, interrupt: Promise.resolve(() => { if (llmCancelToken) this._llmMessageService.abort(llmCancelToken) }) })
 					},
-					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, }) => {
-						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning } }) // resolve with tool calls
+					onFinalMessage: async ({ fullText, fullReasoning, toolCall, anthropicReasoning, _geminiParts }: any) => {
+							console.log(`[Plaxio Perf] Stream complete: ${tokenChunks} chunks, ${fullText.length} chars, total ${(performance.now() - tLLMStart).toFixed(0)}ms`)
+						resMessageIsDonePromise({ type: 'llmDone', toolCall, info: { fullText, fullReasoning, anthropicReasoning, geminiParts: _geminiParts } }) // resolve with tool calls
 					},
 					onError: async (error) => {
 						resMessageIsDonePromise({ type: 'llmError', error: error })
@@ -850,10 +867,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				// llm res error
 				else if (llmRes.type === 'llmError') {
 					// error, should retry
-					if (nAttempts < CHAT_RETRIES) {
+					if (nAttempts < CHAT_RETRIES && !isRateLimitError(llmRes.error)) {
 						shouldRetryLLM = true
+						const delay = RETRY_DELAY
 						this._setStreamState(threadId, { isRunning: 'idle', interrupt: idleInterruptor })
-						await timeout(RETRY_DELAY)
+						await timeout(delay)
 						if (interruptedWhenIdle) {
 							this._setStreamState(threadId, undefined)
 							return
@@ -877,7 +895,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				// llm res success
 				const { toolCall, info } = llmRes
 
-				this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning })
+				this._addMessageToThread(threadId, { role: 'assistant', displayContent: info.fullText, reasoning: info.fullReasoning, anthropicReasoning: info.anthropicReasoning, geminiParts: info.geminiParts })
 
 				this._setStreamState(threadId, { isRunning: 'idle', interrupt: 'not_needed' }) // just decorative for clarity
 
@@ -1231,7 +1249,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 
-	private async _addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId }: { userMessage: string, _chatSelections?: StagingSelectionItem[], threadId: string }) {
+	private async _addUserMessageAndStreamResponse({ userMessage, displayMessage, attachedFileMeta, _chatSelections, threadId }: { userMessage: string, displayMessage?: string, attachedFileMeta?: Array<{ name: string; ext: string; kind: 'text' | 'image'; dataUrl?: string }>, _chatSelections?: StagingSelectionItem[], threadId: string }) {
 		const thread = this.state.allThreads[threadId]
 		if (!thread) return // should never happen
 
@@ -1251,7 +1269,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const currSelns: StagingSelectionItem[] = _chatSelections ?? thread.state.stagingSelections
 
 		const userMessageContent = await chat_userMessageContent(instructions, currSelns, { directoryStrService: this._directoryStringService, fileService: this._fileService }) // user message + names of files (NOT content)
-		const userHistoryElt: ChatMessage = { role: 'user', content: userMessageContent, displayContent: instructions, selections: currSelns, state: defaultMessageState }
+		const userHistoryElt: ChatMessage = { role: 'user', content: userMessageContent, displayContent: displayMessage ?? instructions, selections: currSelns, attachedFileMeta, state: defaultMessageState }
 		this._addMessageToThread(threadId, userHistoryElt)
 
 		this._setThreadState(threadId, { currCheckpointIdx: null }) // no longer at a checkpoint because started streaming
@@ -1268,7 +1286,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 
-	async addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId }: { userMessage: string, _chatSelections?: StagingSelectionItem[], threadId: string }) {
+	async addUserMessageAndStreamResponse({ userMessage, displayMessage, attachedFileMeta, _chatSelections, threadId }: { userMessage: string, displayMessage?: string, attachedFileMeta?: Array<{ name: string; ext: string; kind: 'text' | 'image'; dataUrl?: string }>, _chatSelections?: StagingSelectionItem[], threadId: string }) {
 		const thread = this.state.allThreads[threadId];
 		if (!thread) return
 
@@ -1291,7 +1309,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 		}
 
 		// Now call the original method to add the user message and stream the response
-		await this._addUserMessageAndStreamResponse({ userMessage, _chatSelections, threadId });
+		await this._addUserMessageAndStreamResponse({ userMessage, displayMessage, attachedFileMeta, _chatSelections, threadId });
 
 	}
 

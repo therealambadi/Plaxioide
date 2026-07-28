@@ -344,6 +344,11 @@ import './contrib/typeHierarchy/browser/typeHierarchy.contribution.js';
 import './contrib/codeEditor/browser/outline/documentSymbolsOutline.js';
 import './contrib/outline/browser/outline.contribution.js';
 
+// PLC Library panel in Explorer sidebar (must be after explorerViewlet.js)
+import './contrib/void/browser/plcExplorerPanel.js';
+import './contrib/void/browser/plcEditorPane.js';
+import './contrib/void/browser/logicEditorPane.js';
+
 // Language Detection
 import './contrib/languageDetection/browser/languageDetection.contribution.js';
 

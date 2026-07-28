@@ -83,7 +83,7 @@ export class SidebarPart extends AbstractPaneCompositePart {
 	) {
 		super(
 			Parts.SIDEBAR_PART,
-			{ hasTitle: true, borderWidth: () => (this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder)) ? 1 : 0 },
+			{ hasTitle: false, borderWidth: () => (this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder)) ? 1 : 0 },
 			SidebarPart.activeViewletSettingsKey,
 			ActiveViewletContext.bindTo(contextKeyService),
 			SidebarFocusContext.bindTo(contextKeyService),
@@ -113,7 +113,24 @@ export class SidebarPart extends AbstractPaneCompositePart {
 		}));
 
 		this.registerActions();
+
+		// PLC: when the active composite changes, re-run layout to show/hide Library panel
+		this._register(this.onDidPaneCompositeOpen((_e) => {
+			if (this._plcLastWidth) {
+				this.layout(this._plcLastWidth, this._plcLastHeight!, this._plcLastTop!, this._plcLastLeft!);
+			}
+		}));
 	}
+
+	// PLC Library panel split state
+	private _plcLastWidth: number | undefined;
+	private _plcLastHeight: number | undefined;
+	private _plcLastTop: number | undefined;
+	private _plcLastLeft: number | undefined;
+	private _plcSplitRatio: number | undefined;
+	private _plcSash: HTMLElement | undefined;
+	private _plcLibraryPanel: HTMLElement | undefined;
+	private _plcDragging: boolean = false;
 
 	private onDidChangeActivityBarLocation(): void {
 		this.activityBarPart.hide();
@@ -156,7 +173,121 @@ export class SidebarPart extends AbstractPaneCompositePart {
 			return;
 		}
 
+		this._plcLastWidth = width;
+		this._plcLastHeight = height;
+		this._plcLastTop = top;
+		this._plcLastLeft = left;
+		const activeId = this.getActiveComposite()?.getId();
+		const isExplorer = activeId === 'workbench.view.explorer';
+
+		// Lazily create Library panel elements on first Explorer layout
+		if (isExplorer && !this._plcLibraryPanel) {
+			this._plcInitLibrary();
+			console.log('[PlcLibrary] init done, panel:', !!this._plcLibraryPanel, 'h:', height);
+		}
+
 		super.layout(width, height, top, left);
+
+		if (isExplorer && this._plcLibraryPanel) {
+			const splitRatio = this._plcSplitRatio || 0.55;
+			const sashH = 4;
+			const contentArea = this.getContentArea();
+			if (!contentArea) { return; }
+			const fullH = parseInt(contentArea.style.height) || contentArea.getBoundingClientRect().height;
+			const topH = Math.max(80, Math.floor(fullH * splitRatio));
+			const bottomH = Math.max(80, fullH - topH - sashH);
+
+			// Constrain explorer viewlet
+			const explorerEl = contentArea.querySelector('#workbench\\.view\\.explorer') as HTMLElement | null;
+			if (explorerEl) {
+				explorerEl.style.height = topH + 'px';
+				explorerEl.style.maxHeight = topH + 'px';
+				explorerEl.style.overflow = 'hidden';
+			}
+
+			// Re-layout composite with reduced height
+			const composite = this.getActivePaneComposite();
+			if (composite) {
+				try { composite.layout({ width, height: topH }); } catch { /* ignore */ }
+			}
+
+			if (this._plcSash) {
+				this._plcSash.style.top = topH + 'px';
+				this._plcSash.style.display = 'block';
+			}
+			this._plcLibraryPanel.style.top = (topH + sashH) + 'px';
+			this._plcLibraryPanel.style.height = bottomH + 'px';
+			this._plcLibraryPanel.style.display = 'flex';
+		} else {
+			if (this._plcSash) { this._plcSash.style.display = 'none'; }
+			if (this._plcLibraryPanel) { this._plcLibraryPanel.style.display = 'none'; }
+			const contentArea = this.getContentArea();
+			if (contentArea) {
+				const explorerEl = contentArea.querySelector('#workbench\\.view\\.explorer') as HTMLElement | null;
+				if (explorerEl) {
+					explorerEl.style.height = '';
+					explorerEl.style.maxHeight = '';
+					explorerEl.style.overflow = '';
+				}
+			}
+		}
+	}
+
+	private _plcInitLibrary(): void {
+		const contentArea = this.getContentArea();
+		if (!contentArea) { return; }
+		contentArea.style.position = 'relative';
+		contentArea.style.overflow = 'hidden';
+
+		// Sash
+		const sash = document.createElement('div');
+		sash.style.cssText = 'position:absolute;left:0;width:100%;height:4px;cursor:ns-resize;background:transparent;z-index:100;transition:background 0.1s;display:none;';
+		sash.addEventListener('mouseenter', () => { sash.style.background = 'var(--vscode-sash-hoverBorder,var(--vscode-focusBorder,#007fd4))'; });
+		sash.addEventListener('mouseleave', () => { if (!this._plcDragging) { sash.style.background = 'transparent'; } });
+		contentArea.appendChild(sash);
+		this._plcSash = sash;
+
+		// Library panel
+		const panel = document.createElement('div');
+		panel.style.cssText = 'position:absolute;left:0;width:100%;display:none;flex-direction:column;overflow:hidden;background:var(--vscode-sideBar-background);';
+		contentArea.appendChild(panel);
+		this._plcLibraryPanel = panel;
+		this._plcSplitRatio = 0.55;
+		this._plcDragging = false;
+
+		// Content (React mount)
+		const content = document.createElement('div');
+		content.style.cssText = 'flex:1 1 0;overflow:hidden;display:flex;flex-direction:column;';
+		panel.appendChild(content);
+
+		// React mount will be handled by plcExplorerPanel.js which finds this element by id
+		content.id = 'plc-library-mount-point';
+
+		// Sash drag
+		sash.addEventListener('mousedown', (e) => {
+			e.preventDefault();
+			this._plcDragging = true;
+			const startY = e.clientY;
+			const startRatio = this._plcSplitRatio!;
+			sash.style.background = 'var(--vscode-sash-hoverBorder,var(--vscode-focusBorder,#007fd4))';
+			const onMove = (e2: MouseEvent) => {
+				const ca = this.getContentArea();
+				const fullH = ca ? ca.getBoundingClientRect().height : 600;
+				const delta = e2.clientY - startY;
+				this._plcSplitRatio = Math.max(0.15, Math.min(0.85, startRatio + delta / fullH));
+				if (this._plcLastWidth) {
+					this.layout(this._plcLastWidth, this._plcLastHeight!, this._plcLastTop!, this._plcLastLeft!);
+				}
+			};
+			const onUp = () => {
+				this._plcDragging = false;
+				sash.style.background = 'transparent';
+				document.removeEventListener('mousemove', onMove);
+				document.removeEventListener('mouseup', onUp);
+			};
+			document.addEventListener('mousemove', onMove);
+			document.addEventListener('mouseup', onUp);
+		});
 	}
 
 	protected override getTitleAreaDropDownAnchorAlignment(): AnchorAlignment {
@@ -206,16 +337,11 @@ export class SidebarPart extends AbstractPaneCompositePart {
 	}
 
 	protected shouldShowCompositeBar(): boolean {
-		const activityBarPosition = this.configurationService.getValue<ActivityBarPosition>(LayoutSettings.ACTIVITY_BAR_LOCATION);
-		return activityBarPosition === ActivityBarPosition.TOP || activityBarPosition === ActivityBarPosition.BOTTOM;
+		return true;
 	}
 
 	private shouldShowActivityBar(): boolean {
-		if (this.shouldShowCompositeBar()) {
-			return false;
-		}
-
-		return this.configurationService.getValue(LayoutSettings.ACTIVITY_BAR_LOCATION) !== ActivityBarPosition.HIDDEN;
+		return false;
 	}
 
 	protected getCompositeBarPosition(): CompositeBarPosition {

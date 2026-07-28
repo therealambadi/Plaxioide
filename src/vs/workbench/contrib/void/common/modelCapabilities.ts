@@ -10,60 +10,9 @@ import { FeatureName, ModelSelectionOptions, OverridesOfModel, ProviderName } fr
 
 
 export const defaultProviderSettings = {
-	anthropic: {
-		apiKey: '',
-	},
-	openAI: {
-		apiKey: '',
-	},
-	deepseek: {
-		apiKey: '',
-	},
-	ollama: {
-		endpoint: 'http://127.0.0.1:11434',
-	},
-	vLLM: {
-		endpoint: 'http://localhost:8000',
-	},
-	openRouter: {
-		apiKey: '',
-	},
-	openAICompatible: {
-		endpoint: '',
-		apiKey: '',
-		headersJSON: '{}', // default to {}
-	},
-	gemini: {
-		apiKey: '',
-	},
-	groq: {
-		apiKey: '',
-	},
-	xAI: {
-		apiKey: '',
-	},
-	mistral: {
-		apiKey: '',
-	},
-	lmStudio: {
-		endpoint: 'http://localhost:1234',
-	},
-	liteLLM: { // https://docs.litellm.ai/docs/providers/openai_compatible
-		endpoint: '',
-	},
-	googleVertex: { // google https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library
-		region: 'us-west2',
+	googleVertex: {
+		region: 'global',
 		project: '',
-	},
-	microsoftAzure: { // microsoft Azure Foundry
-		project: '', // really 'resource'
-		apiKey: '',
-		azureApiVersion: '2024-05-01-preview',
-	},
-	awsBedrock: {
-		apiKey: '',
-		region: 'us-east-1', // add region setting
-		endpoint: '', // optionally allow overriding default
 	},
 
 } as const
@@ -72,88 +21,9 @@ export const defaultProviderSettings = {
 
 
 export const defaultModelsOfProvider = {
-	openAI: [ // https://platform.openai.com/docs/models/gp
-		'gpt-4.1',
-		'gpt-4.1-mini',
-		'gpt-4.1-nano',
-		'o3',
-		'o4-mini',
-		// 'o1',
-		// 'o1-mini',
-		// 'gpt-4o',
-		// 'gpt-4o-mini',
+	googleVertex: [
+		'gemini-2.5-flash',
 	],
-	anthropic: [ // https://docs.anthropic.com/en/docs/about-claude/models
-		'claude-opus-4-0',
-		'claude-sonnet-4-0',
-		'claude-3-7-sonnet-latest',
-		'claude-3-5-sonnet-latest',
-		'claude-3-5-haiku-latest',
-		'claude-3-opus-latest',
-	],
-	xAI: [ // https://docs.x.ai/docs/models?cluster=us-east-1
-		'grok-2',
-		'grok-3',
-		'grok-3-mini',
-		'grok-3-fast',
-		'grok-3-mini-fast'
-	],
-	gemini: [ // https://ai.google.dev/gemini-api/docs/models/gemini
-		'gemini-2.5-pro-exp-03-25',
-		'gemini-2.5-flash-preview-04-17',
-		'gemini-2.0-flash',
-		'gemini-2.0-flash-lite',
-		'gemini-2.5-pro-preview-05-06',
-	],
-	deepseek: [ // https://api-docs.deepseek.com/quick_start/pricing
-		'deepseek-chat',
-		'deepseek-reasoner',
-	],
-	ollama: [ // autodetected
-	],
-	vLLM: [ // autodetected
-	],
-	lmStudio: [], // autodetected
-
-	openRouter: [ // https://openrouter.ai/models
-		// 'anthropic/claude-3.7-sonnet:thinking',
-		'anthropic/claude-opus-4',
-		'anthropic/claude-sonnet-4',
-		'qwen/qwen3-235b-a22b',
-		'anthropic/claude-3.7-sonnet',
-		'anthropic/claude-3.5-sonnet',
-		'deepseek/deepseek-r1',
-		'deepseek/deepseek-r1-zero:free',
-		'mistralai/devstral-small:free'
-		// 'openrouter/quasar-alpha',
-		// 'google/gemini-2.5-pro-preview-03-25',
-		// 'mistralai/codestral-2501',
-		// 'qwen/qwen-2.5-coder-32b-instruct',
-		// 'mistralai/mistral-small-3.1-24b-instruct:free',
-		// 'google/gemini-2.0-flash-lite-preview-02-05:free',
-		// 'google/gemini-2.0-pro-exp-02-05:free',
-		// 'google/gemini-2.0-flash-exp:free',
-	],
-	groq: [ // https://console.groq.com/docs/models
-		'qwen-qwq-32b',
-		'llama-3.3-70b-versatile',
-		'llama-3.1-8b-instant',
-		// 'qwen-2.5-coder-32b', // preview mode (experimental)
-	],
-	mistral: [ // https://docs.mistral.ai/getting-started/models/models_overview/
-		'codestral-latest',
-		'devstral-small-latest',
-		'mistral-large-latest',
-		'mistral-medium-latest',
-		'ministral-3b-latest',
-		'ministral-8b-latest',
-	],
-	openAICompatible: [], // fallback
-	googleVertex: [],
-	microsoftAzure: [],
-	awsBedrock: [],
-	liteLLM: [],
-
 
 } as const satisfies Record<ProviderName, string[]>
 
@@ -414,6 +284,7 @@ const extensiveModelOptionsFallback: VoidStaticProviderInfo['modelOptionsFallbac
 		};
 	}
 
+	if (lower.includes('gemini') && (lower.includes('3.') || lower.includes('3-'))) return toFallback(geminiModelOptions, 'gemini-2.5-flash')
 	if (lower.includes('gemini') && (lower.includes('2.5') || lower.includes('2-5'))) return toFallback(geminiModelOptions, 'gemini-2.5-pro-exp-03-25')
 
 	if (lower.includes('claude-3-5') || lower.includes('claude-3.5')) return toFallback(anthropicModelOptions, 'claude-3-5-sonnet-20241022')
@@ -806,6 +677,22 @@ const xAISettings: VoidStaticProviderInfo = {
 
 // ---------------- GEMINI ----------------
 const geminiModelOptions = { // https://ai.google.dev/gemini-api/docs/pricing
+	'gemini-2.5-flash': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 8_192,
+		cost: { input: 0.15, output: 0.60 },
+		downloadable: false,
+		supportsFIM: false,
+		supportsSystemMessage: 'separated',
+		specialToolFormat: 'gemini-style',
+		reasoningCapabilities: {
+			supportsReasoning: true,
+			canTurnOffReasoning: true,
+			canIOReasoning: false,
+			reasoningSlider: { type: 'budget_slider', min: 0, max: 8192, default: 0 },
+			reasoningReservedOutputTokenSpace: 8192,
+		},
+	} as const,
 	// https://ai.google.dev/gemini-api/docs/thinking#set-budget
 	'gemini-2.5-pro-preview-05-06': {
 		contextWindow: 1_048_576,
@@ -1099,12 +986,34 @@ const groqSettings: VoidStaticProviderInfo = {
 }
 
 
-// ---------------- GOOGLE VERTEX ----------------
+// ---------------- GOOGLE VERTEX (Gemini via ADK) ----------------
 const googleVertexModelOptions = {
+	'gemini-2.5-flash': {
+		contextWindow: 1_048_576,
+		reservedOutputTokenSpace: 65_536,
+		cost: { input: 0.15, output: 0.60 },
+		specialToolFormat: 'gemini-style' as const,
+		reasoningCapabilities: {
+			canIOReasoning: true,
+		},
+	},
 } as const satisfies Record<string, VoidStaticModelInfo>
 const googleVertexSettings: VoidStaticProviderInfo = {
 	modelOptions: googleVertexModelOptions,
-	modelOptionsFallback: (modelName) => { return null },
+	modelOptionsFallback: (modelName) => {
+		if (modelName.startsWith('gemini-')) {
+			return {
+				modelName: 'gemini-2.5-flash',
+				contextWindow: 1_048_576,
+				reservedOutputTokenSpace: 65_536,
+				cost: { input: 0.15, output: 0.60 },
+				specialToolFormat: 'gemini-style' as const,
+				recognizedModelName: 'gemini-2.5-flash',
+				isUnrecognizedModel: false,
+			}
+		}
+		return null
+	},
 	providerReasoningIOSettings: {
 		input: { includeInPayload: openAICompatIncludeInPayloadReasoning },
 	},
@@ -1452,28 +1361,7 @@ const openRouterSettings: VoidStaticProviderInfo = {
 // ---------------- model settings of everything above ----------------
 
 const modelSettingsOfProvider: { [providerName in ProviderName]: VoidStaticProviderInfo } = {
-	openAI: openAISettings,
-	anthropic: anthropicSettings,
-	xAI: xAISettings,
-	gemini: geminiSettings,
-
-	// open source models
-	deepseek: deepseekSettings,
-	groq: groqSettings,
-
-	// open source models + providers (mixture of everything)
-	openRouter: openRouterSettings,
-	vLLM: vLLMSettings,
-	ollama: ollamaSettings,
-	openAICompatible: openaiCompatible,
-	mistral: mistralSettings,
-
-	liteLLM: liteLLMSettings,
-	lmStudio: lmStudioSettings,
-
 	googleVertex: googleVertexSettings,
-	microsoftAzure: microsoftAzureSettings,
-	awsBedrock: awsBedrockSettings,
 } as const
 
 

@@ -36,7 +36,7 @@ import { ACCOUNTS_ACTIVITY_ID, GLOBAL_ACTIVITY_ID } from '../../../common/activi
 import { AccountsActivityActionViewItem, isAccountsActionVisible, SimpleAccountActivityActionViewItem, SimpleGlobalActivityActionViewItem } from '../globalCompositeBar.js';
 import { HoverPosition } from '../../../../base/browser/ui/hover/hoverWidget.js';
 import { IEditorGroupsContainer, IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
-import { ActionRunner, IAction } from '../../../../base/common/actions.js';
+import { Action, ActionRunner, IAction } from '../../../../base/common/actions.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ActionsOrientation, IActionViewItem, prepareActions } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { EDITOR_CORE_NAVIGATION_COMMANDS } from '../editor/editorCommands.js';
@@ -52,7 +52,7 @@ import { IView } from '../../../../base/browser/ui/grid/grid.js';
 import { createInstantHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegateFactory.js';
 import { IBaseActionViewItemOptions } from '../../../../base/browser/ui/actionbar/actionViewItems.js';
 import { IHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegate.js';
-import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { safeIntl } from '../../../../base/common/date.js';
 import { TitleBarVisibleContext } from '../../../common/contextkeys.js';
 
@@ -269,6 +269,10 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 	private readonly editorActionsChangeDisposable = this._register(new DisposableStore());
 	private actionToolBarElement!: HTMLElement;
 
+	// Plaxio: Cursor-style left cluster — sidebar toggle + back/forward navigation arrows
+	private navToolBarElement: HTMLElement | undefined;
+	private navToolBar: WorkbenchToolBar | undefined;
+
 	private globalToolbarMenu: IMenu;
 	private hasGlobalToolbarEntries = false;
 	private layoutToolbarMenu: IMenu | undefined;
@@ -440,6 +444,32 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 		this.leftContent = append(this.rootContainer, $('.titlebar-left'));
 		this.centerContent = append(this.rootContainer, $('.titlebar-center'));
 		this.rightContent = append(this.rootContainer, $('.titlebar-right'));
+
+		// Plaxio: Cursor-style left cluster — sidebar toggle followed by back/forward navigation arrows
+		this.navToolBarElement = append(this.leftContent, $('div.titlebar-nav-container'));
+		const sidebarToggle = append(this.navToolBarElement, $('div.codicon.codicon-layout-sidebar-left.plc-sidebar-toggle'));
+		sidebarToggle.title = localize('toggleSidebar', "Toggle Primary Side Bar");
+		sidebarToggle.setAttribute('role', 'button');
+		this._register(addDisposableListener(sidebarToggle, EventType.CLICK, e => {
+			EventHelper.stop(e, true);
+			this.instantiationService.invokeFunction(accessor => accessor.get(ICommandService).executeCommand('workbench.action.toggleSidebarVisibility'));
+		}));
+		this.navToolBar = this._register(this.instantiationService.createInstance(WorkbenchToolBar, this.navToolBarElement, {
+			orientation: ActionsOrientation.HORIZONTAL,
+			ariaLabel: localize('ariaLabelTitleNav', "Navigation actions"),
+			getKeyBinding: action => this.getKeybinding(action),
+			telemetrySource: 'titlePart',
+			actionViewItemProvider: (action, options) => this.actionViewItemProvider(action, options),
+			hoverDelegate: this.hoverDelegate
+		}));
+
+		// Back/forward arrows live here on the left (Cursor-style); the centered command-center
+		// navigation control is disabled via the 'workbench.navigationControl.enabled' default.
+		const runNavCommand = (id: string) => () => this.instantiationService.invokeFunction(accessor => accessor.get(ICommandService).executeCommand(id));
+		this.navToolBar.setActions([
+			new Action('workbench.action.navigateBack', localize('navigateBack', "Go Back"), 'codicon codicon-arrow-left', true, runNavCommand('workbench.action.navigateBack')),
+			new Action('workbench.action.navigateForward', localize('navigateForward', "Go Forward"), 'codicon codicon-arrow-right', true, runNavCommand('workbench.action.navigateForward')),
+		]);
 
 		// App Icon (Windows, Linux)
 		if ((isWindows || isLinux) && !hasNativeTitlebar(this.configurationService, this.titleBarStyle)) {

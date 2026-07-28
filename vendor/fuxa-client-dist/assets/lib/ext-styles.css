@@ -1,0 +1,46 @@
+/* ── VS Code dark theme overrides for SVG editor library ── */
+body { background: var(--toolboxBackground, #1e1e1e) !important; color: var(--toolboxColor, #cccccc) !important; }
+#text_cursor { display: none !important; visibility: hidden !important; }
+#workarea { background-color: var(--toolboxBackground, #1e1e1e) !important; border: none !important; }
+#_tools_left { background: var(--sidenavBackground, #252526) !important; }
+#tools_top { background: var(--sidenavBackground, #252526) !important; border-bottom: 1px solid var(--toolboxBorder, #2b2b2b) !important; }
+#tools_bottom { background: var(--sidenavBackground, #252526) !important; }
+#rulers > div { background: var(--sidenavBackground, #252526) !important; }
+#sidepanels { background: var(--sidenavBackground, #252526) !important; border-color: var(--toolboxBorder, #2b2b2b) !important; }
+#sidepanel_handle { background-color: var(--sidenavBackground, #252526) !important; color: var(--toolboxColor, #cccccc) !important; }
+#layerpanel { background: var(--sidenavBackground, #252526) !important; }
+.contextMenu { background-color: var(--sidenavBackground, #252526) !important; border: 1px solid var(--toolboxBorder, #454545) !important; border-radius: 4px !important; }
+.contextMenu A { color: var(--toolboxColor, #cccccc) !important; }
+.contextMenu LI.hover A { background-color: var(--toolboxItemActiveBackground, #04395e) !important; }
+#svgcanvas { background-color: var(--svgEditWorkareaBackground, #1e1e1e) !important; }
+#dialog_container { background: var(--sidenavBackground, #252526) !important; color: var(--toolboxColor, #cccccc) !important; border: 1px solid var(--toolboxBorder, #454545) !important; }
+#dialog_content { background: var(--toolboxBackground, #1e1e1e) !important; color: var(--toolboxColor, #cccccc) !important; border-color: var(--toolboxBorder, #2b2b2b) !important; }
+
+/* color picker */
+.ngx-color-picker-btn {
+    font-family: "Roboto medium", sans-serif;
+    font-size: 14px !important;
+    display: inline-block;
+    padding: 0;
+    line-height: 1.42857143;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: middle;
+    -ms-touch-action: manipulation;
+    touch-action: manipulation;
+    cursor: pointer;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    border: 0;
+    border-radius: 2px;
+    background: #fff;
+    color: #000;
+    outline: 0;
+    padding: 6px 20px;
+    border-radius: 2px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .6);
+  }
+
+  

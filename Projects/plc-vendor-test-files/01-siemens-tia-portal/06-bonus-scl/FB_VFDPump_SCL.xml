@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V17"/>
+  <SW.Blocks.FB ID="0">
+    <AttributeList>
+      <AutoNumber>false</AutoNumber>
+      <HeaderAuthor/><HeaderFamily/><HeaderName/>
+      <HeaderVersion>0.1</HeaderVersion>
+      <Interface>
+        <Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+          <Section Name="Input">
+            <Member Name="stCmd" Datatype="&quot;UDT_VFDPumpCmd&quot;" Remanence="NonRetain" Accessibility="Public"/>
+            <Member Name="bDI_RunFB" Datatype="Bool" Remanence="NonRetain" Accessibility="Public"/>
+            <Member Name="tStartTimeout" Datatype="Time" Remanence="NonRetain" Accessibility="Public"/>
+          </Section>
+          <Section Name="Output">
+            <Member Name="stStatus" Datatype="&quot;UDT_VFDPumpStatus&quot;" Remanence="NonRetain" Accessibility="Public"/>
+            <Member Name="bDO_Run" Datatype="Bool" Remanence="NonRetain" Accessibility="Public"/>
+            <Member Name="rSpeedOut" Datatype="Real" Remanence="NonRetain" Accessibility="Public"/>
+          </Section>
+          <Section Name="InOut"/>
+          <Section Name="Static">
+            <Member Name="_iState" Datatype="Int" Accessibility="Public"/>
+            <Member Name="_tStartTimer" Datatype="IEC_TIMER" Accessibility="Public"/>
+          </Section>
+          <Section Name="Temp">
+            <Member Name="_bStartCmd" Datatype="Bool"/>
+            <Member Name="_bStopCmd" Datatype="Bool"/>
+          </Section>
+          <Section Name="Constant"/>
+        </Sections>
+      </Interface>
+      <IsIECCheckEnabled>false</IsIECCheckEnabled>
+      <IsRetainMemResEnabled>false</IsRetainMemResEnabled>
+      <MemoryLayout>Optimized</MemoryLayout>
+      <MemoryReserve>100</MemoryReserve>
+      <Name>FB_VFDPump</Name>
+      <Number>1</Number>
+      <ProgrammingLanguage>SCL</ProgrammingLanguage>
+      <SetENOAutomatically>false</SetENOAutomatically>
+      <UDABlockProperties/>
+      <UDAEnableTagReadback>false</UDAEnableTagReadback>
+    </AttributeList>
+  <ObjectList>
+    <SW.Blocks.CompileUnit ID="3" CompositionName="CompileUnits">
+      <AttributeList>
+        <NetworkSource>
+          <StructuredText xmlns="http://www.siemens.com/automation/Openness/SW/NetworkSource/StructuredText/v3">
+            <Text UId="10">// Tính lệnh start/stop theo mode
+_bStartCmd := (stCmd.bManual AND stCmd.bMan_Start) OR (NOT stCmd.bManual AND stCmd.bAuto_Start);
+_bStopCmd  := (stCmd.bManual AND stCmd.bMan_Stop)  OR (NOT stCmd.bManual AND stCmd.bAuto_Stop);
+
+// EStop: FALSE = dừng khẩn
+IF NOT stCmd.bEStop THEN
+    _iState              := 99;
+    stStatus.iFaultCode  := 99;
+ELSE
+    CASE _iState OF
+
+        0: // Idle
+            bDO_Run          := FALSE;
+            rSpeedOut        := 0.0;
+            stStatus.bRunning := FALSE;
+            stStatus.bStopped := TRUE;
+            IF _bStartCmd THEN
+                _iState := 1;
+                _tStartTimer(IN := FALSE, PT := tStartTimeout);
+            END_IF;
+            IF stCmd.bFaultReset THEN
+                stStatus.iFaultCode := 0;
+            END_IF;
+
+        1: // Starting
+            bDO_Run  := TRUE;
+            rSpeedOut := 0.0;
+            stStatus.bRunning := FALSE;
+            stStatus.bStopped := FALSE;
+            _tStartTimer(IN := TRUE, PT := tStartTimeout);
+            IF bDI_RunFB THEN
+                _iState := 2;
+                _tStartTimer(IN := FALSE, PT := tStartTimeout);
+            ELSIF _tStartTimer.Q THEN
+                _iState             := 99;
+                stStatus.iFaultCode := 2;
+                _tStartTimer(IN := FALSE, PT := tStartTimeout);
+            END_IF;
+
+        2: // Running
+            bDO_Run           := TRUE;
+            stStatus.bRunning := TRUE;
+            stStatus.bStopped := FALSE;
+            // Tốc độ theo mode
+            IF stCmd.bManual THEN
+                rSpeedOut := stCmd.rMan_Speed;
+            ELSE
+                rSpeedOut := stCmd.rAuto_Speed;
+            END_IF;
+            // Clamp
+            IF rSpeedOut &lt; 0.0 THEN rSpeedOut := 0.0; END_IF;
+            IF rSpeedOut &gt; 100.0 THEN rSpeedOut := 100.0; END_IF;
+            stStatus.rActSpeed := rSpeedOut;
+            // Kiểm tra lỗi
+            IF NOT bDI_RunFB THEN
+                _iState             := 99;
+                stStatus.iFaultCode := 3;
+            ELSIF _bStopCmd THEN
+                _iState := 3;
+            END_IF;
+
+        3: // Stopping
+            bDO_Run           := FALSE;
+            rSpeedOut         := 0.0;
+            stStatus.bRunning := FALSE;
+            stStatus.bStopped := FALSE;
+            IF NOT bDI_RunFB THEN
+                _iState := 0;
+            END_IF;
+
+        99: // Fault
+            bDO_Run           := FALSE;
+            rSpeedOut         := 0.0;
+            stStatus.bRunning := FALSE;
+            stStatus.bStopped := FALSE;
+            stStatus.bFault   := TRUE;
+            IF stCmd.bFaultReset THEN
+                _iState             := 0;
+                stStatus.bFault     := FALSE;
+                stStatus.iFaultCode := 0;
+            END_IF;
+
+        ELSE
+            _iState := 0;
+    END_CASE;
+END_IF;
+
+stStatus.iState := _iState;</Text>
+          </StructuredText>
+        </NetworkSource>
+        <ProgrammingLanguage>SCL</ProgrammingLanguage>
+      </AttributeList>
+    </SW.Blocks.CompileUnit>
+  </ObjectList>
+  </SW.Blocks.FB>
+</Document>

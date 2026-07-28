@@ -235,21 +235,6 @@ registerAction2(class extends Action2 {
 })
 
 
-// Settings gear
-registerAction2(class extends Action2 {
-	constructor() {
-		super({
-			id: 'void.settingsAction',
-			title: `Void's Settings`,
-			icon: { id: 'settings-gear' },
-			menu: [{ id: MenuId.ViewTitle, group: 'navigation', when: ContextKeyExpr.equals('view', VOID_VIEW_ID), }]
-		});
-	}
-	async run(accessor: ServicesAccessor): Promise<void> {
-		const commandService = accessor.get(ICommandService)
-		commandService.executeCommand(VOID_TOGGLE_SETTINGS_ACTION_ID)
-	}
-})
 
 
 

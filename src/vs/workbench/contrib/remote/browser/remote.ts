@@ -659,7 +659,8 @@ Registry.as<IViewContainersRegistry>(Extensions.ViewContainersRegistry).register
 			}
 		},
 		icon: icons.remoteExplorerViewIcon,
-		order: 4
+		order: 4,
+		hideByDefault: true,
 	}, ViewContainerLocation.Sidebar);
 
 export class RemoteMarkers implements IWorkbenchContribution {

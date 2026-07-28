@@ -25,6 +25,7 @@ import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
 
 type Tab =
+	| 'account'
 	| 'models'
 	| 'localProviders'
 	| 'providers'
@@ -321,10 +322,10 @@ const SimpleModelSettingsDialog = ({
 
 				{/* Display model recognition status */}
 				<div className="text-sm text-void-fg-3 mb-4">
-					{type === 'default' ? `${modelName} comes packaged with Void, so you shouldn't need to change these settings.`
+					{type === 'default' ? `${modelName} comes packaged with Plaxio, so you shouldn't need to change these settings.`
 						: isUnrecognizedModel
-							? `Model not recognized by Void.`
-							: `Void recognizes ${modelName} ("${recognizedModelName}").`}
+							? `Model not recognized by Plaxio.`
+							: `Plaxio recognizes ${modelName} ("${recognizedModelName}").`}
 				</div>
 
 
@@ -831,7 +832,7 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
 		>
 			<ChatMarkdownRender string={`3. Run \`ollama pull your_model\` to install a model.`} chatMessageLocation={undefined} />
 		</div>
-		{sayWeAutoDetect && <div className=' pl-6'><ChatMarkdownRender string={`Void automatically detects locally running models and enables them.`} chatMessageLocation={undefined} /></div>}
+		{sayWeAutoDetect && <div className=' pl-6'><ChatMarkdownRender string={`Plaxio automatically detects locally running models and enables them.`} chatMessageLocation={undefined} /></div>}
 	</div>
 }
 
@@ -1033,16 +1034,13 @@ export const Settings = () => {
 	const isDark = useIsDark()
 	// ─── sidebar nav ──────────────────────────
 	const [selectedSection, setSelectedSection] =
-		useState<Tab>('models');
+		useState<Tab>('account');
 
 	const navItems: { tab: Tab; label: string }[] = [
-		{ tab: 'models', label: 'Models' },
-		{ tab: 'localProviders', label: 'Local Providers' },
-		{ tab: 'providers', label: 'Main Providers' },
+		{ tab: 'account', label: 'Account' },
 		{ tab: 'featureOptions', label: 'Feature Options' },
 		{ tab: 'general', label: 'General' },
 		{ tab: 'mcp', label: 'MCP' },
-		{ tab: 'all', label: 'All Settings' },
 	];
 	const shouldShowTab = (tab: Tab) => selectedSection === 'all' || selectedSection === tab;
 	const accessor = useAccessor()
@@ -1161,7 +1159,7 @@ export const Settings = () => {
 
 					<div className='max-w-3xl'>
 
-						<h1 className='text-2xl w-full'>{`Void's Settings`}</h1>
+						<h1 className='text-2xl w-full'>{`Plaxio Settings`}</h1>
 
 						<div className='w-full h-[1px] my-2' />
 
@@ -1174,38 +1172,86 @@ export const Settings = () => {
 
 						{/* All sections in flex container with gap-12 */}
 						<div className='flex flex-col gap-12'>
-							{/* Models section (formerly FeaturesTab) */}
+
+							{/* Account section */}
+							<div className={shouldShowTab('account') ? `` : 'hidden'}>
+								<ErrorBoundary>
+									<h2 className='text-3xl mb-2'>Account</h2>
+									<h4 className='text-void-fg-3 mb-4'>Sign in to sync your settings and access premium features.</h4>
+
+									<div className='flex flex-col gap-4'>
+										<div className='flex flex-col gap-2 p-4 rounded-lg bg-void-bg-2'>
+											<div className='flex items-center gap-3'>
+												<div className='w-10 h-10 rounded-full bg-[#0e70c0]/20 flex items-center justify-center'>
+													<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#0e70c0]">
+														<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+														<circle cx="12" cy="7" r="4"/>
+													</svg>
+												</div>
+												<div>
+													<p className='text-void-fg-1 text-sm font-medium'>Not signed in</p>
+													<p className='text-void-fg-3 text-xs'>Sign in to access your account</p>
+												</div>
+											</div>
+										</div>
+
+										<div className='flex gap-2'>
+											<VoidButtonBgDarken className='px-4 py-2' onClick={() => {
+												nativeHostService.openExternal('https://plaxio.tech/login?desktop_redirect=true')
+											}}>
+												Sign In
+											</VoidButtonBgDarken>
+											<VoidButtonBgDarken className='px-4 py-2' onClick={() => {
+												nativeHostService.openExternal('https://plaxio.tech/signup?desktop_redirect=true')
+											}}>
+												Create Account
+											</VoidButtonBgDarken>
+										</div>
+
+										<div className='w-full h-[1px] bg-void-bg-2 my-2' />
+
+										<div className='flex flex-col gap-2'>
+											<h4 className='text-base text-void-fg-1'>Plan & Credits</h4>
+											<div className='flex items-center gap-4 p-3 rounded-md bg-void-bg-2'>
+												<div className='flex flex-col'>
+													<span className='text-void-fg-3 text-xs'>Current Plan</span>
+													<span className='text-void-fg-1 text-sm font-medium'>Free</span>
+												</div>
+												<div className='w-[1px] h-8 bg-void-bg-1' />
+												<div className='flex flex-col'>
+													<span className='text-void-fg-3 text-xs'>AI Credits</span>
+													<span className='text-void-fg-1 text-sm font-medium'>0 remaining</span>
+												</div>
+											</div>
+											<VoidButtonBgDarken className='px-4 py-1.5 max-w-48' onClick={() => {
+												nativeHostService.openExternal('https://plaxio.tech/billing')
+											}}>
+												Manage Billing
+											</VoidButtonBgDarken>
+										</div>
+									</div>
+								</ErrorBoundary>
+							</div>
+
+							{/* Models section */}
 							<div className={shouldShowTab('models') ? `` : 'hidden'}>
 								<ErrorBoundary>
-									<h2 className={`text-3xl mb-2`}>Models</h2>
-									<ModelDump />
-									<div className='w-full h-[1px] my-4' />
-									<AutoDetectLocalModelsToggle />
-									<RefreshableModels />
+									<h2 className='text-3xl mb-2'>Models</h2>
+									<h4 className='text-void-fg-3 mb-4'>Select and configure AI models for each feature.</h4>
+									<ErrorBoundary>
+										<ModelDump />
+									</ErrorBoundary>
 								</ErrorBoundary>
 							</div>
 
-							{/* Local Providers section */}
-							<div className={shouldShowTab('localProviders') ? `` : 'hidden'}>
-								<ErrorBoundary>
-									<h2 className={`text-3xl mb-2`}>Local Providers</h2>
-									<h3 className={`text-void-fg-3 mb-2`}>{`Void can access any model that you host locally. We automatically detect your local models by default.`}</h3>
-
-									<div className='opacity-80 mb-4'>
-										<OllamaSetupInstructions sayWeAutoDetect={true} />
-									</div>
-
-									<VoidProviderSettings providerNames={localProviderNames} />
-								</ErrorBoundary>
-							</div>
-
-							{/* Main Providers section */}
+							{/* Providers section */}
 							<div className={shouldShowTab('providers') ? `` : 'hidden'}>
 								<ErrorBoundary>
-									<h2 className={`text-3xl mb-2`}>Main Providers</h2>
-									<h3 className={`text-void-fg-3 mb-2`}>{`Void can access models from Anthropic, OpenAI, OpenRouter, and more.`}</h3>
-
-									<VoidProviderSettings providerNames={nonlocalProviderNames} />
+									<h2 className='text-3xl mb-2'>Providers</h2>
+									<h4 className='text-void-fg-3 mb-4'>Configure API keys and provider settings.</h4>
+									<ErrorBoundary>
+										<VoidProviderSettings providerNames={providerNames} />
+									</ErrorBoundary>
 								</ErrorBoundary>
 							</div>
 
@@ -1246,12 +1292,6 @@ export const Settings = () => {
 														</div>
 													</ErrorBoundary>
 
-													{/* Model Dropdown */}
-													<ErrorBoundary>
-														<div className={`my-2 ${!settingsState.globalSettings.enableAutocomplete ? 'hidden' : ''}`}>
-															<ModelDropdown featureName={'Autocomplete'} className='text-xs text-void-fg-3 bg-void-bg-1 border border-void-border-1 rounded p-0.5 px-1' />
-														</div>
-													</ErrorBoundary>
 
 												</div>
 
@@ -1276,11 +1316,7 @@ export const Settings = () => {
 														<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.syncApplyToChat ? 'Same as Chat model' : 'Different model'}</span>
 													</div>
 
-													{/* Model Dropdown */}
-													<div className={`my-2 ${settingsState.globalSettings.syncApplyToChat ? 'hidden' : ''}`}>
-														<ModelDropdown featureName={'Apply'} className='text-xs text-void-fg-3 bg-void-bg-1 border border-void-border-1 rounded p-0.5 px-1' />
 													</div>
-												</div>
 
 
 												<div className='my-2'>
@@ -1378,11 +1414,7 @@ export const Settings = () => {
 														<span className='text-void-fg-3 text-xs pointer-events-none'>{settingsState.globalSettings.syncSCMToChat ? 'Same as Chat model' : 'Different model'}</span>
 													</div>
 
-													{/* Model Dropdown */}
-													<div className={`my-2 ${settingsState.globalSettings.syncSCMToChat ? 'hidden' : ''}`}>
-														<ModelDropdown featureName={'SCM'} className='text-xs text-void-fg-3 bg-void-bg-1 border border-void-border-1 rounded p-0.5 px-1' />
 													</div>
-												</div>
 
 											</div>
 										</ErrorBoundary>
@@ -1409,7 +1441,7 @@ export const Settings = () => {
 								{/* Import/Export section */}
 								<div>
 									<h2 className='text-3xl mb-2'>Import/Export</h2>
-									<h4 className='text-void-fg-3 mb-4'>{`Transfer Void's settings and chats in and out of Void.`}</h4>
+									<h4 className='text-void-fg-3 mb-4'>{`Transfer Plaxio settings and chats in and out of Plaxio.`}</h4>
 									<div className='flex flex-col gap-8'>
 										{/* Settings Subcategory */}
 										<div className='flex flex-col gap-2 max-w-48 w-full'>
@@ -1519,7 +1551,7 @@ Alternatively, place a \`.voidrules\` file in the root of your workspace.
 											</div>
 										</ErrorBoundary>
 										<div className='text-void-fg-3 text-xs mt-1'>
-											{`When disabled, Void will not include anything in the system message except for content you specified above.`}
+											{`When disabled, Plaxio will not include anything in the system message except for content you specified above.`}
 										</div>
 									</div>
 								</div>

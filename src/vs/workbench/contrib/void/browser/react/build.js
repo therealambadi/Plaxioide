@@ -150,5 +150,54 @@ if (isWatch) {
 	// Run tsup once
 	execSync('npx tsup', { stdio: 'inherit' });
 
+	// Sync built bundles to the out/ directory that Electron actually loads at runtime
+	const outSrc  = path.join(__dirname, 'out');
+	// Walk up from __dirname to find the repo root (contains package.json at root)
+	let repoRoot = __dirname;
+	while (repoRoot !== path.dirname(repoRoot)) {
+		if (fs.existsSync(path.join(repoRoot, 'package.json')) &&
+		    fs.existsSync(path.join(repoRoot, 'out', 'vs', 'workbench', 'contrib', 'void', 'browser', 'react', 'out'))) {
+			break;
+		}
+		repoRoot = path.dirname(repoRoot);
+	}
+	const outDest = path.join(repoRoot, 'out', 'vs', 'workbench', 'contrib', 'void', 'browser', 'react', 'out');
+	if (fs.existsSync(outDest)) {
+		for (const bundle of fs.readdirSync(outSrc)) {
+			const srcFile  = path.join(outSrc, bundle, 'index.js');
+			const destDir  = path.join(outDest, bundle);
+			const destFile = path.join(destDir, 'index.js');
+			if (fs.existsSync(srcFile)) {
+				fs.mkdirSync(destDir, { recursive: true });
+				fs.copyFileSync(srcFile, destFile);
+				console.log(`✅ Synced ${bundle}/index.js → out/`);
+			}
+		}
+	} else {
+		console.warn('⚠️  Could not find out/ directory — skipping sync');
+	}
+
+	// Clear Electron caches so the next launch always loads fresh bundles
+	const os = await import('os');
+	const home = os.default.homedir();
+	const cacheDirs = [
+		path.join(home, 'Library', 'Application Support', 'Void'),
+		path.join(home, 'Library', 'Application Support', 'void'),
+		path.join(home, 'Library', 'Caches', 'Void'),
+		path.join(home, 'Library', 'Caches', 'void'),
+	];
+	for (const dir of cacheDirs) {
+		if (fs.existsSync(dir)) {
+			// Remove only cache sub-folders, not the entire user-data dir
+			for (const sub of ['GPUCache', 'Cache', 'Code Cache', 'blob_storage', 'DawnGraphiteCache', 'DawnWebGPUCache']) {
+				const target = path.join(dir, sub);
+				if (fs.existsSync(target)) {
+					fs.rmSync(target, { recursive: true, force: true });
+					console.log(`🗑  Cleared cache: ${target}`);
+				}
+			}
+		}
+	}
+
 	console.log('✅ Build complete!');
 }

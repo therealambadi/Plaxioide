@@ -123,19 +123,8 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: VOID_TOGGLE_SETTINGS_ACTION_ID,
-			title: nls.localize2('voidSettings', "Void: Toggle Settings"),
-			icon: Codicon.settingsGear,
-			menu: [
-				{
-					id: MenuId.LayoutControlMenuSubmenu,
-					group: 'z_end',
-				},
-				{
-					id: MenuId.LayoutControlMenu,
-					when: ContextKeyExpr.equals('config.workbench.layoutControl.type', 'both'),
-					group: 'z_end'
-				}
-			]
+			title: nls.localize2('voidSettings', "Plaxio: Toggle Settings"),
+			f1: true
 		});
 	}
 
@@ -193,16 +182,16 @@ registerAction2(class extends Action2 {
 	}
 })
 
-
-
-
-
-// add to settings gear on bottom left
 MenuRegistry.appendMenuItem(MenuId.GlobalActivity, {
 	group: '0_command',
 	command: {
 		id: VOID_TOGGLE_SETTINGS_ACTION_ID,
-		title: nls.localize('voidSettingsActionGear', "Void\'s Settings")
+		title: nls.localize('voidSettingsActionGear', "Plaxio Settings")
 	},
-	order: 1
+	order: -1
 });
+
+
+
+
+

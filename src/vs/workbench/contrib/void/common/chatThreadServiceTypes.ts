@@ -53,6 +53,7 @@ export type ChatMessage =
 		content: string; // content displayed to the LLM on future calls - allowed to be '', will be replaced with (empty)
 		displayContent: string; // content displayed to user  - allowed to be '', will be ignored
 		selections: StagingSelectionItem[] | null; // the user's selection
+		attachedFileMeta?: Array<{ name: string; ext: string; kind: 'text' | 'image'; dataUrl?: string }>; // metadata for rendering file badges
 		state: {
 			stagingSelections: StagingSelectionItem[];
 			isBeingEdited: boolean;
@@ -63,6 +64,7 @@ export type ChatMessage =
 		reasoning: string; // reasoning from the LLM, used for step-by-step thinking
 
 		anthropicReasoning: AnthropicReasoning[] | null; // anthropic reasoning
+		geminiParts?: Array<{ text?: string; thought?: boolean; thoughtSignature?: string; functionCall?: { id: string; name: string; args: Record<string, unknown> }; }>; // raw Gemini parts for thought_signature replay
 	}
 	| ToolMessage<ToolName>
 	| DecorativeCanceledTool

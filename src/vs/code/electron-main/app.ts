@@ -147,6 +147,8 @@ export class CodeApplication extends Disposable {
 	private windowsMainService: IWindowsMainService | undefined;
 	private auxiliaryWindowsMainService: IAuxiliaryWindowsMainService | undefined;
 	private nativeHostMainService: INativeHostMainService | undefined;
+	private _fuxaChild: import('child_process').ChildProcess | undefined;
+	private _fuxaShuttingDown = false;
 
 	constructor(
 		private readonly mainProcessNodeIpcServer: NodeIPCServer,
@@ -232,7 +234,13 @@ export class CodeApplication extends Disposable {
 		};
 
 		const isSvgRequestFromSafeContext = (details: Electron.OnBeforeRequestListenerDetails | Electron.OnHeadersReceivedListenerDetails): boolean => {
-			return details.resourceType === 'xhr' || isSafeFrame(details.frame);
+			if (details.resourceType === 'xhr') return true;
+			if (isSafeFrame(details.frame)) return true;
+			// Allow SVG requests originating from the FUXA HMI iframe (http://127.0.0.1:1881)
+			for (let frame: WebFrameMain | null | undefined = details.frame; frame; frame = frame.parent) {
+				if (frame.url?.startsWith('http://127.0.0.1:1881')) return true;
+			}
+			return false;
 		};
 
 		const isAllowedVsCodeFileRequest = (details: Electron.OnBeforeRequestListenerDetails) => {
@@ -529,6 +537,172 @@ export class CodeApplication extends Disposable {
 		//#endregion
 	}
 
+	private _killPortOccupant(): void {
+		const { execSync } = require('child_process') as typeof import('child_process');
+		try {
+			if (process.platform === 'win32') {
+				const output = execSync('netstat -ano | findstr :1881 | findstr LISTENING', { encoding: 'utf-8' });
+				const pids = new Set(output.trim().split('\n').map(line => line.trim().split(/\s+/).pop()).filter(Boolean));
+				for (const pid of pids) {
+					try { execSync(`taskkill /PID ${pid} /F`); } catch { /* already dead */ }
+				}
+			} else {
+				execSync('lsof -ti :1881 | xargs kill -9');
+			}
+		} catch { /* nothing on port */ }
+	}
+
+	private startFuxaServer(): void {
+		// eslint-disable-next-line @typescript-eslint/no-require-imports
+		const path = require('path') as typeof import('path');
+		// eslint-disable-next-line @typescript-eslint/no-require-imports
+		const { spawn } = require('child_process') as typeof import('child_process');
+		// eslint-disable-next-line @typescript-eslint/no-require-imports
+		const fs = require('fs') as typeof import('fs');
+		const fuxaServerPath = path.join(this.environmentMainService.appRoot, 'vendor', 'fuxa-server');
+		const fuxaMain = path.join(fuxaServerPath, 'main.js');
+		const userDir = path.join(this.environmentMainService.userDataPath, 'fuxa-data');
+		const logService = this.logService;
+
+		// Kill FUXA on app quit
+		Event.once(this.lifecycleMainService.onWillShutdown)(() => {
+			this._fuxaShuttingDown = true;
+			if (this._fuxaChild) {
+				this._fuxaChild.kill('SIGTERM');
+				setTimeout(() => { if (this._fuxaChild) { this._fuxaChild.kill('SIGKILL'); } }, 2000);
+			}
+		});
+
+		const doSpawn = (attempt: number, backoffMs: number) => {
+			if (this._fuxaShuttingDown) return;
+			try {
+				fs.mkdirSync(path.join(userDir, '_appdata'), { recursive: true });
+				logService.info(`[FUXA] Starting server (attempt ${attempt})...`);
+				const child = spawn(process.execPath, [fuxaMain, '--userDir', userDir], {
+					cwd: fuxaServerPath,
+					env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', uiHost: '127.0.0.1' },
+					stdio: ['ignore', 'pipe', 'pipe'],
+				});
+				this._fuxaChild = child;
+				child.stdout!.on('data', (data: Buffer) => logService.info(`[FUXA] ${data.toString().trim()}`));
+				child.stderr!.on('data', (data: Buffer) => logService.warn(`[FUXA] ${data.toString().trim()}`));
+				child.on('error', (err: Error) => logService.error(`[FUXA] process error: ${err.message}`));
+				child.on('exit', (code: number | null) => {
+					logService.info(`[FUXA] process exited with code ${code}`);
+					this._fuxaChild = undefined;
+					if (this._fuxaShuttingDown || code === 0) return;
+					if (attempt < 3) {
+						logService.info(`[FUXA] Crash detected (code ${code}) — restarting in ${backoffMs}ms...`);
+						this._killPortOccupant();
+						setTimeout(() => doSpawn(attempt + 1, backoffMs * 2), backoffMs);
+					} else {
+						logService.error('[FUXA] Gave up after 3 failed attempts');
+					}
+				});
+			} catch (err: any) {
+				logService.error(`[FUXA] Failed to start server: ${err.message}`);
+			}
+		};
+
+		this._killPortOccupant();
+		setTimeout(() => doSpawn(1, 1000), 500);
+	}
+
+	private startVerificationService(): void {
+		const nodePath = __require('path') as typeof import('path');
+		const nodeFs = __require('fs') as typeof import('fs');
+		const nodeOs = __require('os') as typeof import('os');
+		const { spawn: nodeSpawn, execSync: nodeExecSync } = __require('child_process') as typeof import('child_process');
+		const logService = this.logService;
+		const appRoot = this.environmentMainService.appRoot;
+
+		const NATIVE_BINARY_NAMES = ['esbmc-plcplus', 'esbmc'];
+		const DOCKER_IMAGE = 'pierredantas/esbmc-plcplus';
+
+		const discoverEngine = () => {
+			for (const name of NATIVE_BINARY_NAMES) {
+				try {
+					const result = nodeExecSync(
+						process.platform === 'win32' ? `where ${name} 2>NUL` : `which ${name} 2>/dev/null`,
+						{ encoding: 'utf-8', timeout: 5000 }
+					);
+					const binaryPath = result.trim().split('\n')[0];
+					if (binaryPath && nodeFs.existsSync(binaryPath)) {
+						let version = 'unknown';
+						try { version = nodeExecSync(`"${binaryPath}" --version 2>&1`, { encoding: 'utf-8', timeout: 5000 }).trim(); } catch {}
+						return { available: true, mode: 'native', binaryPath, version };
+					}
+				} catch {}
+			}
+			const bundledPaths = [
+				nodePath.join(appRoot, 'vendor', 'esbmc-plcplus', 'esbmc'),
+				nodePath.join(appRoot, 'vendor', 'esbmc-plcplus', 'esbmc.exe'),
+				nodePath.join(appRoot, 'vendor', 'esbmc-plcplus', 'plaxio-verify.sh'),
+			];
+			for (const p of bundledPaths) {
+				try {
+					if (nodeFs.existsSync(p)) {
+						let version = 'bundled';
+						try { version = nodeExecSync(`"${p}" --version 2>&1`, { encoding: 'utf-8', timeout: 5000 }).trim(); } catch {}
+						return { available: true, mode: 'native' as const, binaryPath: p, version };
+					}
+				} catch {}
+			}
+			try {
+				const images = nodeExecSync(`docker images -q ${DOCKER_IMAGE} 2>/dev/null`, { encoding: 'utf-8', timeout: 10000 });
+				if (images.trim().length > 0) return { available: true, mode: 'docker' as const, binaryPath: DOCKER_IMAGE, version: 'docker' };
+			} catch {}
+			return { available: false, mode: null, binaryPath: '', version: '' };
+		};
+
+		const _activeProcesses = new Map<string, ReturnType<typeof nodeSpawn>>();
+
+		const spawnAsync = (command: string, args: string[], timeoutMs: number, runId: string) => new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
+			let stdout = '', stderr = '', timedOut = false;
+			let proc: ReturnType<typeof nodeSpawn>;
+			try { proc = nodeSpawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, LANG: 'C' } }); }
+			catch (err: any) { resolve({ stdout: '', stderr: `Spawn error: ${err.message}`, exitCode: -1 }); return; }
+			_activeProcesses.set(runId, proc);
+			proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
+			proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+			const timer = setTimeout(() => { timedOut = true; try { proc.kill('SIGTERM'); } catch {} setTimeout(() => { try { if (!proc.killed) proc.kill('SIGKILL'); } catch {} }, 2000); }, timeoutMs);
+			proc.on('close', (code: number | null) => { clearTimeout(timer); _activeProcesses.delete(runId); resolve({ stdout, stderr: timedOut ? stderr + '\nTimed out' : stderr, exitCode: timedOut ? 137 : (code ?? -1) }); });
+			proc.on('error', (err: Error) => { clearTimeout(timer); _activeProcesses.delete(runId); resolve({ stdout, stderr: `Process error: ${err.message}`, exitCode: -1 }); });
+		});
+
+		validatedIpcMain.handle('vscode:plaxio-verify-check-engine', async (_event) => {
+			const result = discoverEngine();
+			logService.info(`[Verify] engine check: available=${result.available} mode=${result.mode} path=${result.binaryPath}`);
+			return result;
+		});
+
+		validatedIpcMain.handle('vscode:plaxio-verify-run', async (_event, config: any) => {
+			const tmpDir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'plaxio-verify-'));
+			const stFilePath = nodePath.join(tmpDir, 'program.st');
+			try {
+				nodeFs.writeFileSync(stFilePath, config.instrumentedST, 'utf-8');
+				const startTime = Date.now();
+				let result: { stdout: string; stderr: string; exitCode: number };
+				if (config.mode === 'docker') {
+					result = await spawnAsync('docker', ['run', '--rm', '-v', `${tmpDir}:/work`, '-w', '/work', config.binaryPath, 'esbmc', 'program.st', '--k-induction', '--k-step', String(config.kInductionDepth), '--timeout', String(Math.floor(config.timeoutMs / 1000)), '--no-color'], config.timeoutMs, config.runId);
+				} else {
+					result = await spawnAsync(config.binaryPath, [stFilePath, '--k-induction', '--k-step', String(config.kInductionDepth), '--timeout', String(Math.floor(config.timeoutMs / 1000)), '--no-color'], config.timeoutMs, config.runId);
+				}
+				return { runId: config.runId, stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, timeMs: Date.now() - startTime, propertyIds: config.propertyIds };
+			} finally {
+				try { nodeFs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+				_activeProcesses.delete(config.runId);
+			}
+		});
+
+		validatedIpcMain.handle('vscode:plaxio-verify-cancel', async (_event, { runId }: { runId: string }) => {
+			const proc = _activeProcesses.get(runId);
+			if (proc) { try { proc.kill('SIGTERM'); } catch {} setTimeout(() => { try { if (!proc.killed) proc.kill('SIGKILL'); } catch {} }, 3000); _activeProcesses.delete(runId); }
+		});
+
+		logService.info('[Verify] IPC handlers registered (vscode:plaxio-verify-*)');
+	}
+
 	async startup(): Promise<void> {
 		this.logService.debug('Starting VS Code');
 		this.logService.debug(`from: ${this.environmentMainService.appRoot}`);
@@ -596,6 +770,12 @@ export class CodeApplication extends Disposable {
 
 		// Init Channels
 		appInstantiationService.invokeFunction(accessor => this.initChannels(accessor, mainProcessElectronServer, sharedProcessClient));
+
+		// Start FUXA server (PLC HMI/SCADA simulation engine on port 1881)
+		this.startFuxaServer();
+
+		// Register ESBMC-PLC+ formal verification IPC handlers
+		this.startVerificationService();
 
 		// Setup Protocol URL Handlers
 		const initialProtocolUrls = await appInstantiationService.invokeFunction(accessor => this.setupProtocolUrlHandlers(accessor, mainProcessElectronServer));

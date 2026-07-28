@@ -47,8 +47,9 @@ import { URI } from '../../../../base/common/uri.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IPaneCompositePartService } from '../../../services/panecomposite/browser/panecomposite.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
-import { mountPlcEditor, mountTagMonitor } from './react/out/plc-editor-tsx/index.js';
+import { mountPlcEditor, mountTagMonitor, mountVerifyPanel } from './react/out/plc-editor-tsx/index.js';
 
 // Editor registration imports
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
@@ -65,6 +66,10 @@ import { mountPlcNavigator } from './react/out/plc-editor-tsx/index.js';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const document: any;
 
+// Vendor file detection imports
+import { IFileService } from '../../../../platform/files/common/files.js';
+import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+
 // ─── Bottom panel injection (Console / Tag Monitor / Runtime tabs) ────────────
 // Runs synchronously at module load. Hides native VS Code panel tabs and injects
 // our three React-backed tabs. Uses MutationObserver so there is no timing race.
@@ -80,6 +85,8 @@ declare const document: any;
 			#workbench\\.parts\\.panel .content > .view-instance,
 			#workbench\\.parts\\.panel .content > .split-view-container { display: none !important; }
 			#workbench\\.parts\\.panel .title .title-label { display: none !important; }
+			/* Hide the redundant title bar in the sidebar Logic panel only */
+			.part.sidebar [id="workbench.view.plcEditor"] .composite.title { display: none !important; }
 		`;
 		if (document.head) { document.head.appendChild(style); }
 		else { document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style), { once: true }); }
@@ -87,14 +94,15 @@ declare const document: any;
 
 	const TABS = [
 		{ id: 'tag-monitor', label: 'Tag Monitor' },
+		{ id: 'verify', label: 'Verify' },
 	];
 
 	function tryInject(): boolean {
 		const panelPart = document.getElementById('workbench.parts.panel');
-		if (!panelPart) return false;
+		if (!panelPart) { console.log('[PLCPanel] tryInject: no panelPart yet'); return false; }
 		const compositeTitle = panelPart.querySelector('.composite.title');
-		if (!compositeTitle) return false;
-		if (panelPart.querySelector('.plc-panel-tabs')) return true;
+		if (!compositeTitle) { console.log('[PLCPanel] tryInject: panelPart found but no .composite.title yet'); return false; }
+		if (panelPart.querySelector('.plc-panel-tabs')) { console.log('[PLCPanel] tryInject: already injected'); return true; }
 
 		panelPart.style.position = 'relative';
 		const tabHosts: Record<string, HTMLElement> = {};
@@ -112,6 +120,7 @@ declare const document: any;
 		});
 
 		mountTagMonitor(tabHosts['tag-monitor']);
+		mountVerifyPanel(tabHosts['verify']);
 
 		const tabBar = document.createElement('div');
 		tabBar.className = 'plc-panel-tabs';
@@ -159,6 +168,88 @@ declare const document: any;
 		const obs = new MutationObserver(() => { if (tryInject()) obs.disconnect(); });
 		obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
 	}
+})();
+
+// ─── Verification Engine Message Handler ─────────────────────────────────────
+// Listens for 'plaxio:verify-*' messages from the React VerifyPanel and executes
+// the ESBMC-PLC+ process, returning results back via postMessage.
+
+(function initVerificationHandler() {
+	// Use __require (CommonJS, available in Electron renderer) instead of dynamic import()
+	// because verificationService.js uses Node.js APIs only available via __require.
+	declare function __require(id: string): any;
+	let _verifySvc: any = null;
+	function getVerifySvc(): any {
+		if (_verifySvc) return _verifySvc;
+		try {
+			const svcPath = new URL('./verificationService.js', import.meta.url).pathname;
+			_verifySvc = __require(svcPath);
+		} catch (e1) {
+			try {
+				const nodePath = __require('path');
+				const svcPath = nodePath.join(nodePath.dirname(new URL(import.meta.url).pathname), 'verificationService.js');
+				_verifySvc = __require(svcPath);
+			} catch (e2) {
+				console.error('[Verify] Failed to load verificationService:', e1, e2);
+			}
+		}
+		return _verifySvc;
+	}
+
+	const handler = async (event: MessageEvent) => {
+		const data = event.data;
+		if (!data || typeof data.type !== 'string') return;
+
+		if (data.type === 'plaxio:verify-check-engine') {
+			try {
+				const svc = getVerifySvc();
+				if (!svc) { window.postMessage({ type: 'plaxio:verify-engine-status', available: false }, '*'); return; }
+				const result = svc.discoverEngine();
+				window.postMessage({ type: 'plaxio:verify-engine-status', available: result.available, version: result.version, binaryPath: result.binaryPath, mode: result.mode }, '*');
+			} catch (err) {
+				console.error('[Verify] engine check error:', err);
+				window.postMessage({ type: 'plaxio:verify-engine-status', available: false }, '*');
+			}
+		}
+
+		if (data.type === 'plaxio:verify-run') {
+			try {
+				const svc = getVerifySvc();
+				if (!svc) throw new Error('verificationService not available');
+				const result = await svc.runVerification({ runId: data.runId, instrumentedST: data.instrumentedST, propertyIds: data.propertyIds, timeoutMs: data.config.timeoutMs, kInductionDepth: data.config.kInductionDepth, mode: data.config.mode, binaryPath: data.config.binaryPath });
+				window.postMessage({ type: 'plaxio:verify-result', ...result }, '*');
+			} catch (err: any) {
+				window.postMessage({ type: 'plaxio:verify-error', runId: data.runId, message: err?.message ?? String(err) }, '*');
+			}
+		}
+
+		if (data.type === 'plaxio:verify-cancel') {
+			try { const svc = getVerifySvc(); if (svc) svc.cancelRun(data.runId); } catch {}
+		}
+	};
+
+	window.addEventListener('message', handler);
+})();
+
+(function initPlaxioTitleLogo() {
+	const style = document.createElement('style');
+	style.textContent = `
+		.command-center .command-center-center .action-label .search-label { display: none !important; }
+		.command-center .command-center-center .action-label .codicon { display: none !important; }
+		.command-center .command-center-center .action-label::after {
+			content: "Plaxio";
+			font-size: 13px;
+			font-weight: 600;
+			letter-spacing: 0.04em;
+			opacity: 0.85;
+		}
+		.command-center .command-center-center .action-label:hover::after { opacity: 1; }
+		.command-center .command-center-center { border: none !important; background: transparent !important; }
+		.command-center { border: none !important; background: transparent !important; box-shadow: none !important; }
+		.command-center .left, .command-center .right { display: none !important; }
+	`;
+	if (document.head) document.head.appendChild(style);
+	else document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style), { once: true });
 })();
 
 // ─── IDs ──────────────────────────────────────────────────────────────────────
@@ -225,11 +316,31 @@ class PlcEditorResolverContribution extends Disposable implements IWorkbenchCont
 				{
 					createEditorInput: ({ resource }) => {
 						const input = this.instantiationService.createInstance(LogicEditorInput, resource);
-						return { editor: input };
+						return { editor: input, options: { override: LogicEditorPane.ID } };
 					},
 				},
 			));
 		}
+
+		// HMI files: *_hmi.json opens in SimulatorEditorPane
+		this._register(editorResolverService.registerEditor(
+			'**/*_hmi.json',
+			{
+				id: SimulatorEditorPane.ID,
+				label: 'HMI Simulator',
+				priority: RegisteredEditorPriority.exclusive,
+			},
+			{
+				singlePerResource: true,
+				canSupportResource: (resource: URI) => resource.scheme === 'file',
+			},
+			{
+				createEditorInput: ({ resource }) => {
+					const input = this.instantiationService.createInstance(SimulatorEditorInput, resource);
+					return { editor: input, options: { override: SimulatorEditorPane.ID } };
+				},
+			},
+		));
 	}
 }
 
@@ -309,7 +420,7 @@ const plcContainer = viewContainerRegistry.registerViewContainer(
 		icon: Codicon.circuitBoard,
 	},
 	ViewContainerLocation.Sidebar,
-	{ doNotRegisterOpenCommand: false, isDefault: false },
+	{ doNotRegisterOpenCommand: false, isDefault: true },
 );
 
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([{
@@ -327,9 +438,9 @@ class OpenPlcEditorAction extends Action2 {
 	constructor() {
 		super({
 			id: VOID_OPEN_PLC_EDITOR_ACTION_ID,
-			title: nls.localize2('openPlcEditor', 'Volt: Open PLC Logic Editor'),
+			title: nls.localize2('openPlcEditor', 'Plaxio: Open PLC Logic Editor'),
 			f1: true,
-			category: nls.localize2('volt', 'Volt'),
+			category: nls.localize2('plaxio', 'Plaxio'),
 		});
 	}
 
@@ -376,6 +487,7 @@ class PlcLayoutContribution extends Disposable implements IWorkbenchContribution
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@IPaneCompositePartService private readonly paneCompositeService: IPaneCompositePartService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@IEditorService private readonly editorService: IEditorService,
 	) {
 		super();
 
@@ -393,6 +505,14 @@ class PlcLayoutContribution extends Disposable implements IWorkbenchContribution
 		this._register(this.paneCompositeService.onDidPaneCompositeClose(({ composite, viewContainerLocation }) => {
 			if (viewContainerLocation !== ViewContainerLocation.Sidebar) return;
 			if (composite.getId() === PLC_VIEW_CONTAINER_ID) {
+				this._deactivatePLC();
+			}
+		}));
+
+		// Hide canvas when a non-LogicEditor becomes the active editor (e.g. Export pane)
+		this._register(this.editorService.onDidActiveEditorChange(() => {
+			const activePane = this.editorService.activeEditorPane;
+			if (activePane && activePane.getId() !== LogicEditorPane.ID) {
 				this._deactivatePLC();
 			}
 		}));
@@ -488,12 +608,13 @@ registerWorkbenchContribution2(
 class PlcMonacoOverlayContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.plcMonacoOverlay';
 
-	private _toolbar: HTMLElement | undefined;
-	private _toolbarParent: HTMLElement | undefined;
+	private _pill: HTMLElement | undefined;
+	private _lastLoadedResource: string | undefined;
 
 	constructor(
 		@IEditorService private readonly editorService: IEditorService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@IFileService private readonly fileService: IFileService,
 	) {
 		super();
 		this._register(this.editorService.onDidActiveEditorChange(() => this._sync()));
@@ -505,110 +626,129 @@ class PlcMonacoOverlayContribution extends Disposable implements IWorkbenchContr
 		return p.endsWith('.ld.json') || p.endsWith('.fbd.json') || p.endsWith('.sfc.json');
 	}
 
+	private _getLanguage(uri: URI): string {
+		const p = uri.path.toLowerCase();
+		if (p.endsWith('.ld.json')) return 'LD';
+		if (p.endsWith('.fbd.json')) return 'FBD';
+		return 'SFC';
+	}
+
+	private async _loadTagsFromFile(resource: URI): Promise<void> {
+		const key = resource.toString();
+		if (this._lastLoadedResource === key) return;
+		this._lastLoadedResource = key;
+		try {
+			const fileContent = await this.fileService.readFile(resource);
+			const parsed = JSON.parse(fileContent.value.toString());
+			const language = this._getLanguage(resource);
+			const tagMap = new Map<string, any>();
+			const add = (t: any) => {
+				if (t?.name && !tagMap.has(t.name)) {
+					tagMap.set(t.name, { name: t.name, address: t.address ?? '', dataType: t.dataType ?? 'BOOL', description: t.description ?? '' });
+				}
+			};
+			if (language === 'LD' && parsed?.rungs) {
+				for (const rung of parsed.rungs) {
+					for (const el of (rung.elements ?? [])) { add(el.tag); }
+				}
+			}
+			if (parsed?.tags) { for (const t of parsed.tags) add(t); }
+			if (parsed?.tagDatabase) { for (const t of parsed.tagDatabase) add(t); }
+			const tags = Array.from(tagMap.values());
+			if (tags.length > 0) {
+				(logicStore as any).setTagDatabase(tags);
+				(logicStore as any).addAllTagsToWatchList();
+			}
+		} catch { /* unreadable or not a PLC file */ }
+	}
+
 	private _sync(): void {
 		const active = this.editorService.activeEditorPane;
 		const resource = this.editorService.activeEditor?.resource;
-		const isMonacoPLC = resource &&
-			this._isPLCFile(resource) &&
-			active?.getId() !== LogicEditorPane.ID;
+		const isPLC = resource && this._isPLCFile(resource);
 
-		if (isMonacoPLC && resource && active) {
+		if (isPLC && resource && active) {
+			const isGraphical = active.getId() === LogicEditorPane.ID;
+			// Always load tags into store when a PLC file is active (Monaco or graphical)
+			if (!isGraphical) {
+				this._loadTagsFromFile(resource);
+			}
 			const container = active.getContainer?.()!;
-			if (container) this._ensureToolbar(container, resource);
+			if (container) this._ensurePill(container, resource, isGraphical);
 		} else {
-			this._removeToolbar();
+			this._removePill();
 		}
 	}
 
-	private _ensureToolbar(container: HTMLElement, resource: URI): void {
-		this._removeToolbar();
-
-		const graphSeg = document.createElement('div');
-		graphSeg.title = 'Open in PLC graphical editor';
-		graphSeg.style.cssText = [
-			'display:flex', 'align-items:center', 'gap:5px',
-			'padding:0 10px', 'height:22px', 'cursor:pointer',
-			'background:var(--vscode-editor-background)',
-			'color:var(--vscode-foreground)',
-			'font-size:12px',
-			'user-select:none',
-			'transition:filter 0.1s',
-		].join(';');
-		const gSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-		gSvg.setAttribute('width', '12'); gSvg.setAttribute('height', '12');
-		gSvg.setAttribute('viewBox', '0 0 16 16'); gSvg.setAttribute('fill', 'currentColor');
-		gSvg.innerHTML = '<rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>';
-		const gLabel = document.createElement('span');
-		gLabel.textContent = 'Graphical';
-		graphSeg.appendChild(gSvg);
-		graphSeg.appendChild(gLabel);
-		graphSeg.onmouseenter = () => { (graphSeg as HTMLElement).style.filter = 'brightness(1.3)'; };
-		graphSeg.onmouseleave = () => { (graphSeg as HTMLElement).style.filter = ''; };
-		graphSeg.onclick = () => {
-			const input = this.instantiationService.createInstance(LogicEditorInput, resource);
-			this.editorService.openEditor(input, { pinned: true });
-		};
-
-		const codeSeg = document.createElement('div');
-		codeSeg.title = 'Current view: code (JSON)';
-		codeSeg.style.cssText = [
+	private _buildSeg(label: string, active: boolean, onClick: (() => void) | null): HTMLElement {
+		const ACTIVE_CSS = [
 			'display:flex', 'align-items:center', 'gap:5px',
 			'padding:0 10px', 'height:22px', 'cursor:default',
 			'background:var(--vscode-button-background)',
 			'color:var(--vscode-button-foreground)',
-			'font-size:12px', 'font-weight:600',
-			'user-select:none',
+			'font-size:11px', 'font-weight:600', 'user-select:none',
 		].join(';');
-		const cSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-		cSvg.setAttribute('width', '12'); cSvg.setAttribute('height', '12');
-		cSvg.setAttribute('viewBox', '0 0 16 16'); cSvg.setAttribute('fill', 'currentColor');
-		cSvg.innerHTML = '<path d="M5.7 3.3 1 8l4.7 4.7 1-1L2.9 8l3.8-3.7-1-1zm4.6 0-1 1L13.1 8l-3.8 3.7 1 1L15 8l-4.7-4.7z"/>';
-		const cLabel = document.createElement('span');
-		cLabel.textContent = 'Code';
-		codeSeg.appendChild(cSvg);
-		codeSeg.appendChild(cLabel);
-
-		const pill = document.createElement('div');
-		pill.style.cssText = [
-			'display:flex', 'align-items:stretch',
-			'border-radius:11px', 'overflow:hidden', 'height:22px',
-			'box-shadow:0 1px 3px rgba(0,0,0,0.4)',
-			'border:1px solid var(--vscode-focusBorder,rgba(255,255,255,0.15))',
-			'flex-shrink:0',
+		const INACTIVE_CSS = [
+			'display:flex', 'align-items:center', 'gap:5px',
+			'padding:0 10px', 'height:22px', 'cursor:pointer',
+			'background:var(--vscode-editor-background)',
+			'color:var(--vscode-foreground)',
+			'font-size:11px', 'user-select:none', 'transition:filter 0.1s',
 		].join(';');
-		pill.appendChild(graphSeg);
-		pill.appendChild(codeSeg);
-
-		const toolbar = document.createElement('div');
-		toolbar.setAttribute('data-plc-toolbar', '1');
-		toolbar.style.cssText = [
-			'display:flex', 'align-items:center',
-			'padding:0 8px',
-			'background:var(--vscode-sideBar-background)',
-			'border-bottom:1px solid var(--vscode-editorGroup-border)',
-			'height:36px', 'box-sizing:border-box', 'flex-shrink:0',
-			'overflow:hidden',
-			'z-index:1',
-		].join(';');
-		const spacer = document.createElement('div');
-		spacer.style.cssText = 'flex:1;';
-		toolbar.appendChild(spacer);
-		toolbar.appendChild(pill);
-
-		const editorEl = (container.querySelector('.editor-instance') || container) as HTMLElement;
-		editorEl.insertBefore(toolbar, editorEl.firstChild);
-
-		this._toolbar = toolbar;
-		this._toolbarParent = editorEl;
+		const seg = document.createElement('div');
+		seg.title = active ? `Current view: ${label.toLowerCase()}` : `Switch to ${label.toLowerCase()} view`;
+		seg.style.cssText = active ? ACTIVE_CSS : INACTIVE_CSS;
+		const span = document.createElement('span');
+		span.textContent = label;
+		seg.appendChild(span);
+		if (!active && onClick) {
+			seg.onmouseenter = () => { seg.style.filter = 'brightness(1.3)'; };
+			seg.onmouseleave = () => { seg.style.filter = ''; };
+			seg.onclick = onClick;
+		}
+		return seg;
 	}
 
-	private _removeToolbar(): void {
-		if (this._toolbar) {
-			this._toolbar.remove();
-			this._toolbar = undefined;
-			this._toolbarParent = undefined;
+	private _ensurePill(container: HTMLElement, resource: URI, isGraphical: boolean): void {
+		this._removePill();
+		const tryInject = () => {
+			const editorActions = container.closest('.editor-group-container')
+				?.querySelector('.editor-actions') as HTMLElement | null;
+			if (!editorActions) { requestAnimationFrame(tryInject); return; }
+
+			const pill = document.createElement('div');
+			pill.setAttribute('data-plc-pill', '1');
+			pill.style.cssText = [
+				'display:flex', 'align-items:stretch',
+				'border-radius:11px', 'overflow:hidden', 'height:22px',
+				'box-shadow:0 1px 3px rgba(0,0,0,0.4)',
+				'border:1px solid var(--vscode-focusBorder,rgba(255,255,255,0.15))',
+				'flex-shrink:0', 'margin:0 4px', 'align-self:center',
+			].join(';');
+
+			const graphSeg = this._buildSeg('Graphical', isGraphical, isGraphical ? null : () => {
+				const input = this.instantiationService.createInstance(LogicEditorInput, resource);
+				this.editorService.openEditor(input, { pinned: true });
+			});
+			const codeSeg = this._buildSeg('Code', !isGraphical, isGraphical ? () => {
+				this.editorService.openEditor({ resource, options: { override: 'default', pinned: true } });
+			} : null);
+
+			pill.appendChild(graphSeg);
+			pill.appendChild(codeSeg);
+			editorActions.insertBefore(pill, editorActions.firstChild);
+			this._pill = pill;
+		};
+		requestAnimationFrame(tryInject);
+	}
+
+	private _removePill(): void {
+		if (this._pill) {
+			this._pill.remove();
+			this._pill = undefined;
 		}
 	}
+
 }
 
 registerWorkbenchContribution2(
@@ -616,3 +756,341 @@ registerWorkbenchContribution2(
 	PlcMonacoOverlayContribution,
 	WorkbenchPhase.AfterRestored,
 );
+
+// ─── Simulator Editor/Simulation toggle pill ─────────────────────────────────
+// Shows a persistent "Editor | Simulation" toggle on any _hmi.json tab, regardless
+// of whether the active pane is SimulatorEditorPane or a Monaco text editor.
+// "Editor" = active when Monaco is showing the file; highlights and becomes clickable
+// to switch back to the Simulator pane for the same file.
+// "Simulation" = active when SimulatorEditorPane is showing the file.
+// The pill never disappears while an _hmi.json file is the active tab.
+class SimulatorToggleContribution extends Disposable implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.plc.simulatorToggle';
+	private _pill: HTMLElement | undefined;
+
+	constructor(@IEditorService private readonly editorService: IEditorService) {
+		super();
+		this._register(this.editorService.onDidActiveEditorChange(() => this._sync()));
+		this._sync();
+	}
+
+	private _isHmiResource(resource: import('../../../../base/common/uri.js').URI | undefined): boolean {
+		return !!(resource && resource.scheme === 'file' && resource.path.endsWith('_hmi.json'));
+	}
+
+	private _sync(): void {
+		const active = this.editorService.activeEditorPane;
+		if (!active) { this._removePill(); return; }
+
+		const resource = (active as any).input?.resource as import('../../../../base/common/uri.js').URI | undefined;
+		const isSimulator = active.getId() === SimulatorEditorPane.ID;
+		const isHmiTextEditor = !isSimulator && this._isHmiResource(resource);
+
+		if (isSimulator && this._isHmiResource(resource)) {
+			// Simulation pane is active — show pill with "Simulation" highlighted
+			const container = active.getContainer?.()!;
+			if (container) this._ensurePill(container, resource!, 'simulation', active as any);
+		} else if (isHmiTextEditor) {
+			// Monaco text editor for _hmi.json is active — show pill with "Editor" highlighted
+			const container = active.getContainer?.()!;
+			if (container) this._ensurePill(container, resource!, 'editor', null);
+		} else {
+			this._removePill();
+		}
+	}
+
+	private _ensurePill(
+		container: HTMLElement,
+		resource: import('../../../../base/common/uri.js').URI,
+		activeMode: 'editor' | 'simulation',
+		simPane: any | null,
+	): void {
+		this._removePill();
+		const tryInject = () => {
+			const editorActions = container.closest('.editor-group-container')
+				?.querySelector('.editor-actions') as HTMLElement | null;
+			if (!editorActions) { requestAnimationFrame(tryInject); return; }
+
+			const pill = document.createElement('div');
+			pill.setAttribute('data-sim-pill', '1');
+			pill.style.cssText = [
+				'display:flex', 'align-items:stretch',
+				'border-radius:11px', 'overflow:hidden', 'height:22px',
+				'box-shadow:0 1px 3px rgba(0,0,0,0.4)',
+				'border:1px solid var(--vscode-focusBorder,rgba(255,255,255,0.15))',
+				'flex-shrink:0', 'margin:0 4px', 'align-self:center',
+			].join(';');
+
+			const mkSeg = (label: string, isActive: boolean, onClick: (() => void) | null) => {
+				const seg = document.createElement('div');
+				seg.textContent = label;
+				seg.style.cssText = [
+					'display:flex', 'align-items:center',
+					'padding:0 10px', 'height:22px',
+					'font-size:11px', 'user-select:none',
+					isActive
+						? 'background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-weight:600;cursor:default;'
+						: 'background:var(--vscode-editor-background);color:var(--vscode-foreground);cursor:pointer;',
+				].join(';');
+				if (!isActive && onClick) {
+					seg.addEventListener('mouseenter', () => { seg.style.filter = 'brightness(1.3)'; });
+					seg.addEventListener('mouseleave', () => { seg.style.filter = ''; });
+					seg.addEventListener('click', onClick);
+				}
+				return seg;
+			};
+
+			// "Editor" segment: active when Monaco is showing; click opens Monaco for the file
+			pill.appendChild(mkSeg('Editor', activeMode === 'editor',
+				activeMode === 'editor' ? null : () => {
+					// Open the _hmi.json in Monaco text editor (reuses existing tab if open)
+					this.editorService.openEditor({ resource, options: { override: 'default', pinned: true } });
+				}
+			));
+
+			// "Simulation" segment: active when SimulatorEditorPane is showing; click opens simulator
+			pill.appendChild(mkSeg('Simulation', activeMode === 'simulation',
+				activeMode === 'simulation' ? null : () => {
+					// Open the _hmi.json in the SimulatorEditorPane (reuses existing tab if open)
+					this.editorService.openEditor({ resource, options: { override: SimulatorEditorPane.ID, pinned: true } });
+				}
+			));
+
+			editorActions.insertBefore(pill, editorActions.firstChild);
+			this._pill = pill;
+		};
+		requestAnimationFrame(tryInject);
+	}
+
+	private _removePill(): void {
+		if (this._pill) { this._pill.remove(); this._pill = undefined; }
+	}
+}
+
+registerWorkbenchContribution2(
+	SimulatorToggleContribution.ID,
+	SimulatorToggleContribution,
+	WorkbenchPhase.AfterRestored,
+);
+
+// ─── Vendor File Detection Contribution ──────────────────────────────────────
+// When the workspace folder changes, scan for vendor PLC files and notify the
+// React PlcNavigator component via window.postMessage so it can show the import banner.
+class VendorFileDetectionContribution extends Disposable implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.plc.vendorFileDetection';
+
+	private static readonly VENDOR_EXTENSIONS = ['.l5x', '.xef', '.zef', '.st', '.scl'];
+	private static readonly VENDOR_XML_SIGNATURES: Record<string, string> = {
+		'RSLogix5000Content': 'rockwell_l5x',
+		'SW.Blocks.CompileUnit': 'siemens_simatic_ml',
+		'SW.CodeBlock': 'siemens_simatic_ml',
+		'plcopen.org/xml/tc6_0201': 'plcopen_xml',
+		'ProjectFile': 'schneider_xef',
+		'UnityPro': 'schneider_xef',
+	};
+
+	constructor(
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IFileService private readonly fileService: IFileService,
+	) {
+		super();
+		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => this._scanFolders()));
+		// Initial scan on startup (debounced to avoid blocking startup)
+		setTimeout(() => this._scanFolders(), 3000);
+	}
+
+	private async _scanFolders(): Promise<void> {
+		const folders = this.workspaceContextService.getWorkspace().folders;
+		if (folders.length === 0) return;
+
+		const detectedFiles: Array<{ name: string; path: string; format: string }> = [];
+
+		for (const folder of folders) {
+			try {
+				const stat = await this.fileService.resolve(folder.uri);
+				if (!stat.children) continue;
+				for (const child of stat.children) {
+					const name = child.name.toLowerCase();
+					// Check extension-based detection first
+					const ext = '.' + name.split('.').pop();
+					if (VendorFileDetectionContribution.VENDOR_EXTENSIONS.includes(ext)) {
+						const format = ext === '.l5x' ? 'rockwell_l5x'
+						: (ext === '.st' || ext === '.scl') ? 'iec_st'
+						: 'schneider_xef';
+						detectedFiles.push({ name: child.name, path: child.resource.fsPath, format });
+						continue;
+					}
+					// For .xml files, try content-based detection
+					if (name.endsWith('.xml')) {
+						try {
+							const content = await this.fileService.readFile(child.resource);
+							const head = content.value.slice(0, 4096).toString();
+							for (const [sig, format] of Object.entries(VendorFileDetectionContribution.VENDOR_XML_SIGNATURES)) {
+								if (head.includes(sig)) {
+									detectedFiles.push({ name: child.name, path: child.resource.fsPath, format });
+									break;
+								}
+							}
+						} catch {
+							// Skip unreadable files
+						}
+					}
+				}
+			} catch {
+				// Skip inaccessible folders
+			}
+		}
+
+		if (detectedFiles.length > 0) {
+			// Post to all windows — the React component listens and shows the banner
+			window.postMessage({
+				type: 'volt:vendor-file-detected',
+				files: detectedFiles,
+			}, '*');
+		}
+	}
+}
+
+registerWorkbenchContribution2(
+	VendorFileDetectionContribution.ID,
+	VendorFileDetectionContribution,
+	WorkbenchPhase.AfterRestored,
+);
+
+// ─── Simulator Activity Bar Button ───────────────────────────────────────────
+// The Simulator is a standalone button in the activity bar — it has no side panel.
+// Clicking it opens the FUXA simulator as an editor panel via void.openSimulator.
+class SimulatorActivityBarContribution extends Disposable implements IWorkbenchContribution {
+	static ID = 'workbench.contrib.plc.simulatorActivityBarButton';
+
+	constructor(
+		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
+		@ICommandService private readonly commandService: ICommandService,
+	) {
+		super();
+		this._injectButton();
+	}
+
+	private _injectButton(): void {
+		const tryInject = () => {
+			const activityBarEl = this.layoutService.getContainer(window, Parts.ACTIVITYBAR_PART);
+			if (!activityBarEl) {
+				setTimeout(tryInject, 100);
+				return;
+			}
+
+			// Find the composite bar (the top list of icon buttons)
+			const compositeBar = activityBarEl.querySelector('.monaco-action-bar ul.actions-container') as HTMLElement | null;
+			if (!compositeBar) {
+				setTimeout(tryInject, 100);
+				return;
+			}
+
+			// Build a matching action-item li
+			const li = document.createElement('li');
+			li.className = 'action-item';
+			li.setAttribute('role', 'presentation');
+
+			const a = document.createElement('a');
+			a.className = 'action-label codicon codicon-vm';
+			a.setAttribute('role', 'button');
+			a.setAttribute('aria-label', 'Simulator');
+			a.setAttribute('title', 'Simulator');
+			a.style.cssText = 'cursor:pointer;';
+			a.addEventListener('click', (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				this.commandService.executeCommand('void.openSimulator');
+			});
+
+			li.appendChild(a);
+
+			// Append after the last existing action-item to maintain visual order
+			compositeBar.appendChild(li);
+		};
+
+		setTimeout(tryInject, 500);
+	}
+}
+registerWorkbenchContribution2(
+	SimulatorActivityBarContribution.ID,
+	SimulatorActivityBarContribution,
+	WorkbenchPhase.AfterRestored,
+);
+
+// ─── Simulator Editor (FUXA HMI) ─────────────────────────────────────────────
+import { SimulatorEditorInput, SIMULATOR_EDITOR_URI } from './simulatorEditorInput.js';
+import { SimulatorEditorPane } from './simulatorEditorPane.js';
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(
+		SimulatorEditorPane,
+		SimulatorEditorPane.ID,
+		nls.localize('plcSimulatorEditor', 'PLC Simulator'),
+	),
+	[new SyncDescriptor(SimulatorEditorInput)],
+);
+
+class SimulatorEditorInputSerializer implements IEditorSerializer {
+	canSerialize(): boolean { return true; }
+	serialize(): string { return '{}'; }
+	deserialize(): SimulatorEditorInput { return SimulatorEditorInput.getOrCreate(); }
+}
+Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEditorSerializer(SimulatorEditorInput.ID, SimulatorEditorInputSerializer);
+
+// Open Simulator action — used by activity bar button
+class OpenSimulatorAction extends Action2 {
+	constructor() {
+		super({
+			id: 'void.openSimulator',
+			title: nls.localize2('openSimulator', 'Open Simulator'),
+			category: nls.localize2('plaxio', 'Plaxio'),
+		});
+	}
+	override async run(accessor: ServicesAccessor): Promise<void> {
+		const editorService = accessor.get(IEditorService);
+		await editorService.openEditor(SimulatorEditorInput.getOrCreate(), { pinned: true });
+	}
+}
+registerAction2(OpenSimulatorAction);
+
+// ─── Export Editor (PLC Vendor Export) ───────────────────────────────────────
+import { ExportEditorInput, EXPORT_EDITOR_URI } from './exportEditorInput.js';
+import { ExportEditorPane } from './exportEditorPane.js';
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(
+		ExportEditorPane,
+		ExportEditorPane.ID,
+		nls.localize('plcExportEditor', 'PLC Export'),
+	),
+	[new SyncDescriptor(ExportEditorInput)],
+);
+
+class ExportEditorInputSerializer implements IEditorSerializer {
+	canSerialize(): boolean { return true; }
+	serialize(): string { return '{}'; }
+	deserialize(): ExportEditorInput { return ExportEditorInput.getOrCreate(); }
+}
+Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEditorSerializer(ExportEditorInput.ID, ExportEditorInputSerializer);
+
+// Open Export action
+class OpenExportAction extends Action2 {
+	constructor() {
+		super({
+			id: 'void.openExport',
+			title: nls.localize2('openExport', 'Open Export'),
+			category: nls.localize2('plaxio', 'Plaxio'),
+		});
+	}
+	override async run(accessor: ServicesAccessor): Promise<void> {
+		const editorService = accessor.get(IEditorService);
+		await editorService.openEditor(ExportEditorInput.getOrCreate(), { pinned: true });
+	}
+}
+registerAction2(OpenExportAction);
+
+export {
+	SIMULATOR_EDITOR_URI,
+	EXPORT_EDITOR_URI,
+};

@@ -121,6 +121,8 @@ Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegis
 		order: 4,
 		rejectAddedViews: true,
 		alwaysUseContainerInfo: true,
+		hideByDefault: true,
+		hideIfEmpty: true,
 	}, ViewContainerLocation.Sidebar);
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration)

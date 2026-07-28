@@ -10,6 +10,7 @@ import { os } from '../common/helpers/systemInfo.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { timeout } from '../../../../base/common/async.js';
 import { getActiveWindow } from '../../../../base/browser/dom.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 
 // Onboarding contribution that mounts the component at startup
 export class MiscWorkbenchContribs extends Disposable implements IWorkbenchContribution {
@@ -18,12 +19,16 @@ export class MiscWorkbenchContribs extends Disposable implements IWorkbenchContr
 	constructor(
 		@IExtensionTransferService private readonly extensionTransferService: IExtensionTransferService,
 		@IStorageService private readonly storageService: IStorageService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) {
 		super();
 		this.initialize();
 	}
 
 	private initialize(): void {
+		if (this.configurationService.getValue('workbench.activityBar.location') !== 'top') {
+			this.configurationService.updateValue('workbench.activityBar.location', 'top');
+		}
 
 		// delete blacklisted extensions once (this is for people who already installed them)
 		const deleteExtensionsStorageId = 'void-deleted-blacklist-2'

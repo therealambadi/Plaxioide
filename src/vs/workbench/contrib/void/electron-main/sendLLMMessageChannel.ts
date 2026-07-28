@@ -117,8 +117,9 @@ export class LLMMessageChannel implements IServerChannel {
 	private async _callAbort(params: MainLLMMessageAbortParams) {
 		const { requestId } = params;
 		if (!(requestId in this._infoOfRunningRequest)) return
-		const { waitForSend, abortRef } = this._infoOfRunningRequest[requestId]
-		await waitForSend // wait for the send to finish so we know abortRef was set
+		const { abortRef } = this._infoOfRunningRequest[requestId]
+		// Do not wait for the streaming request: that would make Stop wait for the
+		// model response it is supposed to cancel.
 		abortRef?.current?.()
 		delete this._infoOfRunningRequest[requestId]
 	}

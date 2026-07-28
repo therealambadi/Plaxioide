@@ -465,171 +465,54 @@ const PrimaryActionButton = ({ children, className, ringSize, ...props }: { chil
 }
 
 
-type WantToUseOption = 'smart' | 'private' | 'cheap' | 'all'
-
 const VoidOnboardingContent = () => {
-
 
 	const accessor = useAccessor()
 	const voidSettingsService = accessor.get('IVoidSettingsService')
 	const voidMetricsService = accessor.get('IMetricsService')
-
 	const voidSettingsState = useSettingsState()
 
 	const [pageIndex, setPageIndex] = useState(0)
 
-
-	// page 1 state
-	const [wantToUseOption, setWantToUseOption] = useState<WantToUseOption>('smart')
-
-	// Replace the single selectedProviderName with four separate states
-	// page 2 state - each tab gets its own state
-	const [selectedIntelligentProvider, setSelectedIntelligentProvider] = useState<ProviderName>('anthropic');
-	const [selectedPrivateProvider, setSelectedPrivateProvider] = useState<ProviderName>('ollama');
-	const [selectedAffordableProvider, setSelectedAffordableProvider] = useState<ProviderName>('gemini');
-	const [selectedAllProvider, setSelectedAllProvider] = useState<ProviderName>('anthropic');
-
-	// Helper function to get the current selected provider based on active tab
-	const getSelectedProvider = (): ProviderName => {
-		switch (wantToUseOption) {
-			case 'smart': return selectedIntelligentProvider;
-			case 'private': return selectedPrivateProvider;
-			case 'cheap': return selectedAffordableProvider;
-			case 'all': return selectedAllProvider;
-		}
-	}
-
-	// Helper function to set the selected provider for the current tab
-	const setSelectedProvider = (provider: ProviderName) => {
-		switch (wantToUseOption) {
-			case 'smart': setSelectedIntelligentProvider(provider); break;
-			case 'private': setSelectedPrivateProvider(provider); break;
-			case 'cheap': setSelectedAffordableProvider(provider); break;
-			case 'all': setSelectedAllProvider(provider); break;
-		}
-	}
-
-	const providerNamesOfWantToUseOption: { [wantToUseOption in WantToUseOption]: ProviderName[] } = {
-		smart: ['anthropic', 'openAI', 'gemini', 'openRouter'],
-		private: ['ollama', 'vLLM', 'openAICompatible', 'lmStudio'],
-		cheap: ['gemini', 'deepseek', 'openRouter', 'ollama', 'vLLM'],
-		all: providerNames,
-	}
-
-
-	const selectedProviderName = getSelectedProvider();
-	const didFillInProviderSettings = selectedProviderName && voidSettingsState.settingsOfProvider[selectedProviderName]._didFillInProviderSettings
-	const isApiKeyLongEnoughIfApiKeyExists = selectedProviderName && voidSettingsState.settingsOfProvider[selectedProviderName].apiKey ? voidSettingsState.settingsOfProvider[selectedProviderName].apiKey.length > 15 : true
-	const isAtLeastOneModel = selectedProviderName && voidSettingsState.settingsOfProvider[selectedProviderName].models.length >= 1
-
-	const didFillInSelectedProviderSettings = !!(didFillInProviderSettings && isApiKeyLongEnoughIfApiKeyExists && isAtLeastOneModel)
-
-	const prevAndNextButtons = <div className="max-w-[600px] w-full mx-auto flex flex-col items-end">
-		<div className="flex items-center gap-2">
-			<PreviousButton
-				onClick={() => { setPageIndex(pageIndex - 1) }}
-			/>
-			<NextButton
-				onClick={() => { setPageIndex(pageIndex + 1) }}
-			/>
-		</div>
-	</div>
-
-
-	const lastPagePrevAndNextButtons = <div className="max-w-[600px] w-full mx-auto flex flex-col items-end">
-		<div className="flex items-center gap-2">
-			<PreviousButton
-				onClick={() => { setPageIndex(pageIndex - 1) }}
-			/>
-			<PrimaryActionButton
-				onClick={() => {
-					voidSettingsService.setGlobalSetting('isOnboardingComplete', true);
-					voidMetricsService.capture('Completed Onboarding', { selectedProviderName, wantToUseOption })
-				}}
-				ringSize={voidSettingsState.globalSettings.isOnboardingComplete ? 'screen' : undefined}
-			>Enter the Void</PrimaryActionButton>
-		</div>
-	</div>
-
-
-	// cannot be md
-	const basicDescOfWantToUseOption: { [wantToUseOption in WantToUseOption]: string } = {
-		smart: "Models with the best performance on benchmarks.",
-		private: "Host on your computer or local network for full data privacy.",
-		cheap: "Free and affordable options.",
-		all: "",
-	}
-
-	// can be md
-	const detailedDescOfWantToUseOption: { [wantToUseOption in WantToUseOption]: string } = {
-		smart: "Most intelligent and best for agent mode.",
-		private: "Private-hosted so your data never leaves your computer or network. [Email us](mailto:founders@voideditor.com) for help setting up at your company.",
-		cheap: "Use great deals like Gemini 2.5 Pro, or self-host a model with Ollama or vLLM for free.",
-		all: "",
-	}
-
-	// Modified: initialize separate provider states on initial render instead of watching wantToUseOption changes
-	useEffect(() => {
-		if (selectedIntelligentProvider === undefined) {
-			setSelectedIntelligentProvider(providerNamesOfWantToUseOption['smart'][0]);
-		}
-		if (selectedPrivateProvider === undefined) {
-			setSelectedPrivateProvider(providerNamesOfWantToUseOption['private'][0]);
-		}
-		if (selectedAffordableProvider === undefined) {
-			setSelectedAffordableProvider(providerNamesOfWantToUseOption['cheap'][0]);
-		}
-		if (selectedAllProvider === undefined) {
-			setSelectedAllProvider(providerNamesOfWantToUseOption['all'][0]);
-		}
-	}, []);
-
-	// reset the page to page 0 if the user redos onboarding
 	useEffect(() => {
 		if (!voidSettingsState.globalSettings.isOnboardingComplete) {
 			setPageIndex(0)
 		}
 	}, [setPageIndex, voidSettingsState.globalSettings.isOnboardingComplete])
 
+	const enterButton = <PrimaryActionButton
+		onClick={() => {
+			voidSettingsService.setGlobalSetting('isOnboardingComplete', true);
+			voidMetricsService.capture('Completed Onboarding', {})
+		}}
+		ringSize={voidSettingsState.globalSettings.isOnboardingComplete ? 'screen' : undefined}
+	>Enter Plaxio</PrimaryActionButton>
 
 	const contentOfIdx: { [pageIndex: number]: React.ReactNode } = {
 		0: <OnboardingPageShell
 			content={
 				<div className='flex flex-col items-center gap-8'>
-					<div className="text-5xl font-light text-center">Welcome to Void</div>
+					<div className="text-5xl font-light text-center">Welcome to Plaxio</div>
 
-					{/* Slice of Void image */}
 					<div className='max-w-md w-full h-[30vh] mx-auto flex items-center justify-center'>
 						{!isLinux && <VoidIcon />}
 					</div>
 
-
-					<FadeIn
-						delayMs={1000}
-					>
-						<PrimaryActionButton
-							onClick={() => { setPageIndex(1) }}
-						>
+					<FadeIn delayMs={1000}>
+						<PrimaryActionButton onClick={() => { setPageIndex(1) }}>
 							Get Started
 						</PrimaryActionButton>
 					</FadeIn>
-
 				</div>
 			}
 		/>,
 
-		1: <OnboardingPageShell hasMaxWidth={false}
+		1: <OnboardingPageShell
 			content={
-				<AddProvidersPage pageIndex={pageIndex} setPageIndex={setPageIndex} />
-			}
-		/>,
-		2: <OnboardingPageShell
+				<div className='flex flex-col items-center gap-6 max-w-[500px] mx-auto'>
+					<div className="text-4xl font-light text-center">Settings and Themes</div>
 
-			content={
-				<div>
-					<div className="text-5xl font-light text-center">Settings and Themes</div>
-
-					<div className="mt-8 text-center flex flex-col items-center gap-4 w-full max-w-md mx-auto">
+					<div className="mt-4 text-center flex flex-col items-center gap-4 w-full">
 						<h4 className="text-void-fg-3 mb-4">Transfer your settings from an existing editor?</h4>
 						<OneClickSwitchButton className='w-full px-4 py-2' fromEditor="VS Code" />
 						<OneClickSwitchButton className='w-full px-4 py-2' fromEditor="Cursor" />
@@ -637,15 +520,20 @@ const VoidOnboardingContent = () => {
 					</div>
 				</div>
 			}
-			bottom={lastPagePrevAndNextButtons}
+			bottom={
+				<div className="max-w-[600px] w-full mx-auto flex flex-col items-end">
+					<div className="flex items-center gap-2">
+						<PreviousButton onClick={() => { setPageIndex(0) }} />
+						{enterButton}
+					</div>
+				</div>
+			}
 		/>,
 	}
-
 
 	return <div key={pageIndex} className="w-full h-[80vh] text-left mx-auto flex flex-col items-center justify-center">
 		<ErrorBoundary>
 			{contentOfIdx[pageIndex]}
 		</ErrorBoundary>
 	</div>
-
 }

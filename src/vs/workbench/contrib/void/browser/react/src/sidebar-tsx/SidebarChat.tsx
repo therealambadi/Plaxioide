@@ -22,7 +22,7 @@ import { ChatMode, displayInfoOfProviderName, FeatureName, isFeatureNameDisabled
 import { ICommandService } from '../../../../../../../platform/commands/common/commands.js';
 import { WarningBox } from '../void-settings-tsx/WarningBox.js';
 import { getModelCapabilities, getIsReasoningEnabledState } from '../../../../common/modelCapabilities.js';
-import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text } from 'lucide-react';
+import { AlertTriangle, File, Ban, Check, ChevronRight, Dot, FileIcon, Pencil, Undo, Undo2, X, Flag, Copy as CopyIcon, Info, CirclePlus, Ellipsis, CircleEllipsis, Folder, ALargeSmall, TypeOutline, Text, Upload, Paperclip } from 'lucide-react';
 import { ChatMessage, CheckpointEntry, StagingSelectionItem, ToolMessage } from '../../../../common/chatThreadServiceTypes.js';
 import { approvalTypeOfBuiltinToolName, BuiltinToolCallParams, BuiltinToolName, ToolName, LintErrorItem, ToolApprovalType, toolApprovalTypes } from '../../../../common/toolsServiceTypes.js';
 import { CopyButton, EditToolAcceptRejectButtonsHTML, IconShell1, JumpToFileButton, JumpToTerminalButton, StatusIndicator, StatusIndicatorForApplyButton, useApplyStreamState, useEditToolStreamState } from '../markdown/ApplyBlockHoverButtons.js';
@@ -70,7 +70,7 @@ const IconArrowUp = ({ size, className = '' }: { size: number, className?: strin
 			xmlns="http://www.w3.org/2000/svg"
 		>
 			<path
-				fill="black"
+				fill="white"
 				fillRule="evenodd"
 				clipRule="evenodd"
 				d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z"
@@ -285,6 +285,143 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 
 }
 
+// ── Attached file types ──────────────────────────────────────────────────────
+type AttachedFile =
+	| { kind: 'text'; name: string; ext: string; content: string }
+	| { kind: 'image'; name: string; ext: string; base64: string; mimeType: string; dataUrl: string };
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']);
+
+// Map file extension → { bg color, label text } for the badge icon
+const EXT_META: Record<string, { bg: string; label: string }> = {
+	l5x:  { bg: '#FF6B35', label: 'L5X' },
+	xml:  { bg: '#4285F4', label: 'XML' },
+	xef:  { bg: '#0F9D58', label: 'XEF' },
+	zef:  { bg: '#AB47BC', label: 'ZEF' },
+	pdf:  { bg: '#EA4335', label: 'PDF' },
+	csv:  { bg: '#34A853', label: 'CSV' },
+	xlsx: { bg: '#217346', label: 'XLS' },
+	xls:  { bg: '#217346', label: 'XLS' },
+	txt:  { bg: '#9E9E9E', label: 'TXT' },
+	dxf:  { bg: '#00BCD4', label: 'DXF' },
+	json: { bg: '#FF9800', label: 'JSON' },
+	png:  { bg: '#E91E63', label: 'PNG' },
+	jpg:  { bg: '#E91E63', label: 'JPG' },
+	jpeg: { bg: '#E91E63', label: 'JPG' },
+	gif:  { bg: '#9C27B0', label: 'GIF' },
+	webp: { bg: '#3F51B5', label: 'WEBP' },
+};
+
+const MAX_ATTACHMENTS = 3;
+
+// Shared file → AttachedFile processor used by both button and drag-drop
+async function processFileToAttachment(file: File): Promise<AttachedFile> {
+	const ext = (file.name.split('.').pop() ?? '').toLowerCase();
+
+	if (IMAGE_EXTS.has(ext)) {
+		const dataUrl: string = await new Promise((res, rej) => {
+			const reader = new FileReader();
+			reader.onload = () => res(reader.result as string);
+			reader.onerror = rej;
+			reader.readAsDataURL(file);
+		});
+		const base64 = dataUrl.split(',')[1] ?? '';
+		const mimeType = file.type || `image/${ext}`;
+		return { kind: 'image', name: file.name, ext, base64, mimeType, dataUrl };
+	}
+
+	if (ext === 'pdf') {
+		// Try text extraction; fall back to base64 for multimodal AI
+		const arrayBuffer = await file.arrayBuffer();
+		const { extractPdfText } = await import('../plc-editor-tsx/vendor/fileProcessing.js');
+		const text = await extractPdfText(arrayBuffer);
+		if (text) {
+			return { kind: 'text', name: file.name, ext, content: text };
+		}
+		// Can't extract — store as base64 image-like for AI
+		const b64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+		return { kind: 'image', name: file.name, ext: 'pdf', base64: b64, mimeType: 'application/pdf', dataUrl: `data:application/pdf;base64,${b64}` };
+	}
+
+	if (ext === 'csv' || ext === 'xlsx' || ext === 'xls') {
+		const content = await file.text();
+		const { parseCSV, csvToAIContext } = await import('../plc-editor-tsx/vendor/fileProcessing.js');
+		const rows = parseCSV(content);
+		// Store the formatted AI context as content
+		const aiContent = rows.length ? csvToAIContext(rows, file.name) : content.slice(0, 4000);
+		return { kind: 'text', name: file.name, ext, content: aiContent };
+	}
+
+	// Default: plain text
+	const content = await file.text();
+
+	// Also import into PLC editor for vendor formats
+	if (['l5x', 'xml', 'xef', 'zef'].includes(ext)) {
+		try {
+			const { importVendorFile } = await import('../plc-editor-tsx/vendor/unifiedImportService.js');
+			const result = await importVendorFile(content, file.name, file.name);
+			if (result.ok) {
+				console.log(`[PLC Import] ✅ Imported ${result.projectName} — ${result.pouCount} POU(s), ${result.tagCount} tag(s)${result.unmappedCount ? `, ${result.unmappedCount} unmapped` : ''}`);
+			} else {
+				console.error(`[PLC Import] ❌ Failed: ${result.errors.join('; ')}`);
+			}
+		} catch (err) {
+			console.error(`[PLC Import] ❌ Error:`, err);
+		}
+	}
+
+	return { kind: 'text', name: file.name, ext, content };
+}
+
+const _FileAttachButton = ({ onFilesSelected, currentCount }: { onFilesSelected?: (files: AttachedFile[]) => void; currentCount: number }) => {
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const [importing, setImporting] = useState(false);
+	const remaining = MAX_ATTACHMENTS - currentCount;
+
+	const handleClick = useCallback(() => {
+		if (remaining <= 0) return;
+		fileInputRef.current?.click();
+	}, [remaining]);
+
+	const handleFileSelected = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const rawFiles = Array.from(e.target.files ?? []).slice(0, remaining);
+		if (!rawFiles.length) return;
+		setImporting(true);
+		try {
+			const results = await Promise.all(rawFiles.map(processFileToAttachment));
+			onFilesSelected?.(results);
+		} catch (err) {
+			console.error(`[FileAttach] ❌ Error:`, err);
+		} finally {
+			setImporting(false);
+			if (fileInputRef.current) fileInputRef.current.value = '';
+		}
+	}, [onFilesSelected, remaining]);
+
+	return (
+		<>
+			<button
+				type='button'
+				title={importing ? 'Importing…' : remaining <= 0 ? 'Max 3 files' : `Attach file (${remaining} remaining)`}
+				onClick={handleClick}
+				disabled={importing || remaining <= 0}
+				className='flex h-6 w-6 items-center justify-center rounded-full text-[#9CA3AF] transition-colors duration-100 hover:bg-white/10 hover:text-[#D1D5DB] disabled:opacity-40 disabled:cursor-default cursor-pointer text-sm font-light'
+				style={{ background: 'none', border: '1.5px solid rgba(255,255,255,0.18)', fontSize: 16, lineHeight: 1 }}
+			>
+				+
+			</button>
+			<input
+				ref={fileInputRef}
+				type='file'
+				multiple
+			accept='.l5x,.xml,.xef,.zef,.png,.jpg,.jpeg,.gif,.webp,.pdf,.csv,.xlsx,.xls,.txt,.dxf,.json'
+				style={{ display: 'none' }}
+				onChange={handleFileSelected}
+			/>
+		</>
+	);
+};
+
 
 
 
@@ -309,14 +446,16 @@ interface VoidChatAreaProps {
 
 	selections?: StagingSelectionItem[]
 	setSelections?: (s: StagingSelectionItem[]) => void
-	// selections?: any[];
-	// onSelectionsChange?: (selections: any[]) => void;
 
 	onClickAnywhere?: () => void;
 	// Optional close button
 	onClose?: () => void;
 
 	featureName: FeatureName;
+
+	// File attachments (lifted state from parent for AI context, max 3)
+	attachedFiles?: AttachedFile[];
+	setAttachedFiles?: (files: AttachedFile[]) => void;
 }
 
 export const VoidChatArea: React.FC<VoidChatAreaProps> = ({
@@ -336,77 +475,172 @@ export const VoidChatArea: React.FC<VoidChatAreaProps> = ({
 	setSelections,
 	featureName,
 	loadingIcon,
+	attachedFiles,
+	setAttachedFiles,
 }) => {
+	// fallback local state when not lifted (e.g. edit mode bubbles)
+	const [localFiles, setLocalFiles] = useState<AttachedFile[]>([]);
+	const displayFiles = attachedFiles !== undefined ? attachedFiles : localFiles;
+	const setDisplayFiles = setAttachedFiles ?? setLocalFiles;
+
+	const addFiles = (incoming: AttachedFile[]) => {
+		setDisplayFiles([...displayFiles, ...incoming].slice(0, MAX_ATTACHMENTS));
+	};
+	const removeFile = (idx: number) => {
+		setDisplayFiles(displayFiles.filter((_, i) => i !== idx));
+	};
+
+	const [expandedImage, setExpandedImage] = useState<string | null>(null);
+	const [isDragOver, setIsDragOver] = useState(false);
+
+	const handleDragOver = useCallback((e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		if (displayFiles.length < MAX_ATTACHMENTS) setIsDragOver(true);
+	}, [displayFiles.length]);
+
+	const handleDragLeave = useCallback((e: React.DragEvent) => {
+		e.preventDefault();
+		setIsDragOver(false);
+	}, []);
+
+	const handleDrop = useCallback(async (e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		setIsDragOver(false);
+		const droppedFiles = Array.from(e.dataTransfer.files).slice(0, MAX_ATTACHMENTS - displayFiles.length);
+		if (!droppedFiles.length) return;
+		try {
+			const results = await Promise.all(droppedFiles.map(processFileToAttachment));
+			addFiles(results);
+		} catch (err) {
+			console.error('[DragDrop] Error processing dropped files:', err);
+		}
+	}, [displayFiles.length, addFiles]);
+
 	return (
 		<div
 			ref={divRef}
-			className={`
-				gap-x-1
-                flex flex-col p-2 relative input text-left shrink-0
-                rounded-md
-                bg-void-bg-1
-				transition-all duration-200
-				border border-void-border-3 focus-within:border-void-border-1 hover:border-void-border-1
-				max-h-[80vh] overflow-y-auto
-                ${className}
-            `}
-			onClick={(e) => {
-				onClickAnywhere?.()
+			className={`void-chat-area flex flex-col relative text-left shrink-0 ${className}`}
+			style={{
+				borderRadius: 24,
+				background: '#282828',
+				border: isDragOver ? '1px solid rgba(138,180,248,0.6)' : '1px solid rgba(255,255,255,0.12)',
+				transition: 'border-color 0.15s, box-shadow 0.15s',
+				boxShadow: isDragOver ? '0 0 0 3px rgba(138,180,248,0.15), 0 8px 30px rgba(0,0,0,0.24)' : '0 8px 30px rgba(0,0,0,0.24)',
+				padding: '2px 4px 2px 4px',
 			}}
+			onDragOver={handleDragOver}
+			onDragLeave={handleDragLeave}
+			onDrop={handleDrop}
+			onClick={() => onClickAnywhere?.()}
 		>
 			{/* Selections section */}
-			{showSelections && selections && setSelections && (
-				<SelectedFiles
-					type='staging'
-					selections={selections}
-					setSelections={setSelections}
-					showProspectiveSelections={showProspectiveSelections}
-				/>
+			{/* Drag-over overlay */}
+			{isDragOver && (
+				<div className='absolute inset-0 z-20 flex items-center justify-center rounded-[24px] pointer-events-none' style={{ background: 'rgba(138,180,248,0.07)', border: '2px dashed rgba(138,180,248,0.5)' }}>
+					<span className='text-[#8AB4F8] text-sm font-medium'>Drop files here</span>
+				</div>
 			)}
 
-			{/* Input section */}
-			<div className="relative w-full">
-				{children}
+			{showSelections && selections && setSelections && (
+				<div className='px-2 pt-2 pb-1'>
+					<SelectedFiles
+						type='staging'
+						selections={selections}
+						setSelections={setSelections}
+						showProspectiveSelections={showProspectiveSelections}
+					/>
+				</div>
+			)}
 
-				{/* Close button (X) if onClose is provided */}
+			{/* Attached files row */}
+			{displayFiles.length > 0 && (
+				<div className='flex flex-wrap gap-2 px-3 pt-2 pb-1'>
+					{/* Full-screen image overlay */}
+					{expandedImage && (
+						<div
+							className='fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm'
+							onClick={() => setExpandedImage(null)}
+						>
+							<img src={expandedImage} alt='Preview' className='max-w-[90vw] max-h-[90vh] rounded-xl object-contain shadow-2xl' />
+							<button className='absolute top-4 right-4 text-white/70 hover:text-white' onClick={() => setExpandedImage(null)}>
+								<IconX size={20} />
+							</button>
+						</div>
+					)}
+					{displayFiles.map((f, idx) => {
+						const removeBtn = (
+							<button
+								key={`rm-${idx}`}
+								type='button'
+								onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+								className='flex items-center justify-center w-4 h-4 rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white transition-colors shrink-0'
+							>
+								<IconX size={8} />
+							</button>
+						);
+						if (f.kind === 'image') {
+							return (
+								<div key={idx} className='relative inline-block group cursor-pointer' onClick={() => setExpandedImage(f.dataUrl)}>
+									<img
+										src={f.dataUrl}
+										alt={f.name}
+										className='h-14 w-20 rounded-xl object-cover border border-white/20 shadow-md'
+									/>
+									<div className='absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/40 transition-all flex items-end opacity-0 group-hover:opacity-100'>
+										<span className='text-[9px] text-white font-medium px-1 pb-0.5 truncate w-full'>{f.name}</span>
+									</div>
+									<div className='absolute -top-1.5 -right-1.5'>{removeBtn}</div>
+								</div>
+							);
+						}
+						const meta = EXT_META[f.ext] ?? { bg: '#607D8B', label: f.ext.toUpperCase().slice(0, 4) || 'FILE' };
+						return (
+							<div key={idx} className='inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-2 py-1.5' style={{ maxWidth: 180 }}>
+								<div className='flex items-center justify-center rounded-lg text-white font-bold shrink-0' style={{ width: 28, height: 28, background: meta.bg, fontSize: 8, letterSpacing: '0.03em' }}>
+									{meta.label}
+								</div>
+								<div className='flex flex-col min-w-0'>
+									<span className='text-[10px] font-medium text-[#E2E8F0] truncate leading-tight'>{f.name.replace(/\.[^.]+$/, '')}</span>
+									<span className='text-[9px] text-[#9CA3AF] uppercase leading-tight'>.{f.ext}</span>
+								</div>
+								{removeBtn}
+							</div>
+						);
+					})}
+				</div>
+			)}
+
+			{/* Input section — scrollable */}
+			<div className="relative w-full px-3 pt-2.5 pb-0 overflow-y-auto max-h-[50vh]">
+				{children}
 				{onClose && (
 					<div className='absolute -top-1 -right-1 cursor-pointer z-1'>
-						<IconX
-							size={12}
-							className="stroke-[2] opacity-80 text-void-fg-3 hover:brightness-95"
-							onClick={onClose}
-						/>
+						<IconX size={12} className="stroke-[2] opacity-80 text-void-fg-3 hover:brightness-95" onClick={onClose} />
 					</div>
 				)}
 			</div>
 
 			{/* Bottom row */}
-			<div className='flex flex-row justify-between items-end gap-1'>
-				{showModelDropdown && (
-					<div className='flex flex-col gap-y-1'>
-						<ReasoningOptionSlider featureName={featureName} />
+			<div className='flex flex-row justify-between items-center px-2 pb-1.5 pt-1.5 gap-2'>
+				{/* Left: file attach */}
+				<div className='flex items-center'>
+					<_FileAttachButton onFilesSelected={addFiles} currentCount={displayFiles.length} />
+				</div>
 
-						<div className='flex items-center flex-wrap gap-x-2 gap-y-1 text-nowrap '>
-							{featureName === 'Chat' && <ChatModeDropdown className='text-xs text-void-fg-3 bg-void-bg-1 border border-void-border-2 rounded py-0.5 px-1' />}
-							<ModelDropdown featureName={featureName} className='text-xs text-void-fg-3 bg-void-bg-1 rounded' />
-						</div>
-					</div>
-				)}
-
-				<div className="flex items-center gap-2">
-
+				{/* Right: mode dropdown + loading + send/stop */}
+				<div className="flex items-center gap-2 ml-auto">
+					{featureName === 'Chat' && (
+						<ChatModeDropdown className='text-xs text-[#9CA3AF] bg-white/5 border border-white/10 rounded-full py-1 px-3 leading-none hover:bg-white/10 transition-colors' />
+					)}
 					{isStreaming && loadingIcon}
-
 					{isStreaming ? (
 						<ButtonStop onClick={onAbort} />
 					) : (
-						<ButtonSubmit
-							onClick={onSubmit}
-							disabled={isDisabled}
-						/>
+						<ButtonSubmit onClick={onSubmit} disabled={isDisabled} />
 					)}
 				</div>
-
 			</div>
 		</div>
 	);
@@ -417,33 +651,39 @@ export const VoidChatArea: React.FC<VoidChatAreaProps> = ({
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
 const DEFAULT_BUTTON_SIZE = 22;
-export const ButtonSubmit = ({ className, disabled, ...props }: ButtonProps & Required<Pick<ButtonProps, 'disabled'>>) => {
-
+export const ButtonSubmit = ({ className, disabled, style, ...props }: ButtonProps & Required<Pick<ButtonProps, 'disabled'>>) => {
 	return <button
 		type='button'
-		className={`rounded-full flex-shrink-0 flex-grow-0 flex items-center justify-center
-			${disabled ? 'bg-vscode-disabled-fg cursor-default' : 'bg-white cursor-pointer'}
-			${className}
-		`}
-		// data-tooltip-id='void-tooltip'
-		// data-tooltip-content={'Send'}
-		// data-tooltip-place='left'
+		className={`flex-shrink-0 flex-grow-0 flex items-center justify-center transition-all duration-150 ${disabled ? 'cursor-default opacity-40' : 'cursor-pointer'} ${className}`}
+		style={{
+			width: 30, height: 30,
+			borderRadius: '50%',
+			background: disabled ? 'rgba(255,255,255,0.1)' : 'linear-gradient(135deg, #4285F4, #8AB4F8)',
+			transform: 'scale(1)',
+			...style,
+		}}
+		onMouseEnter={e => { if (!disabled) { (e.currentTarget as HTMLElement).style.filter = 'brightness(1.1)'; (e.currentTarget as HTMLElement).style.transform = 'scale(1.06)'; } }}
+		onMouseLeave={e => { (e.currentTarget as HTMLElement).style.filter = ''; (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
 		{...props}
 	>
-		<IconArrowUp size={DEFAULT_BUTTON_SIZE} className="stroke-[2] p-[2px]" />
+		<IconArrowUp size={14} style={{ color: '#ffffff', stroke: '#ffffff', strokeWidth: 2.5 }} />
 	</button>
 }
 
-export const ButtonStop = ({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => {
+export const ButtonStop = ({ className, style, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => {
 	return <button
-		className={`rounded-full flex-shrink-0 flex-grow-0 cursor-pointer flex items-center justify-center
-			bg-white
-			${className}
-		`}
+		className={`flex-shrink-0 flex-grow-0 cursor-pointer flex items-center justify-center ${className}`}
 		type='button'
+		style={{
+			width: 30, height: 30,
+			borderRadius: '50%',
+			background: '#EA4335',
+			animation: 'void-pulse 1.5s ease-in-out infinite',
+			...style,
+		}}
 		{...props}
 	>
-		<IconSquare size={DEFAULT_BUTTON_SIZE} className="stroke-[3] p-[7px]" />
+		<IconSquare size={10} className="stroke-[3] text-white fill-white" />
 	</button>
 }
 
@@ -903,6 +1143,142 @@ const ToolHeaderWrapper = ({
 
 
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADK Orchestration UI Components
+// ═══════════════════════════════════════════════════════════════════════════════
+
+type ADKAgentStatus = 'running' | 'done' | 'error';
+
+const ADKAgentCard = ({ agentName, status, toolCalls, text }: {
+	agentName: string;
+	status: ADKAgentStatus;
+	toolCalls?: { name: string; args?: any }[];
+	text?: string;
+}) => {
+	const [isOpen, setIsOpen] = useState(false);
+	const statusIcon = status === 'running' ? <IconLoading className="inline-block" />
+		: status === 'done' ? <Check size={12} className="text-green-400" />
+			: <AlertTriangle size={12} className="text-void-warning" />;
+
+	const statusLabel = status === 'running' ? 'Working...'
+		: status === 'done' ? 'Done'
+			: 'Error';
+
+	return (
+		<div className="w-full border border-void-border-3 rounded px-2 py-1.5 bg-void-bg-3 overflow-hidden mb-1">
+			<div
+				className="select-none flex items-center min-h-[24px] cursor-pointer hover:brightness-125 transition-all duration-150"
+				onClick={() => setIsOpen(v => !v)}
+			>
+				<ChevronRight className={`text-void-fg-3 mr-1 h-3.5 w-3.5 flex-shrink-0 transition-transform duration-100 ${isOpen ? 'rotate-90' : ''}`} />
+				<span className="text-void-fg-3 text-xs font-medium">{agentName}</span>
+				<span className="text-void-fg-4 text-xs italic ml-2">{statusLabel}</span>
+				<span className="ml-auto flex-shrink-0">{statusIcon}</span>
+			</div>
+			{isOpen && (
+				<div className="mt-1 pl-5 text-void-fg-4 text-xs space-y-0.5">
+					{toolCalls?.map((tc, i) => (
+						<div key={i} className="flex items-center gap-1">
+							<span className="text-void-fg-3">→</span>
+							<span>{tc.name}()</span>
+						</div>
+					))}
+					{text && <div className="mt-1 text-void-fg-4 whitespace-pre-wrap">{text.slice(0, 200)}</div>}
+				</div>
+			)}
+		</div>
+	);
+};
+
+const ADKParallelIndicator = ({ agents }: {
+	agents: { name: string; status: ADKAgentStatus }[];
+}) => {
+	const running = agents.filter(a => a.status === 'running').length;
+	const done = agents.filter(a => a.status === 'done').length;
+
+	return (
+		<div className="w-full border border-void-border-3 rounded px-2 py-1.5 bg-void-bg-3 overflow-hidden mb-1">
+			<div className="select-none flex items-center min-h-[24px]">
+				<span className="text-void-fg-3 text-xs font-medium">Parallel Execution</span>
+				<span className="text-void-fg-4 text-xs ml-2">
+					{running > 0 ? <><IconLoading className="inline-block mr-1" />{running} running</> : null}
+					{done > 0 ? <span className="ml-2"><Check size={10} className="inline text-green-400 mr-0.5" />{done} done</span> : null}
+				</span>
+			</div>
+			<div className="mt-1 flex gap-1 flex-wrap">
+				{agents.map((agent, i) => (
+					<span key={i} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border
+						${agent.status === 'running' ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+							: agent.status === 'done' ? 'border-green-500/30 bg-green-500/10 text-green-300'
+								: 'border-red-500/30 bg-red-500/10 text-red-300'}`}
+					>
+						{agent.status === 'running' && <IconLoading className="inline-block" />}
+						{agent.status === 'done' && <Check size={8} />}
+						{agent.name}
+					</span>
+				))}
+			</div>
+		</div>
+	);
+};
+
+const ADKPipelineSteps = ({ steps, currentStep }: {
+	steps: { name: string; status: ADKAgentStatus }[];
+	currentStep: number;
+}) => {
+	return (
+		<div className="w-full border border-void-border-3 rounded px-2 py-1.5 bg-void-bg-3 overflow-hidden mb-1">
+			<div className="select-none flex items-center min-h-[24px]">
+				<span className="text-void-fg-3 text-xs font-medium">Pipeline</span>
+				<span className="text-void-fg-4 text-xs ml-2">Step {currentStep + 1}/{steps.length}</span>
+			</div>
+			<div className="mt-1 flex items-center gap-0.5">
+				{steps.map((step, i) => (
+					<div key={i} className="flex items-center">
+						<span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border
+							${step.status === 'running' ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+								: step.status === 'done' ? 'border-green-500/30 bg-green-500/10 text-green-300'
+									: 'border-void-border-3 bg-void-bg-2 text-void-fg-4'}`}
+						>
+							{step.status === 'running' && <IconLoading className="inline-block" />}
+							{step.status === 'done' && <Check size={8} className="text-green-400" />}
+							{step.name}
+						</span>
+						{i < steps.length - 1 && <span className="text-void-fg-4 mx-0.5 text-[10px]">→</span>}
+					</div>
+				))}
+			</div>
+		</div>
+	);
+};
+
+const ADKOrchestrationPanel = ({ orchestration }: {
+	orchestration: {
+		type: 'single' | 'parallel' | 'sequential';
+		agents: { name: string; status: ADKAgentStatus; toolCalls?: { name: string; args?: any }[]; text?: string }[];
+		currentStep?: number;
+	} | null;
+}) => {
+	if (!orchestration) return null;
+
+	if (orchestration.type === 'parallel') {
+		return <ADKParallelIndicator agents={orchestration.agents} />;
+	}
+	if (orchestration.type === 'sequential') {
+		return <ADKPipelineSteps steps={orchestration.agents} currentStep={orchestration.currentStep ?? 0} />;
+	}
+	// single agent or sub-agents
+	return (
+		<div className="space-y-1">
+			{orchestration.agents.map((agent, i) => (
+				<ADKAgentCard key={i} {...agent} />
+			))}
+		</div>
+	);
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+
 const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<ResultWrapper<'edit_file' | 'rewrite_file'>>[0] & { content: string }) => {
 	const accessor = useAccessor()
 	const isError = false
@@ -1089,6 +1465,34 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 	if (mode === 'display') {
 		chatbubbleContents = <>
 			<SelectedFiles type='past' messageIdx={messageIdx} selections={chatMessage.selections || []} />
+			{chatMessage.attachedFileMeta && chatMessage.attachedFileMeta.length > 0 && (
+				<div className='flex flex-wrap gap-2 pb-1'>
+					{chatMessage.attachedFileMeta.map((f, idx) => {
+						if (f.kind === 'image' && f.dataUrl) {
+							return (
+								<div key={idx} className='relative inline-block'>
+									<img src={f.dataUrl} alt={f.name} className='h-14 w-20 rounded-xl object-cover border border-white/20 shadow-md' />
+									<div className='absolute inset-0 rounded-xl bg-black/0 flex items-end'>
+										<span className='text-[9px] text-white font-medium px-1 pb-0.5 truncate w-full'>{f.name}</span>
+									</div>
+								</div>
+							);
+						}
+						const meta = EXT_META[f.ext] ?? { bg: '#607D8B', label: f.ext.toUpperCase().slice(0, 4) || 'FILE' };
+						return (
+							<div key={idx} className='inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-2 py-1.5' style={{ maxWidth: 180 }}>
+								<div className='flex items-center justify-center rounded-lg text-white font-bold shrink-0' style={{ width: 28, height: 28, background: meta.bg, fontSize: 8, letterSpacing: '0.03em' }}>
+									{meta.label}
+								</div>
+								<div className='flex flex-col min-w-0'>
+									<span className='text-[10px] font-medium text-[#E2E8F0] truncate leading-tight'>{f.name.replace(/\.[^.]+$/, '')}</span>
+									<span className='text-[9px] text-[#9CA3AF] uppercase leading-tight'>.{f.ext}</span>
+								</div>
+							</div>
+						);
+					})}
+				</div>
+			)}
 			<span className='px-0.5'>{chatMessage.displayContent}</span>
 		</>
 	}
@@ -1151,6 +1555,7 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 		>
 			<VoidInputBox2
 				enableAtToMention
+				transparentBg
 				ref={setTextAreaRef}
 				className='min-h-[81px] max-h-[500px] px-0.5'
 				placeholder="Edit your message..."
@@ -1187,9 +1592,9 @@ const UserMessageComponent = ({ chatMessage, messageIdx, isCheckpointGhost, curr
 		<div
 			// style chatbubble according to role
 			className={`
-            text-left rounded-lg max-w-full
+            text-left max-w-full
             ${mode === 'edit' ? ''
-					: mode === 'display' ? 'p-2 flex flex-col bg-void-bg-1 text-void-fg-1 overflow-x-auto cursor-pointer' : ''
+					: mode === 'display' ? 'px-3 py-2 flex flex-col rounded-2xl bg-white/8 text-void-fg-1 overflow-x-auto cursor-pointer border border-white/10' : ''
 				}
         `}
 			onClick={() => { if (mode === 'display') { onOpenEdit() } }}
@@ -1377,9 +1782,9 @@ const AssistantMessageComponent = ({ chatMessage, isCheckpointGhost, isCommitted
 const ReasoningWrapper = ({ isDoneReasoning, isStreaming, children }: { isDoneReasoning: boolean, isStreaming: boolean, children: React.ReactNode }) => {
 	const isDone = isDoneReasoning || !isStreaming
 	const isWriting = !isDone
-	const [isOpen, setIsOpen] = useState(isWriting)
+	const [isOpen, setIsOpen] = useState(true) // always start open so reasoning is visible
 	useEffect(() => {
-		if (!isWriting) setIsOpen(false) // if just finished reasoning, close
+		if (!isWriting) setIsOpen(true) // keep open when done so user can read it
 	}, [isWriting])
 	return <ToolHeaderWrapper title='Reasoning' desc1={isWriting ? <IconLoading /> : ''} isOpen={isOpen} onClick={() => setIsOpen(v => !v)}>
 		<ToolChildrenWrapper>
@@ -1420,6 +1825,17 @@ const titleOfBuiltinToolName = {
 
 	'read_lint_errors': { done: `Read lint errors`, proposed: 'Read lint errors', running: loadingTitleWrapper('Reading lint errors') },
 	'search_in_file': { done: 'Searched in file', proposed: 'Search in file', running: loadingTitleWrapper('Searching in file') },
+	'plc_get_program': { done: 'Read PLC program', proposed: 'Read PLC program', running: loadingTitleWrapper('Reading PLC program') },
+	'plc_write_program': { done: 'Wrote PLC program', proposed: 'Write PLC program', running: loadingTitleWrapper('Writing PLC program') },
+	'plc_validate': { done: 'Validated PLC program', proposed: 'Validate PLC program', running: loadingTitleWrapper('Validating PLC program') },
+	'plc_set_tag_database': { done: 'Set tag database', proposed: 'Set tag database', running: loadingTitleWrapper('Setting tag database') },
+	'plc_export_st': { done: 'Exported ST code', proposed: 'Export ST code', running: loadingTitleWrapper('Exporting ST code') },
+	'plc_export_vendor': { done: 'Exported PLC program', proposed: 'Export PLC program', running: loadingTitleWrapper('Exporting PLC program') },
+	'plc_convert_language': { done: 'Read PLC program for conversion', proposed: 'Convert PLC language', running: loadingTitleWrapper('Reading PLC program') },
+	'import_vendor_file': { done: 'Imported vendor file', proposed: 'Import vendor file', running: loadingTitleWrapper('Importing vendor file') },
+	'plaxio_get_project': { done: 'Read simulation', proposed: 'Read simulation', running: loadingTitleWrapper('Reading simulation') },
+	'plaxio_save_view': { done: 'Saved HMI view', proposed: 'Save HMI view', running: loadingTitleWrapper('Saving HMI view') },
+	'plaxio_set_tag_value': { done: 'Set tag value', proposed: 'Set tag value', running: loadingTitleWrapper('Setting tag value') },
 } as const satisfies Record<BuiltinToolName, { done: any, proposed: any, running: any }>
 
 
@@ -2898,6 +3314,8 @@ export const SidebarChat = () => {
 	const selections = currentThread.state.stagingSelections
 	const setSelections = (s: StagingSelectionItem[]) => { chatThreadsService.setCurrentThreadState({ stagingSelections: s }) }
 
+	const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
+
 	// stream state
 	const currThreadStreamState = useChatThreadsStreamState(chatThreadsState.currentThreadId)
 	const isRunning = currThreadStreamState?.isRunning
@@ -2906,6 +3324,13 @@ export const SidebarChat = () => {
 
 	// this is just if it's currently being generated, NOT if it's currently running
 	const toolIsGenerating = toolCallSoFar && !toolCallSoFar.isDone // show loading for slow tools (right now just edit)
+
+	// ADK orchestration state — read from stream state
+	const adkOrchestration = currThreadStreamState?.isRunning === 'adk' ? (currThreadStreamState as any).adkInfo as {
+		type: 'single' | 'parallel' | 'sequential';
+		agents: { name: string; status: ADKAgentStatus; toolCalls?: { name: string; args?: any }[]; text?: string }[];
+		currentStep?: number;
+	} : null
 
 	// ----- SIDEBAR CHAT state (local) -----
 
@@ -2925,26 +3350,112 @@ export const SidebarChat = () => {
 		const threadId = chatThreadsService.state.currentThreadId
 
 		// send message to LLM
-		const userMessage = _forceSubmit || textAreaRef.current?.value || ''
+		const baseMessage = _forceSubmit || textAreaRef.current?.value || ''
+		const visionService = accessor.get('IVisionService')
+		const googleVertexSettings = settingsState.settingsOfProvider['googleVertex' as any] as any
+
+		// Detect P&ID intent from message text
+		const isPIDRequest = /p\s*[&and]\s*id|piping.*instrument|p&id/i.test(baseMessage)
+
+		const fileParts: string[] = []
+		for (const f of attachedFiles) {
+			if (f.kind === 'image') {
+				let visionContext = `[Attached image: ${f.name}]`
+
+				// Try Google Cloud Vision if Vertex project is configured
+				try {
+					const project: string = googleVertexSettings?.project ?? ''
+					const region: string = googleVertexSettings?.region ?? 'us-central1'
+					if (project && visionService) {
+						const ann = await (visionService as any).analyzeImage(f.base64, f.mimeType, project, region)
+						if (ann) {
+							const lines = [`[Vision analysis of ${f.name}]`]
+							if (ann.labels?.length) lines.push(`Labels: ${ann.labels.join(', ')}`)
+							if (ann.objects?.length) lines.push(`Objects: ${ann.objects.map((o: any) => `${o.name} (${o.score}%)`).join(', ')}`)
+							if (ann.text?.trim()) lines.push(`Extracted text:\n${ann.text.trim().slice(0, 2000)}`)
+							visionContext = lines.join('\n')
+						}
+					}
+				} catch (vErr) {
+					console.warn('[Vision] Skipped:', vErr)
+				}
+
+				// Run P&ID pipeline if user requested it
+				if (isPIDRequest) {
+					try {
+						const { executePIDPipeline } = await import('../plc-editor-tsx/vendor/pid/pipeline.js')
+						const llmMessageService = accessor.get('ILLMMessageService')
+						// Build a simple AI provider that calls our LLM service
+						const aiProvider = async (prompt: string, image?: { data: string; mimeType: string }): Promise<string> => {
+							return new Promise((resolve) => {
+								let full = ''
+								const requestId = Math.random().toString(36).slice(2)
+								;(llmMessageService as any).sendLLMMessage({
+									messagesType: 'chatMessages',
+									messages: [{ role: 'user', content: image
+										? [{ type: 'image', image: `data:${image.mimeType};base64,${image.data}` }, { type: 'text', text: prompt }]
+										: prompt
+									}],
+									onText: (_: string, t: string) => { full = t },
+									onFinalMessage: (t: string) => { full = t; resolve(full) },
+									onError: () => resolve(full),
+									requestId,
+									_setAborter: () => {},
+								})
+							})
+						}
+						const result = await executePIDPipeline(
+							{ imageBase64: f.base64, mimeType: f.mimeType, scanTime: 'T#100ms', safetyLevel: 'none' },
+							aiProvider,
+						)
+						if (result.success && result.parseResult) {
+							const s = result.summary
+							visionContext += `\n\n[P&ID Pipeline Result for ${f.name}]\n`
+							visionContext += `Instruments: ${s.instrumentCount}, Valves: ${s.valveCount}, Pumps: ${s.pumpCount}, Control Loops: ${s.controlLoopCount}, Interlocks: ${s.interlockCount}\n`
+							visionContext += `I/O: ${s.ioCount.digitalInputs} DI / ${s.ioCount.digitalOutputs} DO / ${s.ioCount.analogInputs} AI / ${s.ioCount.analogOutputs} AO\n`
+							if (result.codeResult?.stCode) {
+								visionContext += `\nGenerated ST code:\n\`\`\`st\n${result.codeResult.stCode.slice(0, 4000)}\n\`\`\``
+							}
+							console.log('[P&ID] Pipeline complete:', s)
+						}
+					} catch (pidErr) {
+						console.warn('[P&ID] Pipeline skipped:', pidErr)
+					}
+				}
+
+				fileParts.push(visionContext)
+			} else {
+				fileParts.push(`[Attached file: ${f.name}]\n\`\`\`\n${f.content}\n\`\`\``)
+			}
+		}
+
+		const fileContext = fileParts.length ? '\n\n' + fileParts.join('\n\n') : ''
+		const userMessage = baseMessage + fileContext
+		const displayMessage = baseMessage || undefined
+		const attachedFileMeta = attachedFiles.length ? attachedFiles.map(f => ({
+			name: f.name,
+			ext: f.ext,
+			kind: f.kind,
+			dataUrl: f.kind === 'image' ? f.dataUrl : undefined,
+		})) : undefined
 
 		try {
-			await chatThreadsService.addUserMessageAndStreamResponse({ userMessage, threadId })
+			await chatThreadsService.addUserMessageAndStreamResponse({ userMessage, displayMessage, attachedFileMeta, threadId })
 		} catch (e) {
 			console.error('Error while sending message in chat:', e)
 		}
 
 		setSelections([]) // clear staging
+		setAttachedFiles([]) // clear attached files
 		textAreaFnsRef.current?.setValue('')
 		textAreaRef.current?.focus() // focus input after submit
 
-	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, settingsState])
+	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, attachedFiles, settingsState, accessor])
 
 	const onAbort = async () => {
 		const threadId = currentThread.id
 		await chatThreadsService.abortRunning(threadId)
 	}
-
-	const keybindingString = accessor.get('IKeybindingService').lookupKeybinding(VOID_CTRL_L_ACTION_ID)?.getLabel()
 
 	const threadId = currentThread.id
 	const currCheckpointIdx = chatThreadsState.allThreads[threadId]?.state?.currCheckpointIdx ?? undefined  // if not exist, treat like checkpoint is last message (infinity)
@@ -3030,10 +3541,14 @@ export const SidebarChat = () => {
 		{/* Generating tool */}
 		{generatingTool}
 
+		{/* ADK orchestration panel — shows sub-agents, parallel execution, pipeline steps */}
+		{adkOrchestration && <ADKOrchestrationPanel orchestration={adkOrchestration} />}
+
 		{/* loading indicator */}
-		{isRunning === 'LLM' || isRunning === 'idle' && !toolIsGenerating ? <ProseWrapper>
-			{<IconLoading className='opacity-50 text-sm' />}
-		</ProseWrapper> : null}
+		{isRunning === 'adk' ? null /* ADK panel above handles this */
+			: isRunning === 'LLM' || isRunning === 'idle' && !toolIsGenerating ? <ProseWrapper>
+				{<IconLoading className='opacity-50 text-sm' />}
+			</ProseWrapper> : null}
 
 
 		{/* error message */}
@@ -3074,11 +3589,14 @@ export const SidebarChat = () => {
 		selections={selections}
 		setSelections={setSelections}
 		onClickAnywhere={() => { textAreaRef.current?.focus() }}
+		attachedFiles={attachedFiles}
+		setAttachedFiles={setAttachedFiles}
 	>
 		<VoidInputBox2
 			enableAtToMention
-			className={`min-h-[81px] px-0.5 py-0.5`}
-			placeholder={`@ to mention, ${keybindingString ? `${keybindingString} to add a selection. ` : ''}Enter instructions...`}
+			transparentBg
+			className={`min-h-[24px] px-0.5 py-0.5`}
+			placeholder={`Ask anything, @ to mention`}
 			onChangeText={onChangeText}
 			onKeyDown={onKeyDown}
 			onFocus={() => { chatThreadsService.setCurrentlyFocusedMessageIdx(undefined) }}
@@ -3134,7 +3652,7 @@ export const SidebarChat = () => {
 			{landingPageInput}
 		</ErrorBoundary>
 
-		{Object.keys(chatThreadsState.allThreads).length > 1 ? // show if there are threads
+		{Object.keys(chatThreadsState.allThreads).length > 1 ?
 			<ErrorBoundary>
 				<div className='pt-8 mb-2 text-void-fg-3 text-root select-none pointer-events-none'>Previous Threads</div>
 				<PastThreadsList />
