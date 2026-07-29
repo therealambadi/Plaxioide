@@ -42,6 +42,8 @@ import { IExtensionManagementService } from '../../../../../../../platform/exten
 import { IMCPService } from '../../../../common/mcpService.js';
 import { IStorageService } from '../../../../../../../platform/storage/common/storage.js';
 import '../../../../common/storageKeys.js';
+import { IPlaxioAuthService } from '../../../plaxioAuthService.js';
+import { IPlaxioGateService } from '../../../plaxioGateService.js';
 
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -27578,7 +27580,7 @@ function isRegex(value) {
 function createDOMPurify() {
   let window2 = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : getGlobal();
   const DOMPurify = (root2) => createDOMPurify(root2);
-  DOMPurify.version = "3.4.11";
+  DOMPurify.version = "3.4.12";
   DOMPurify.removed = [];
   if (!window2 || !window2.document || window2.document.nodeType !== NODE_TYPE.document || !window2.Element) {
     DOMPurify.isSupported = false;
@@ -28019,6 +28021,7 @@ function createDOMPurify() {
     }
   };
   const _neutralizeRoot = function _neutralizeRoot2(root2) {
+    _neutralizeSubtree(root2);
     const childNodes = getChildNodes(root2);
     if (childNodes) {
       const snapshot = [];
@@ -28097,6 +28100,42 @@ function createDOMPurify() {
       const nodeType = getNodeType ? getNodeType(node2) : node2.nodeType;
       if (nodeType === NODE_TYPE.element) {
         _stripDisallowedAttributes(node2);
+      }
+      const childNodes = getChildNodes(node2);
+      if (childNodes) {
+        for (let i3 = childNodes.length - 1; i3 >= 0; --i3) {
+          stack.push(childNodes[i3]);
+        }
+      }
+    }
+  };
+  const _neutralizePatchLinkage = function _neutralizePatchLinkage2(root2) {
+    if (!SAFE_FOR_XML) {
+      return;
+    }
+    const stack = [root2];
+    while (stack.length > 0) {
+      const node2 = stack.pop();
+      const nodeType = getNodeType ? getNodeType(node2) : node2.nodeType;
+      if (nodeType === NODE_TYPE.processingInstruction || nodeType === NODE_TYPE.comment && regExpTest(COMMENT_MARKUP_PROBE, node2.data)) {
+        try {
+          remove2(node2);
+        } catch (_3) {
+        }
+        continue;
+      }
+      if (nodeType === NODE_TYPE.element) {
+        const element = node2;
+        const lcTag = transformCaseFunc(getNodeName ? getNodeName(node2) : node2.nodeName);
+        try {
+          if (element.hasAttribute && element.hasAttribute("patchsrc")) {
+            element.removeAttribute("patchsrc");
+          }
+          if (element.hasAttribute && element.hasAttribute("for") && lcTag !== "label" && lcTag !== "output") {
+            element.removeAttribute("for");
+          }
+        } catch (_3) {
+        }
       }
       const childNodes = getChildNodes(node2);
       if (childNodes) {
@@ -28279,8 +28318,11 @@ function createDOMPurify() {
     _forceRemove(currentNode);
     return true;
   };
-  const _sanitizeElements = function _sanitizeElements2(currentNode) {
+  const _sanitizeElements = function _sanitizeElements2(currentNode, root2) {
     _executeHooks(hooks.beforeSanitizeElements, currentNode, null);
+    if (currentNode !== root2 && getParentNode(currentNode) === null) {
+      return true;
+    }
     if (_isClobbered(currentNode)) {
       _forceRemove(currentNode);
       return true;
@@ -28290,12 +28332,19 @@ function createDOMPurify() {
       tagName,
       allowedTags: ALLOWED_TAGS
     });
+    if (currentNode !== root2 && getParentNode(currentNode) === null) {
+      return true;
+    }
     if (_isUnsafeNode(currentNode, tagName)) {
       _forceRemove(currentNode);
       return true;
     }
     if (FORBID_TAGS[tagName] || !(EXTRA_ELEMENT_HANDLING.tagCheck instanceof Function && EXTRA_ELEMENT_HANDLING.tagCheck(tagName)) && !ALLOWED_TAGS[tagName]) {
-      return _sanitizeDisallowedNode(currentNode, tagName);
+      const removed = _sanitizeDisallowedNode(currentNode, tagName);
+      if (removed === false) {
+        _executeHooks(hooks.afterSanitizeElements, currentNode, null);
+      }
+      return removed;
     }
     const nt2 = getNodeType ? getNodeType(currentNode) : currentNode.nodeType;
     if (nt2 === NODE_TYPE.element && !_checkValidNamespace(currentNode)) {
@@ -28320,6 +28369,12 @@ function createDOMPurify() {
   };
   const _isValidAttribute = function _isValidAttribute2(lcTag, lcName, value) {
     if (FORBID_ATTR[lcName]) {
+      return false;
+    }
+    if (SAFE_FOR_XML && lcName === "patchsrc") {
+      return false;
+    }
+    if (SAFE_FOR_XML && lcName === "for" && lcTag !== "label" && lcTag !== "output") {
       return false;
     }
     if (SANITIZE_DOM && (lcName === "id" || lcName === "name") && (value in document2 || value in formElement)) {
@@ -28452,7 +28507,7 @@ function createDOMPurify() {
     _executeHooks(hooks.beforeSanitizeShadowDOM, fragment, null);
     while (shadowNode = shadowIterator.nextNode()) {
       _executeHooks(hooks.uponSanitizeShadowNode, shadowNode, null);
-      _sanitizeElements(shadowNode);
+      _sanitizeElements(shadowNode, fragment);
       _sanitizeAttributes(shadowNode);
       if (_isDocumentFragment(shadowNode.content)) {
         _sanitizeShadowDOM2(shadowNode.content);
@@ -28551,14 +28606,17 @@ function createDOMPurify() {
     DOMPurify.removed = [];
     const inPlace = IN_PLACE && typeof dirty !== "string" && _isNode(dirty);
     if (inPlace) {
+      _neutralizePatchLinkage(dirty);
       const nn = getNodeName ? getNodeName(dirty) : dirty.nodeName;
       if (typeof nn === "string") {
         const tagName = transformCaseFunc(nn);
         if (!ALLOWED_TAGS[tagName] || FORBID_TAGS[tagName]) {
+          _neutralizeRoot(dirty);
           throw typeErrorCreate("root node is forbidden and cannot be sanitized in-place");
         }
       }
       if (_isClobbered(dirty)) {
+        _neutralizeRoot(dirty);
         throw typeErrorCreate("root node is clobbered and cannot be sanitized in-place");
       }
       try {
@@ -28591,10 +28649,11 @@ function createDOMPurify() {
     if (body && FORCE_BODY) {
       _forceRemove(body.firstChild);
     }
-    const nodeIterator = _createNodeIterator(inPlace ? dirty : body);
+    const walkRoot = inPlace ? dirty : body;
+    const nodeIterator = _createNodeIterator(walkRoot);
     try {
       while (currentNode = nodeIterator.nextNode()) {
-        _sanitizeElements(currentNode);
+        _sanitizeElements(currentNode, walkRoot);
         _sanitizeAttributes(currentNode);
         if (_isDocumentFragment(currentNode.content)) {
           _sanitizeShadowDOM2(currentNode.content);
@@ -28603,6 +28662,11 @@ function createDOMPurify() {
     } catch (error) {
       if (inPlace) {
         _neutralizeRoot(dirty);
+        arrayForEach(DOMPurify.removed, (entry) => {
+          if (entry.element) {
+            _neutralizeSubtree(entry.element);
+          }
+        });
       }
       throw error;
     }
@@ -28764,7 +28828,7 @@ var init_purify_es = __esm({
     mathMlDisallowed = freeze(["maction", "maligngroup", "malignmark", "mlongdiv", "mscarries", "mscarry", "msgroup", "mstack", "msline", "msrow", "semantics", "annotation", "annotation-xml", "mprescripts", "none"]);
     text = freeze(["#text"]);
     html = freeze(["accept", "action", "align", "alt", "autocapitalize", "autocomplete", "autopictureinpicture", "autoplay", "background", "bgcolor", "border", "capture", "cellpadding", "cellspacing", "checked", "cite", "class", "clear", "color", "cols", "colspan", "command", "commandfor", "controls", "controlslist", "coords", "crossorigin", "datetime", "decoding", "default", "dir", "disabled", "disablepictureinpicture", "disableremoteplayback", "download", "draggable", "enctype", "enterkeyhint", "exportparts", "face", "for", "headers", "height", "hidden", "high", "href", "hreflang", "id", "inert", "inputmode", "integrity", "ismap", "kind", "label", "lang", "list", "loading", "loop", "low", "max", "maxlength", "media", "method", "min", "minlength", "multiple", "muted", "name", "nonce", "noshade", "novalidate", "nowrap", "open", "optimum", "part", "pattern", "placeholder", "playsinline", "popover", "popovertarget", "popovertargetaction", "poster", "preload", "pubdate", "radiogroup", "readonly", "rel", "required", "rev", "reversed", "role", "rows", "rowspan", "spellcheck", "scope", "selected", "shape", "size", "sizes", "slot", "span", "srclang", "start", "src", "srcset", "step", "style", "summary", "tabindex", "title", "translate", "type", "usemap", "valign", "value", "width", "wrap", "xmlns"]);
-    svg = freeze(["accent-height", "accumulate", "additive", "alignment-baseline", "amplitude", "ascent", "attributename", "attributetype", "azimuth", "basefrequency", "baseline-shift", "begin", "bias", "by", "class", "clip", "clippathunits", "clip-path", "clip-rule", "color", "color-interpolation", "color-interpolation-filters", "color-profile", "color-rendering", "cx", "cy", "d", "dx", "dy", "diffuseconstant", "direction", "display", "divisor", "dur", "edgemode", "elevation", "end", "exponent", "fill", "fill-opacity", "fill-rule", "filter", "filterunits", "flood-color", "flood-opacity", "font-family", "font-size", "font-size-adjust", "font-stretch", "font-style", "font-variant", "font-weight", "fx", "fy", "g1", "g2", "glyph-name", "glyphref", "gradientunits", "gradienttransform", "height", "href", "id", "image-rendering", "in", "in2", "intercept", "k", "k1", "k2", "k3", "k4", "kerning", "keypoints", "keysplines", "keytimes", "lang", "lengthadjust", "letter-spacing", "kernelmatrix", "kernelunitlength", "lighting-color", "local", "marker-end", "marker-mid", "marker-start", "markerheight", "markerunits", "markerwidth", "maskcontentunits", "maskunits", "max", "mask", "mask-type", "media", "method", "mode", "min", "name", "numoctaves", "offset", "operator", "opacity", "order", "orient", "orientation", "origin", "overflow", "paint-order", "path", "pathlength", "patterncontentunits", "patterntransform", "patternunits", "points", "preservealpha", "preserveaspectratio", "primitiveunits", "r", "rx", "ry", "radius", "refx", "refy", "repeatcount", "repeatdur", "restart", "result", "rotate", "scale", "seed", "shape-rendering", "slope", "specularconstant", "specularexponent", "spreadmethod", "startoffset", "stddeviation", "stitchtiles", "stop-color", "stop-opacity", "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-opacity", "stroke", "stroke-width", "style", "surfacescale", "systemlanguage", "tabindex", "tablevalues", "targetx", "targety", "transform", "transform-origin", "text-anchor", "text-decoration", "text-rendering", "textlength", "type", "u1", "u2", "unicode", "values", "viewbox", "visibility", "version", "vert-adv-y", "vert-origin-x", "vert-origin-y", "width", "word-spacing", "wrap", "writing-mode", "xchannelselector", "ychannelselector", "x", "x1", "x2", "xmlns", "y", "y1", "y2", "z", "zoomandpan"]);
+    svg = freeze(["accent-height", "accumulate", "additive", "alignment-baseline", "amplitude", "ascent", "attributename", "attributetype", "azimuth", "basefrequency", "baseline-shift", "begin", "bias", "by", "class", "clip", "clippathunits", "clip-path", "clip-rule", "color", "color-interpolation", "color-interpolation-filters", "color-profile", "color-rendering", "cx", "cy", "d", "dx", "dy", "diffuseconstant", "direction", "display", "divisor", "dominant-baseline", "dur", "edgemode", "elevation", "end", "exponent", "fill", "fill-opacity", "fill-rule", "filter", "filterunits", "flood-color", "flood-opacity", "font-family", "font-size", "font-size-adjust", "font-stretch", "font-style", "font-variant", "font-weight", "fx", "fy", "g1", "g2", "glyph-name", "glyphref", "gradientunits", "gradienttransform", "height", "href", "id", "image-rendering", "in", "in2", "intercept", "k", "k1", "k2", "k3", "k4", "kerning", "keypoints", "keysplines", "keytimes", "lang", "lengthadjust", "letter-spacing", "kernelmatrix", "kernelunitlength", "lighting-color", "local", "marker-end", "marker-mid", "marker-start", "markerheight", "markerunits", "markerwidth", "maskcontentunits", "maskunits", "max", "mask", "mask-type", "media", "method", "mode", "min", "name", "numoctaves", "offset", "operator", "opacity", "order", "orient", "orientation", "origin", "overflow", "paint-order", "path", "pathlength", "patterncontentunits", "patterntransform", "patternunits", "points", "preservealpha", "preserveaspectratio", "primitiveunits", "r", "rx", "ry", "radius", "refx", "refy", "repeatcount", "repeatdur", "restart", "result", "rotate", "scale", "seed", "shape-rendering", "slope", "specularconstant", "specularexponent", "spreadmethod", "startoffset", "stddeviation", "stitchtiles", "stop-color", "stop-opacity", "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-opacity", "stroke", "stroke-width", "style", "surfacescale", "systemlanguage", "tabindex", "tablevalues", "targetx", "targety", "transform", "transform-origin", "text-anchor", "text-decoration", "text-orientation", "text-rendering", "textlength", "type", "u1", "u2", "unicode", "values", "viewbox", "visibility", "version", "vert-adv-y", "vert-origin-x", "vert-origin-y", "width", "word-spacing", "wrap", "writing-mode", "xchannelselector", "ychannelselector", "x", "x1", "x2", "xmlns", "y", "y1", "y2", "z", "zoomandpan"]);
     mathMl = freeze(["accent", "accentunder", "align", "bevelled", "close", "columnalign", "columnlines", "columnspacing", "columnspan", "denomalign", "depth", "dir", "display", "displaystyle", "encoding", "fence", "frame", "height", "href", "id", "largeop", "length", "linethickness", "lquote", "lspace", "mathbackground", "mathcolor", "mathsize", "mathvariant", "maxsize", "minsize", "movablelimits", "notation", "numalign", "open", "rowalign", "rowlines", "rowspacing", "rowspan", "rspace", "rquote", "scriptlevel", "scriptminsize", "scriptsizemultiplier", "selection", "separator", "separators", "stretchy", "subscriptshift", "supscriptshift", "symmetric", "voffset", "width", "xmlns"]);
     xml = freeze(["xlink:href", "xml:id", "xlink:title", "xml:space", "xmlns:xlink"]);
     MUSTACHE_EXPR = seal(/{{[\w\W]*|^[\w\W]*}}/g);
@@ -39572,6 +39636,12 @@ function peek(draft, prop) {
   const source = state ? latest(state) : draft;
   return source[prop];
 }
+function isRelocatedBaseRef(state, prop, value) {
+  if (state.type_ !== 1 || !state.allIndicesReassigned_ || state.assigned_?.get(prop) || !isDraftable(value) || value[DRAFT_STATE]) {
+    return false;
+  }
+  return state.baseRefs_.has(value);
+}
 function readPropFromProto(state, source, prop) {
   const desc = getDescriptorFromProto(source, prop);
   return desc ? VALUE in desc ? desc[VALUE] : (
@@ -39758,24 +39828,6 @@ var init_immer = __esm({
       get(state, prop) {
         if (prop === DRAFT_STATE)
           return state;
-        if (prop === "constructor" || prop === "__proto__") {
-          const source2 = latest(state);
-          const value2 = source2[prop];
-          return new Proxy(value2 || {}, {
-            get: (target, key) => {
-              if (key === "__proto__" || key === "prototype") {
-                return Object.freeze(/* @__PURE__ */ Object.create(null));
-              }
-              return Reflect.get(target, key);
-            },
-            set: () => {
-              return true;
-            },
-            apply: (target, thisArg, args) => {
-              return Reflect.apply(target, thisArg, args);
-            }
-          });
-        }
         let arrayPlugin = state.scope_.arrayMethodsPlugin_;
         const isArrayWithStringProp = state.type_ === 1 && typeof prop === "string";
         if (isArrayWithStringProp) {
@@ -39796,7 +39848,7 @@ var init_immer = __esm({
         ) && isArrayIndex(prop)) {
           return value;
         }
-        if (value === peek(state.base_, prop)) {
+        if (value === peek(state.base_, prop) || isRelocatedBaseRef(state, prop, value)) {
           prepareCopy(state);
           const childKey = state.type_ === 1 ? +prop : prop;
           const childDraft = createProxy(state.scope_, value, state, childKey);
@@ -39805,18 +39857,12 @@ var init_immer = __esm({
         return value;
       },
       has(state, prop) {
-        if (prop === "constructor" || prop === "__proto__" || prop === "prototype") {
-          return false;
-        }
         return prop in latest(state);
       },
       ownKeys(state) {
         return Reflect.ownKeys(latest(state));
       },
       set(state, prop, value) {
-        if (prop === "constructor" || prop === "__proto__" || prop === "prototype") {
-          return true;
-        }
         const desc = getDescriptorFromProto(latest(state), prop);
         if (desc?.set) {
           desc.set.call(state.draft_, value);
@@ -41511,6 +41557,8 @@ var ctrlKZoneStreamingStateListeners = /* @__PURE__ */ new Set();
 var commandBarURIStateListeners = /* @__PURE__ */ new Set();
 var activeURIListeners = /* @__PURE__ */ new Set();
 var mcpListeners = /* @__PURE__ */ new Set();
+var plaxioAuthListeners = /* @__PURE__ */ new Set();
+var plaxioBalanceListeners = /* @__PURE__ */ new Set();
 var _registerServices = (accessor) => {
   const disposables = [];
   _registerAccessor(accessor);
@@ -41522,9 +41570,11 @@ var _registerServices = (accessor) => {
     editCodeService: accessor.get(IEditCodeService),
     voidCommandBarService: accessor.get(IVoidCommandBarService),
     modelService: accessor.get(IModelService),
-    mcpService: accessor.get(IMCPService)
+    mcpService: accessor.get(IMCPService),
+    plaxioAuthService: accessor.get(IPlaxioAuthService),
+    plaxioGateService: accessor.get(IPlaxioGateService)
   };
-  const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, voidCommandBarService, mcpService } = stateServices;
+  const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, voidCommandBarService, mcpService, plaxioAuthService, plaxioGateService } = stateServices;
   chatThreadsState = chatThreadsStateService.state;
   disposables.push(
     chatThreadsStateService.onDidChangeCurrentThread(() => {
@@ -41582,6 +41632,18 @@ var _registerServices = (accessor) => {
       mcpListeners.forEach((l3) => l3());
     })
   );
+  plaxioAuthService.state;
+  disposables.push(
+    plaxioAuthService.onDidChangeState((s3) => {
+      plaxioAuthListeners.forEach((l3) => l3(s3));
+    })
+  );
+  plaxioGateService.cachedCredits;
+  disposables.push(
+    plaxioGateService.onDidChangeCredits((b2) => {
+      plaxioBalanceListeners.forEach((l3) => l3(b2));
+    })
+  );
   return disposables;
 };
 var getReactAccessor = (accessor) => {
@@ -41627,7 +41689,9 @@ var getReactAccessor = (accessor) => {
     IExtensionTransferService: accessor.get(IExtensionTransferService),
     IMCPService: accessor.get(IMCPService),
     IVisionService: accessor.get(IVisionService),
-    IStorageService: accessor.get(IStorageService)
+    IStorageService: accessor.get(IStorageService),
+    IPlaxioAuthService: accessor.get(IPlaxioAuthService),
+    IPlaxioGateService: accessor.get(IPlaxioGateService)
   };
   return reactAccessor;
 };
@@ -71987,11 +72051,11 @@ function XYResizer({ domNode, nodeId, getStoreItems, onChange, onEnd }) {
   };
 }
 
-// ../../../../../../../node_modules/@xyflow/react/node_modules/zustand/esm/traditional.mjs
+// ../../../../../../../node_modules/zustand/esm/traditional.mjs
 var import_react12 = __toESM(require_react(), 1);
 var import_with_selector = __toESM(require_with_selector(), 1);
 
-// ../../../../../../../node_modules/@xyflow/react/node_modules/zustand/esm/vanilla.mjs
+// ../../../../../../../node_modules/zustand/esm/vanilla.mjs
 var createStoreImpl = (createState) => {
   let state;
   const listeners = /* @__PURE__ */ new Set();
@@ -72023,7 +72087,7 @@ var createStoreImpl = (createState) => {
 };
 var createStore = (createState) => createState ? createStoreImpl(createState) : createStoreImpl;
 
-// ../../../../../../../node_modules/@xyflow/react/node_modules/zustand/esm/traditional.mjs
+// ../../../../../../../node_modules/zustand/esm/traditional.mjs
 var { useDebugValue } = import_react12.default;
 var { useSyncExternalStoreWithSelector } = import_with_selector.default;
 var identity3 = (arg) => arg;
@@ -72046,7 +72110,7 @@ var createWithEqualityFnImpl = (createState, defaultEqualityFn) => {
 };
 var createWithEqualityFn = (createState, defaultEqualityFn) => createState ? createWithEqualityFnImpl(createState, defaultEqualityFn) : createWithEqualityFnImpl;
 
-// ../../../../../../../node_modules/@xyflow/react/node_modules/zustand/esm/shallow.mjs
+// ../../../../../../../node_modules/zustand/esm/shallow.mjs
 function shallow$1(objA, objB) {
   if (Object.is(objA, objB)) {
     return true;
@@ -81220,6 +81284,8 @@ function getLineNumberForPosition(xmlData, index3) {
 function getPositionFromMatch(match) {
   return match.startIndex + match[1].length;
 }
+
+// ../../../../../../../node_modules/@nodable/entities/src/entities.js
 var CURRENCY = {
   cent: "\xA2",
   pound: "\xA3",
@@ -84195,6 +84261,7 @@ var OrderedObjParser = class {
     this.ignoreAttributesFn = getIgnoreAttributesFn(this.options.ignoreAttributes);
     this.entityExpansionCount = 0;
     this.currentExpandedLength = 0;
+    this.doctypefound = false;
     let namedEntities = { ...XML };
     if (this.options.entityDecoder) {
       this.entityDecoder = this.options.entityDecoder;
@@ -84346,6 +84413,7 @@ var parseXml = function(xmlData) {
   this.entityDecoder.reset();
   this.entityExpansionCount = 0;
   this.currentExpandedLength = 0;
+  this.doctypefound = false;
   const options = this.options;
   const docTypeReader = new DocTypeReader(options.processEntities);
   const xmlLen = xmlData.length;
@@ -84407,6 +84475,8 @@ var parseXml = function(xmlData) {
         }
         i3 = endIndex;
       } else if (c1 === 33 && xmlData.charCodeAt(i3 + 2) === 68) {
+        if (this.doctypefound) throw new Error("Multiple DOCTYPE declarations found.");
+        this.doctypefound = true;
         const result = docTypeReader.readDocType(xmlData, i3);
         this.entityDecoder.addInputEntities(result.entities);
         i3 = result.i;
@@ -97496,7 +97566,7 @@ html2canvas/dist/html2canvas.js:
       ***************************************************************************** *)
 
 dompurify/dist/purify.es.mjs:
-  (*! @license DOMPurify 3.4.11 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.4.11/LICENSE *)
+  (*! @license DOMPurify 3.4.12 | (c) Cure53 and other contributors | Released under the Apache license 2.0 and Mozilla Public License 2.0 | github.com/cure53/DOMPurify/blob/3.4.12/LICENSE *)
 
 svg-pathdata/lib/SVGPathData.module.js:
   (*! *****************************************************************************

@@ -55,6 +55,8 @@ import { IExtensionManagementService } from '../../../../../../../platform/exten
 import { IMCPService } from '../../../../common/mcpService.js';
 import { IStorageService, StorageScope } from '../../../../../../../platform/storage/common/storage.js'
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js'
+import { IPlaxioAuthService, PlaxioAuthState } from '../../../plaxioAuthService.js'
+import { IPlaxioGateService, AICreditsState } from '../../../plaxioGateService.js'
 
 
 // normally to do this you'd use a useEffect that calls .onDidChangeState(), but useEffect mounts too late and misses initial state changes
@@ -84,6 +86,12 @@ const activeURIListeners: Set<(uri: URI | null) => void> = new Set();
 
 const mcpListeners: Set<() => void> = new Set()
 
+let plaxioAuthState: PlaxioAuthState
+const plaxioAuthListeners: Set<(s: PlaxioAuthState) => void> = new Set()
+
+let plaxioBalanceState: AICreditsState | null = null
+const plaxioBalanceListeners: Set<(s: AICreditsState | null) => void> = new Set()
+
 
 // must call this before you can use any of the hooks below
 // this should only be called ONCE! this is the only place you don't need to dispose onDidChange. If you use state.onDidChange anywhere else, make sure to dispose it!
@@ -102,9 +110,11 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		voidCommandBarService: accessor.get(IVoidCommandBarService),
 		modelService: accessor.get(IModelService),
 		mcpService: accessor.get(IMCPService),
+		plaxioAuthService: accessor.get(IPlaxioAuthService),
+		plaxioGateService: accessor.get(IPlaxioGateService),
 	}
 
-	const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, voidCommandBarService, modelService, mcpService } = stateServices
+	const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, voidCommandBarService, modelService, mcpService, plaxioAuthService, plaxioGateService } = stateServices
 
 
 
@@ -177,6 +187,22 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		})
 	)
 
+	plaxioAuthState = plaxioAuthService.state
+	disposables.push(
+		plaxioAuthService.onDidChangeState((s) => {
+			plaxioAuthState = s
+			plaxioAuthListeners.forEach(l => l(s))
+		})
+	)
+
+	plaxioBalanceState = plaxioGateService.cachedCredits
+	disposables.push(
+		plaxioGateService.onDidChangeCredits((b) => {
+			plaxioBalanceState = b
+			plaxioBalanceListeners.forEach(l => l(b))
+		})
+	)
+
 
 	return disposables
 }
@@ -231,6 +257,8 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 		IVisionService: accessor.get(IVisionService),
 
 		IStorageService: accessor.get(IStorageService),
+		IPlaxioAuthService: accessor.get(IPlaxioAuthService),
+		IPlaxioGateService: accessor.get(IPlaxioGateService),
 
 	} as const
 	return reactAccessor
@@ -246,6 +274,11 @@ const _registerAccessor = (accessor: ServicesAccessor) => {
 }
 
 // -- services --
+export const getAccessor = (): { get: <S extends keyof ReactAccessor>(service: S) => ReactAccessor[S] } | null => {
+	if (!reactAccessor_) return null
+	return { get: <S extends keyof ReactAccessor>(service: S): ReactAccessor[S] => reactAccessor_![service] }
+}
+
 export const useAccessor = () => {
 	if (!reactAccessor_) {
 		throw new Error(`⚠️ Void useAccessor was called before _registerServices!`)
@@ -426,5 +459,26 @@ export const useIsOptedOut = () => {
 		return () => disposables.clear()
 	}, [storageService, getVal])
 
+	return s
+}
+
+
+export const usePlaxioAuthState = () => {
+	const [s, ss] = useState<PlaxioAuthState>(plaxioAuthState)
+	useEffect(() => {
+		ss(plaxioAuthState)
+		plaxioAuthListeners.add(ss)
+		return () => { plaxioAuthListeners.delete(ss) }
+	}, [ss])
+	return s
+}
+
+export const usePlaxioBalance = () => {
+	const [s, ss] = useState<AICreditsState | null>(plaxioBalanceState)
+	useEffect(() => {
+		ss(plaxioBalanceState)
+		plaxioBalanceListeners.add(ss)
+		return () => { plaxioBalanceListeners.delete(ss) }
+	}, [ss])
 	return s
 }

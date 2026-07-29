@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { ProviderName, SettingName, displayInfoOfSettingName, providerNames, VoidStatefulModelInfo, customSettingNamesOfProvider, RefreshableProviderName, refreshableProviderNames, displayInfoOfProviderName, nonlocalProviderNames, localProviderNames, GlobalSettingName, featureNames, displayInfoOfFeatureName, isProviderNameDisabled, FeatureName, hasDownloadButtonsOnModelsProviderNames, subTextMdOfProviderName } from '../../../../common/voidSettingsTypes.js'
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js'
 import { VoidButtonBgDarken, VoidCustomDropdownBox, VoidInputBox2, VoidSimpleInputBox, VoidSwitch } from '../util/inputs.js'
-import { useAccessor, useIsDark, useIsOptedOut, useRefreshModelListener, useRefreshModelState, useSettingsState } from '../util/services.js'
+import { useAccessor, useIsDark, useIsOptedOut, useRefreshModelListener, useRefreshModelState, useSettingsState, usePlaxioAuthState, usePlaxioBalance } from '../util/services.js'
 import { X, RefreshCw, Loader2, Check, Asterisk, Plus } from 'lucide-react'
 import { URI } from '../../../../../../../base/common/uri.js'
 import { ModelDropdown } from './ModelDropdown.js'
@@ -1030,6 +1030,128 @@ const MCPServersList = () => {
 	return <div className="my-2">{content}</div>
 };
 
+const AccountSection = ({ nativeHostService }: { nativeHostService: any }) => {
+	const authState = usePlaxioAuthState()
+	const balance = usePlaxioBalance()
+	const accessor = useAccessor()
+	const plaxioAuthService = accessor.get('IPlaxioAuthService')
+
+	if (authState?.isSignedIn) {
+		const remaining = balance?.remaining ?? 0
+		const total = balance?.total ?? 50
+		const used = balance?.used ?? 0
+		const percentUsed = total > 0 ? Math.round((used / total) * 100) : 0
+
+		return (
+			<div className='flex flex-col gap-4'>
+				<h2 className='text-3xl mb-2'>Account</h2>
+				<div className='flex flex-col gap-2 p-4 rounded-lg bg-void-bg-2'>
+					<div className='flex items-center gap-3'>
+						<div className='w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center'>
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400">
+								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+								<circle cx="12" cy="7" r="4"/>
+							</svg>
+						</div>
+						<div>
+							<p className='text-void-fg-1 text-sm font-medium'>{authState.userEmail ?? 'Signed in'}</p>
+							<p className='text-green-400 text-xs'>Connected to Plaxio</p>
+						</div>
+					</div>
+				</div>
+
+				<div className='w-full h-[1px] bg-void-bg-2 my-2' />
+
+				<div className='flex flex-col gap-2'>
+					<h4 className='text-base text-void-fg-1'>AI Credits</h4>
+					<div className='flex items-center gap-4 p-3 rounded-md bg-void-bg-2'>
+						<div className='flex flex-col'>
+							<span className='text-void-fg-3 text-xs'>Remaining</span>
+							<span className='text-void-fg-1 text-sm font-medium'>{remaining} / {total}</span>
+						</div>
+						<div className='w-[1px] h-8 bg-void-bg-1' />
+						<div className='flex flex-col'>
+							<span className='text-void-fg-3 text-xs'>Used</span>
+							<span className='text-void-fg-1 text-sm font-medium'>{used} messages</span>
+						</div>
+					</div>
+					<div className='w-full h-2 bg-void-bg-1 rounded-full overflow-hidden'>
+						<div
+							className={`h-full rounded-full transition-all ${percentUsed >= 90 ? 'bg-red-500' : percentUsed >= 80 ? 'bg-yellow-500' : 'bg-green-500'}`}
+							style={{ width: `${Math.min(percentUsed, 100)}%` }}
+						/>
+					</div>
+					<p className='text-void-fg-3 text-xs'>Each AI message uses 1 credit. MVP limit: {total} credits total.</p>
+					<div className='flex gap-2'>
+						<VoidButtonBgDarken className='px-4 py-1.5 max-w-48' onClick={() => {
+							plaxioAuthService.signOut()
+						}}>
+							Sign Out
+						</VoidButtonBgDarken>
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+	return (
+		<div className='flex flex-col gap-4'>
+			<h2 className='text-3xl mb-2'>Account</h2>
+			<h4 className='text-void-fg-3 mb-4'>Sign in to sync your settings and access premium features.</h4>
+
+			<div className='flex flex-col gap-2 p-4 rounded-lg bg-void-bg-2'>
+				<div className='flex items-center gap-3'>
+					<div className='w-10 h-10 rounded-full bg-[#0e70c0]/20 flex items-center justify-center'>
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#0e70c0]">
+							<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+							<circle cx="12" cy="7" r="4"/>
+						</svg>
+					</div>
+					<div>
+						<p className='text-void-fg-1 text-sm font-medium'>Not signed in</p>
+						<p className='text-void-fg-3 text-xs'>Sign in to access your account</p>
+					</div>
+				</div>
+			</div>
+
+			<div className='flex gap-2'>
+				<VoidButtonBgDarken className='px-4 py-2' onClick={() => {
+					nativeHostService.openExternal('https://plaxio.tech/login?desktop=true')
+				}}>
+					Sign In
+				</VoidButtonBgDarken>
+				<VoidButtonBgDarken className='px-4 py-2' onClick={() => {
+					nativeHostService.openExternal('https://plaxio.tech/signup?desktop=true')
+				}}>
+					Create Account
+				</VoidButtonBgDarken>
+			</div>
+
+			<div className='w-full h-[1px] bg-void-bg-2 my-2' />
+
+			<div className='flex flex-col gap-2'>
+				<h4 className='text-base text-void-fg-1'>Plan & Credits</h4>
+				<div className='flex items-center gap-4 p-3 rounded-md bg-void-bg-2'>
+					<div className='flex flex-col'>
+						<span className='text-void-fg-3 text-xs'>Current Plan</span>
+						<span className='text-void-fg-1 text-sm font-medium'>Free</span>
+					</div>
+					<div className='w-[1px] h-8 bg-void-bg-1' />
+					<div className='flex flex-col'>
+						<span className='text-void-fg-3 text-xs'>AI Credits</span>
+						<span className='text-void-fg-1 text-sm font-medium'>0 remaining</span>
+					</div>
+				</div>
+				<VoidButtonBgDarken className='px-4 py-1.5 max-w-48' onClick={() => {
+					nativeHostService.openExternal('https://plaxio.tech/billing')
+				}}>
+					Manage Billing
+				</VoidButtonBgDarken>
+			</div>
+		</div>
+	)
+}
+
 export const Settings = () => {
 	const isDark = useIsDark()
 	// ─── sidebar nav ──────────────────────────
@@ -1176,60 +1298,7 @@ export const Settings = () => {
 							{/* Account section */}
 							<div className={shouldShowTab('account') ? `` : 'hidden'}>
 								<ErrorBoundary>
-									<h2 className='text-3xl mb-2'>Account</h2>
-									<h4 className='text-void-fg-3 mb-4'>Sign in to sync your settings and access premium features.</h4>
-
-									<div className='flex flex-col gap-4'>
-										<div className='flex flex-col gap-2 p-4 rounded-lg bg-void-bg-2'>
-											<div className='flex items-center gap-3'>
-												<div className='w-10 h-10 rounded-full bg-[#0e70c0]/20 flex items-center justify-center'>
-													<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#0e70c0]">
-														<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-														<circle cx="12" cy="7" r="4"/>
-													</svg>
-												</div>
-												<div>
-													<p className='text-void-fg-1 text-sm font-medium'>Not signed in</p>
-													<p className='text-void-fg-3 text-xs'>Sign in to access your account</p>
-												</div>
-											</div>
-										</div>
-
-										<div className='flex gap-2'>
-											<VoidButtonBgDarken className='px-4 py-2' onClick={() => {
-												nativeHostService.openExternal('https://plaxio.tech/login?desktop_redirect=true')
-											}}>
-												Sign In
-											</VoidButtonBgDarken>
-											<VoidButtonBgDarken className='px-4 py-2' onClick={() => {
-												nativeHostService.openExternal('https://plaxio.tech/signup?desktop_redirect=true')
-											}}>
-												Create Account
-											</VoidButtonBgDarken>
-										</div>
-
-										<div className='w-full h-[1px] bg-void-bg-2 my-2' />
-
-										<div className='flex flex-col gap-2'>
-											<h4 className='text-base text-void-fg-1'>Plan & Credits</h4>
-											<div className='flex items-center gap-4 p-3 rounded-md bg-void-bg-2'>
-												<div className='flex flex-col'>
-													<span className='text-void-fg-3 text-xs'>Current Plan</span>
-													<span className='text-void-fg-1 text-sm font-medium'>Free</span>
-												</div>
-												<div className='w-[1px] h-8 bg-void-bg-1' />
-												<div className='flex flex-col'>
-													<span className='text-void-fg-3 text-xs'>AI Credits</span>
-													<span className='text-void-fg-1 text-sm font-medium'>0 remaining</span>
-												</div>
-											</div>
-											<VoidButtonBgDarken className='px-4 py-1.5 max-w-48' onClick={() => {
-												nativeHostService.openExternal('https://plaxio.tech/billing')
-											}}>
-												Manage Billing
-											</VoidButtonBgDarken>
-										</div>
-									</div>
+									<AccountSection nativeHostService={nativeHostService} />
 								</ErrorBoundary>
 							</div>
 

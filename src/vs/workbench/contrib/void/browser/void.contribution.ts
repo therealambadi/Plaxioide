@@ -58,6 +58,15 @@ import './voidOnboardingService.js'
 // register misc service
 import './miscWokrbenchContrib.js'
 
+// register plaxio auth URL handler
+import './plaxioAuthService.js'
+
+// register plaxio credit/feature gating
+import './plaxioGateService.js'
+
+// register plaxio sentry error monitoring
+import './plaxioSentryService.js'
+
 // register file service (for explorer context menu)
 import './fileService.js'
 

@@ -38,6 +38,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IMCPService } from '../common/mcpService.js';
+import { IPlaxioGateService } from './plaxioGateService.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
 
 
@@ -333,6 +334,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IDirectoryStrService private readonly _directoryStringService: IDirectoryStrService,
 		@IFileService private readonly _fileService: IFileService,
 		@IMCPService private readonly _mcpService: IMCPService,
+		@IPlaxioGateService private readonly _plaxioGateService: IPlaxioGateService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // default state
@@ -926,6 +928,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 		// capture number of messages sent
 		this._metricsService.capture('Agent Loop Done', { nMessagesSent, chatMode })
+
+		// Debit one AI credit after successful completion
+		if (!isRunningWhenEnd) {
+			this._plaxioGateService.debitAICredit();
+		}
 	}
 
 
@@ -1256,6 +1263,12 @@ We only need to do it for files that were edited since `from`, ie files between 
 		// interrupt existing stream
 		if (this.streamState[threadId]?.isRunning) {
 			await this.abortRunning(threadId)
+		}
+
+		// AI credit check before sending to LLM
+		const hasCredit = await this._plaxioGateService.checkAICredit();
+		if (!hasCredit) {
+			return;
 		}
 
 		// add dummy before this message to keep checkpoint before user message idea consistent
