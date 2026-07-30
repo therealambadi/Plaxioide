@@ -1,0 +1,40 @@
+{
+	"name": "st",
+	"displayName": "IEC 61131-3 Structured Text",
+	"description": "Syntax highlighting and language support for IEC 61131-3 Structured Text (.st) files used in Plaxio PLC programming.",
+	"version": "1.0.0",
+	"publisher": "plaxio",
+	"license": "MIT",
+	"engines": {
+		"vscode": "*"
+	},
+	"categories": [
+		"Programming Languages"
+	],
+	"contributes": {
+		"languages": [
+			{
+				"id": "st",
+				"extensions": [
+					".st",
+					".iec",
+					".iec61131"
+				],
+				"aliases": [
+					"Structured Text",
+					"IEC 61131-3",
+					"st",
+					"ST"
+				],
+				"configuration": "./language-configuration.json"
+			}
+		],
+		"grammars": [
+			{
+				"language": "st",
+				"scopeName": "source.st",
+				"path": "./syntaxes/st.tmLanguage.json"
+			}
+		]
+	}
+}

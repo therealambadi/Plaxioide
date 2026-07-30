@@ -1,0 +1,46 @@
+{
+  "rungs": [
+    {
+      "id": "rung-1",
+      "comment": "Motor start: PB_START contact energizes MOTOR_RUN coil",
+      "elements": [
+        {
+          "id": "el-1",
+          "kind": "contact",
+          "contactType": "NO",
+          "position": { "x": 100, "y": 50 },
+          "tag": { "name": "PB_START", "dataType": "BOOL", "address": "%I0.0" }
+        },
+        {
+          "id": "el-2",
+          "kind": "coil",
+          "coilType": "normal",
+          "position": { "x": 300, "y": 50 },
+          "tag": { "name": "MOTOR_RUN", "dataType": "BOOL", "address": "%Q0.0" }
+        }
+      ],
+      "branches": []
+    },
+    {
+      "id": "rung-2",
+      "comment": "Seal-in: MOTOR_RUN NO contact in parallel with PB_START",
+      "elements": [
+        {
+          "id": "el-3",
+          "kind": "contact",
+          "contactType": "NO",
+          "position": { "x": 100, "y": 50 },
+          "tag": { "name": "MOTOR_RUN", "dataType": "BOOL", "address": "%Q0.0" }
+        },
+        {
+          "id": "el-4",
+          "kind": "coil",
+          "coilType": "normal",
+          "position": { "x": 300, "y": 50 },
+          "tag": { "name": "MOTOR_RUN", "dataType": "BOOL", "address": "%Q0.0" }
+        }
+      ],
+      "branches": []
+    }
+  ]
+}

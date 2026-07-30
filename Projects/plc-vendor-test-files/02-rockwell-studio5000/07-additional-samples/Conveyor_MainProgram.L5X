@@ -1,0 +1,291 @@
+﻿<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RSLogix5000Content SchemaRevision="1.0" SoftwareRevision="32.04" TargetName="MainProgram" TargetType="Program" ContainsContext="true" Owner="Windows &#x7528;&#x6237;" ExportDate="Wed May 28 07:47:44 2025" ExportOptions="References NoRawData L5KData DecoratedData Context Dependencies ForceProtectedEncoding AllProjDocTrans">
+<Controller Use="Context" Name="Conveyor">
+<DataTypes Use="Context">
+</DataTypes>
+<Modules Use="Context">
+<Module Use="Reference" Name="Level_SW">
+</Module>
+<Module Use="Reference" Name="Local">
+</Module>
+<Module Use="Reference" Name="OUT">
+</Module>
+<Module Use="Reference" Name="PE_IN">
+</Module>
+</Modules>
+<Tags Use="Context">
+</Tags>
+<Programs Use="Context">
+<Program Use="Target" Name="MainProgram" TestEdits="false" MainRoutineName="MainRoutine" Disabled="false" UseAsFolder="false">
+<Tags>
+<Tag Name="Conveyor_CTRL" TagType="Alias" Radix="Decimal" AliasFor="Local:5:O.Data.0" ExternalAccess="Read/Write"/>
+<Tag Name="Conveyor_Interrupt" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="Conveyor_Start" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="Emergency_Stop" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="LEVEL_SW" TagType="Alias" Radix="Float" AliasFor="Local:4:I.Ch0Data" ExternalAccess="Read/Write"/>
+<Tag Name="Ons" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="Ons_1" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="Ons_2" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="Ons_3" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="PB" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[1]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="1"/>
+</Data>
+</Tag>
+<Tag Name="Pecan_Hopper_CTRL" TagType="Alias" Radix="Decimal" AliasFor="Local:5:O.Data.1" ExternalAccess="Read/Write"/>
+<Tag Name="Pecan_Hopper_Start" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="PE_Alarm" TagType="Alias" Radix="Decimal" AliasFor="Local:5:O.Data.3" ExternalAccess="Read/Write"/>
+<Tag Name="PE_Alarm_Delay" TagType="Base" DataType="TIMER" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[[0,5000,0]]]>
+</Data>
+<Data Format="Decorated">
+<Structure DataType="TIMER">
+<DataValueMember Name="PRE" DataType="DINT" Radix="Decimal" Value="5000"/>
+<DataValueMember Name="ACC" DataType="DINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="EN" DataType="BOOL" Value="0"/>
+<DataValueMember Name="TT" DataType="BOOL" Value="0"/>
+<DataValueMember Name="DN" DataType="BOOL" Value="0"/>
+</Structure>
+</Data>
+</Tag>
+<Tag Name="PE_Alarm_PB" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="PE_Alarm_Reset" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="PE_Blue" TagType="Alias" Radix="Decimal" AliasFor="Local:3:I.Data.1" ExternalAccess="Read/Write"/>
+<Tag Name="PE_DeAct_Alarm_Delay" TagType="Base" DataType="TIMER" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[[0,5000,0]]]>
+</Data>
+<Data Format="Decorated">
+<Structure DataType="TIMER">
+<DataValueMember Name="PRE" DataType="DINT" Radix="Decimal" Value="5000"/>
+<DataValueMember Name="ACC" DataType="DINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="EN" DataType="BOOL" Value="0"/>
+<DataValueMember Name="TT" DataType="BOOL" Value="0"/>
+<DataValueMember Name="DN" DataType="BOOL" Value="0"/>
+</Structure>
+</Data>
+</Tag>
+<Tag Name="PE_DeAct_Alarm_Reset" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="PE_Red" TagType="Alias" Radix="Decimal" AliasFor="Local:3:I.Data.2" ExternalAccess="Read/Write"/>
+<Tag Name="Proximity_SW" TagType="Alias" Radix="Decimal" AliasFor="Local:3:I.Data.0" ExternalAccess="Read/Write"/>
+<Tag Name="Stage" TagType="Base" DataType="DINT" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description>
+<![CDATA[Stage:
+0= Load Box
+1= Fill Box
+2= Unload]]>
+</Description>
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="DINT" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+<Tag Name="Walnut_Hopper_CTRL" TagType="Alias" Radix="Decimal" AliasFor="Local:5:O.Data.2" ExternalAccess="Read/Write"/>
+<Tag Name="Walnut_Hopper_Start" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="BOOL" Radix="Decimal" Value="0"/>
+</Data>
+</Tag>
+</Tags>
+<Routines>
+<Routine Name="Alarm" Type="RLL">
+<RLLContent>
+<Rung Number="0" Type="N">
+<Text>
+<![CDATA[XIC(PE_Blue)XIC(PE_Red)[XIC(PE_Alarm_Delay.DN) OTE(PE_Alarm) ,TON(PE_Alarm_Delay,?,?) ];]]>
+</Text>
+</Rung>
+<Rung Number="1" Type="N">
+<Text>
+<![CDATA[XIC(Proximity_SW)XIO(PE_Blue)XIO(PE_Red)[XIC(PE_DeAct_Alarm_Delay.DN) OTE(PE_Alarm) ,TON(PE_DeAct_Alarm_Delay,?,?) ];]]>
+</Text>
+</Rung>
+<Rung Number="2" Type="N">
+<Text>
+<![CDATA[XIC(PE_Alarm_PB)ONS(Ons)RES(PE_DeAct_Alarm_Delay);]]>
+</Text>
+</Rung>
+<Rung Number="3" Type="N">
+<Text>
+<![CDATA[XIC(PE_Alarm_Delay.DN)XIC(PE_Blue)XIO(PE_Red)RES(PE_Alarm_Delay);]]>
+</Text>
+</Rung>
+<Rung Number="4" Type="N">
+<Text>
+<![CDATA[XIC(PE_Alarm_Delay.DN)XIC(PE_Red)XIO(PE_Blue)RES(PE_Alarm_Delay);]]>
+</Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="CTRL" Type="RLL">
+<RLLContent>
+<Rung Number="0" Type="N">
+<Text>
+<![CDATA[[EQU(Stage,0) XIO(Proximity_SW) ,EQU(Stage,2) ]OTE(Conveyor_Start);]]>
+</Text>
+</Rung>
+<Rung Number="1" Type="N">
+<Text>
+<![CDATA[EQU(Stage,1)XIC(PE_Blue)XIO(PE_Red)LES(LEVEL_SW,100)OTE(Walnut_Hopper_Start);]]>
+</Text>
+</Rung>
+<Rung Number="2" Type="N">
+<Text>
+<![CDATA[EQU(Stage,1)XIC(PE_Red)XIO(PE_Blue)LES(LEVEL_SW,100)OTE(Pecan_Hopper_Start);]]>
+</Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="MainRoutine" Type="RLL">
+<RLLContent>
+<Rung Number="0" Type="N">
+<Text>
+<![CDATA[XIC(PB)JSR(Stage_Identify,0);]]>
+</Text>
+</Rung>
+<Rung Number="1" Type="N">
+<Text>
+<![CDATA[XIC(PB)JSR(CTRL,0);]]>
+</Text>
+</Rung>
+<Rung Number="2" Type="N">
+<Text>
+<![CDATA[XIC(PB)JSR(OUTPUT,0);]]>
+</Text>
+</Rung>
+<Rung Number="3" Type="N">
+<Text>
+<![CDATA[XIC(PB)JSR(Alarm,0);]]>
+</Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="OUTPUT" Type="RLL">
+<RLLContent>
+<Rung Number="0" Type="N">
+<Text>
+<![CDATA[XIC(Conveyor_Start)XIO(Emergency_Stop)OTE(Conveyor_CTRL);]]>
+</Text>
+</Rung>
+<Rung Number="1" Type="N">
+<Text>
+<![CDATA[[XIC(Pecan_Hopper_Start) ,XIC(Pecan_Hopper_CTRL) XIO(Walnut_Hopper_CTRL) NEQ(LEVEL_SW,100) ]XIO(Emergency_Stop)OTE(Pecan_Hopper_CTRL);]]>
+</Text>
+</Rung>
+<Rung Number="2" Type="N">
+<Text>
+<![CDATA[[XIC(Walnut_Hopper_Start) ,XIC(Walnut_Hopper_CTRL) XIO(Pecan_Hopper_CTRL) NEQ(LEVEL_SW,100) ]XIO(Emergency_Stop)OTE(Walnut_Hopper_CTRL);]]>
+</Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="Stage_Identify" Type="RLL">
+<RLLContent>
+<Rung Number="0" Type="N">
+<Text>
+<![CDATA[XIO(Proximity_SW)XIO(PE_Blue)XIO(PE_Red)EQU(LEVEL_SW,0)ONS(Ons_1)MOV(0,Stage);]]>
+</Text>
+</Rung>
+<Rung Number="1" Type="N">
+<Text>
+<![CDATA[XIC(Proximity_SW)[XIC(PE_Blue) ,XIC(PE_Red) ]EQU(LEVEL_SW,0)ONS(Ons_2)MOV(1,Stage);]]>
+</Text>
+</Rung>
+<Rung Number="2" Type="N">
+<Text>
+<![CDATA[XIC(Proximity_SW)[XIC(PE_Blue) ,XIC(PE_Red) ]EQU(LEVEL_SW,100)ONS(Ons_3)MOV(2,Stage);]]>
+</Text>
+</Rung>
+</RLLContent>
+</Routine>
+</Routines>
+</Program>
+</Programs>
+</Controller>
+</RSLogix5000Content>

@@ -1,0 +1,929 @@
+﻿<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RSLogix5000Content SchemaRevision="1.0" SoftwareRevision="35.00" TargetName="PIC_07002" TargetType="Routine" TargetSubType="FBD" ContainsContext="true" ExportDate="Thu Jan 18 08:42:11 2024" ExportOptions="References NoRawData L5KData DecoratedData Context Dependencies AllProjDocTrans">
+<Controller Use="Context" Name="PT7_R1">
+<DataTypes Use="Context">
+</DataTypes>
+<AlarmDefinitions Use="Context">
+<DatatypeAlarmDefinition Name="P_PID">
+<MemberAlarmDefinition Name="Alm_Fail" Input=".Sts_Fail" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0" Required="false"
+ AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" AckRequired="true" Latched="false" EvaluationPeriod="500 millisecond" Expression="= 1" IsTemplate="true">
+<AlarmConfig>
+<Messages>
+<Message Type="ADM">
+<Text Lang="en-US">
+<![CDATA[/*S:0 %.@Description*/: Instruction failure (SP, PV, CV or HandFdbk is bad quality)]]>
+</Text>
+</Message>
+</Messages>
+</AlarmConfig>
+</MemberAlarmDefinition>
+<MemberAlarmDefinition Name="Alm_HiDev" Input=".Sts_HiDev" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0" Required="false"
+ AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" AckRequired="true" Latched="false" EvaluationPeriod="500 millisecond" Expression="= 1" AssocTag1=".Val_E" AssocTag2=".Cfg_HiDevLim" IsTemplate="true">
+<AlarmConfig>
+<Messages>
+<Message Type="ADM">
+<Text Lang="en-US">
+<![CDATA[/*S:0 %.@Description*/: Difference between SP and PV, Error: /*N:8 %Tag1 NOFILL DP:3*/ /*S:0 %.Inp_PV.@EngineeringUnit*/ Above high deviation limit: /*N:8 %Tag2 NOFILL DP:3*/ /*S:0 %.Inp_PV.@EngineeringUnit*/]]>
+</Text>
+</Message>
+</Messages>
+</AlarmConfig>
+</MemberAlarmDefinition>
+<MemberAlarmDefinition Name="Alm_HiHiDev" Input=".Sts_HiHiDev" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0" Required="false"
+ AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" AckRequired="true" Latched="false" EvaluationPeriod="500 millisecond" Expression="= 1" AssocTag1=".Val_E" AssocTag2=".Cfg_HiHiDevLim" IsTemplate="true">
+<AlarmConfig>
+<Messages>
+<Message Type="ADM">
+<Text Lang="en-US">
+<![CDATA[/*S:0 %.@Description*/: Difference between SP and PV, Error: /*N:8 %Tag1 NOFILL DP:3*/ /*S:0 %.Inp_PV.@EngineeringUnit*/ Above high high deviation limit: /*N:8 %Tag2 NOFILL DP:3*/ /*S:0 %.Inp_PV.@EngineeringUnit*/]]>
+</Text>
+</Message>
+</Messages>
+</AlarmConfig>
+</MemberAlarmDefinition>
+<MemberAlarmDefinition Name="Alm_IntlkTrip" Input=".Sts_IntlkTrip" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0" Required="false"
+ AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" AckRequired="true" Latched="false" EvaluationPeriod="500 millisecond" Expression="= 1" IsTemplate="true">
+<AlarmConfig>
+<Messages>
+<Message Type="ADM">
+<Text Lang="en-US">
+<![CDATA[/*S:0 %.@Description*/: Interlock trip]]>
+</Text>
+</Message>
+</Messages>
+</AlarmConfig>
+</MemberAlarmDefinition>
+<MemberAlarmDefinition Name="Alm_LoDev" Input=".Sts_LoDev" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0" Required="false"
+ AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" AckRequired="true" Latched="false" EvaluationPeriod="500 millisecond" Expression="= 1" AssocTag1=".Val_E" AssocTag2=".Cfg_LoDevLim" IsTemplate="true">
+<AlarmConfig>
+<Messages>
+<Message Type="ADM">
+<Text Lang="en-US">
+<![CDATA[/*S:0 %.@Description*/: Difference between SP and PV, Error: /*N:8 %Tag1 NOFILL DP:3*/ /*S:0 %.Inp_PV.@EngineeringUnit*/ Below low deviation limit: /*N:8 %Tag2 NOFILL DP:3*/ /*S:0 %.Inp_PV.@EngineeringUnit*/]]>
+</Text>
+</Message>
+</Messages>
+</AlarmConfig>
+</MemberAlarmDefinition>
+<MemberAlarmDefinition Name="Alm_LoLoDev" Input=".Sts_LoLoDev" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0" Required="false"
+ AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" AckRequired="true" Latched="false" EvaluationPeriod="500 millisecond" Expression="= 1" AssocTag1=".Val_E" AssocTag2=".Cfg_LoLoDevLim" IsTemplate="true">
+<AlarmConfig>
+<Messages>
+<Message Type="ADM">
+<Text Lang="en-US">
+<![CDATA[/*S:0 %.@Description*/: Difference between SP and PV, Error: /*N:8 %Tag1 NOFILL DP:3*/ /*S:0 %.Inp_PV.@EngineeringUnit*/ Below low low deviation limit: /*N:8 %Tag2 NOFILL DP:3*/ /*S:0 %.Inp_PV.@EngineeringUnit*/]]>
+</Text>
+</Message>
+</Messages>
+</AlarmConfig>
+</MemberAlarmDefinition>
+</DatatypeAlarmDefinition>
+<DatatypeAlarmDefinition Name="P_ANALOG_OUTPUT">
+<MemberAlarmDefinition Name="Alm_Dev" Input=".Sts_Dev" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0" Required="false"
+ AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" AckRequired="true" Latched="false" EvaluationPeriod="500 millisecond" Expression="= 1" AssocTag1=".Val_Dev" AssocTag2=".Cfg_LoDevLim" AssocTag3=".Cfg_HiDevLim" IsTemplate="true">
+<AlarmConfig>
+<Messages>
+<Message Type="ADM">
+<Text Lang="en-US">
+<![CDATA[/*S:0 %.@Description*/: Difference between CV and PV, Error: /*N:8 %Tag1 NOFILL DP:3*/ /*S:0 %.Val_CVOut.@EngineeringUnit*/ Out of limits: /*N:8 %Tag2 NOFILL DP:3*/ to /*N:8 %Tag3 NOFILL DP:3*/ /*S:0 %.Val_CVOut.@EngineeringUnit*/]]>
+</Text>
+</Message>
+</Messages>
+</AlarmConfig>
+</MemberAlarmDefinition>
+<MemberAlarmDefinition Name="Alm_DeviceFault" Input=".Sts_DeviceFault" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0" Required="false"
+ AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" AckRequired="true" Latched="false" EvaluationPeriod="500 millisecond" Expression="= 1" IsTemplate="true">
+<AlarmConfig>
+<Messages>
+<Message Type="ADM">
+<Text Lang="en-US">
+<![CDATA[/*S:0 %.@Description*/: Device fault]]>
+</Text>
+</Message>
+</Messages>
+</AlarmConfig>
+</MemberAlarmDefinition>
+<MemberAlarmDefinition Name="Alm_IntlkTrip" Input=".Sts_IntlkTrip" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0" Required="false"
+ AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" AckRequired="true" Latched="false" EvaluationPeriod="500 millisecond" Expression="= 1" IsTemplate="true">
+<AlarmConfig>
+<Messages>
+<Message Type="ADM">
+<Text Lang="en-US">
+<![CDATA[/*S:0 %.@Description*/: Interlock trip]]>
+</Text>
+</Message>
+</Messages>
+</AlarmConfig>
+</MemberAlarmDefinition>
+<MemberAlarmDefinition Name="Alm_IOFault" Input=".Sts_IOFault" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0" Required="false"
+ AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" AckRequired="true" Latched="false" EvaluationPeriod="500 millisecond" Expression="= 1" IsTemplate="true">
+<AlarmConfig>
+<Messages>
+<Message Type="ADM">
+<Text Lang="en-US">
+<![CDATA[/*S:0 %.@Description*/: IO fault]]>
+</Text>
+</Message>
+</Messages>
+</AlarmConfig>
+</MemberAlarmDefinition>
+</DatatypeAlarmDefinition>
+</AlarmDefinitions>
+<Tags Use="Context">
+<Tag Name="PIC_07002" TagType="Base" DataType="P_ANALOG_OUTPUT" Constant="false" ExternalAccess="Read/Write">
+<AlarmConditions>
+<AlarmCondition Name="Alm_Dev" AlarmConditionDefinition="Alm_Dev" Input=".Sts_Dev" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0"
+ Used="false" AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" InFault="false" AckRequired="true" Latched="false" ProgAck="false" OperAck="false" ProgReset="false" OperReset="false" ProgSuppress="false"
+ OperSuppress="false" ProgUnsuppress="false" OperUnsuppress="false" OperShelve="false" ProgUnshelve="false" OperUnshelve="false" ProgDisable="false" OperDisable="false" ProgEnable="false" OperEnable="false" AlarmCountReset="false"
+ EvaluationPeriod="500 millisecond" Expression="= 1" AssocTag1=".Val_Dev" AssocTag2=".Cfg_LoDevLim" AssocTag3=".Cfg_HiDevLim">
+<AlarmConfig/>
+</AlarmCondition>
+<AlarmCondition Name="Alm_DeviceFault" AlarmConditionDefinition="Alm_DeviceFault" Input=".Sts_DeviceFault" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0"
+ Used="false" AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" InFault="false" AckRequired="true" Latched="false" ProgAck="false" OperAck="false" ProgReset="false" OperReset="false" ProgSuppress="false"
+ OperSuppress="false" ProgUnsuppress="false" OperUnsuppress="false" OperShelve="false" ProgUnshelve="false" OperUnshelve="false" ProgDisable="false" OperDisable="false" ProgEnable="false" OperEnable="false" AlarmCountReset="false"
+ EvaluationPeriod="500 millisecond" Expression="= 1">
+<AlarmConfig/>
+</AlarmCondition>
+<AlarmCondition Name="Alm_IOFault" AlarmConditionDefinition="Alm_IOFault" Input=".Sts_IOFault" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0"
+ Used="false" AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" InFault="false" AckRequired="true" Latched="false" ProgAck="false" OperAck="false" ProgReset="false" OperReset="false" ProgSuppress="false"
+ OperSuppress="false" ProgUnsuppress="false" OperUnsuppress="false" OperShelve="false" ProgUnshelve="false" OperUnshelve="false" ProgDisable="false" OperDisable="false" ProgEnable="false" OperEnable="false" AlarmCountReset="false"
+ EvaluationPeriod="500 millisecond" Expression="= 1">
+<AlarmConfig/>
+</AlarmCondition>
+<AlarmCondition Name="Alm_IntlkTrip" AlarmConditionDefinition="Alm_IntlkTrip" Input=".Sts_IntlkTrip" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0"
+ Used="false" AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" InFault="false" AckRequired="true" Latched="false" ProgAck="false" OperAck="false" ProgReset="false" OperReset="false" ProgSuppress="false"
+ OperSuppress="false" ProgUnsuppress="false" OperUnsuppress="false" OperShelve="false" ProgUnshelve="false" OperUnshelve="false" ProgDisable="false" OperDisable="false" ProgEnable="false" OperEnable="false" AlarmCountReset="false"
+ EvaluationPeriod="500 millisecond" Expression="= 1">
+<AlarmConfig/>
+</AlarmCondition>
+</AlarmConditions>
+<Description>
+<![CDATA[TK-57401 Back Pressure Control Valve]]>
+</Description>
+<Librarys>
+<Library>
+<![CDATA[raP-5_10]]>
+</Library>
+</Librarys>
+<Labels>
+<Label>
+<![CDATA[PCV-07044]]>
+</Label>
+</Labels>
+<Instructions>
+<Instruction>
+<![CDATA[PAO]]>
+</Instruction>
+</Instructions>
+<Areas>
+<Area>
+<![CDATA[PT3]]>
+</Area>
+</Areas>
+<Data Format="L5K">
+<![CDATA[[153272419,0.00000000e+000,0.00000000e+000,0,0.00000000e+000,6.00000000e+001,67174406,0.00000000e+000
+		,1.00000000e+002,1.00000000e+002,1.00000000e+002,0.00000000e+000,0.00000000e+000,1.00000000e+002
+		,0.00000000e+000,2.00000000e+001,0.00000000e+000,1.50000000e+038,-1.50000000e+038,0.00000000e+000
+		,1.00000000e+001,1.00000000e+000,1.00000000e+000,5.00000000e+000,1.00000000e+000,0.00000000e+000
+		,0.00000000e+000,0.00000000e+000,2,0,0,0.00000000e+000,0,0.00000000e+000,0,0.00000000e+000,0.00000000e+000
+		,0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000,1.00000000e+002
+		,0,1,1,2,0,0,0,0,0,0,0,0,0,1,1409286144,0,0.00000000e+000,4195462,[15299,0,816455712,66,512,568590848,1984],0
+		,0,0,0.00000000e+000,0.00000000e+000,0,0.00000000e+000,[-1072041180,2147483647,0],2.50000000e-001
+		,2.50000000e+001,2.50000000e+001,1120403456,[0],[0],0.00000000e+000,0.00000000e+000,[0,2147483647
+		,0],10000,[0,0,0],0.00000000e+000,0.00000000e+000,0,1,[0,0,0],[0,60000,0],0.00000000e+000,256,0,0,[0],[0],[0],[0],[0,0,0],[0,0,0
+		],[0,0,0]]]]>
+</Data>
+<Data Format="Decorated">
+<Structure DataType="P_ANALOG_OUTPUT">
+<DataValueMember Name="EnableIn" DataType="BOOL" Value="1"/>
+<DataValueMember Name="EnableOut" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_InitializeReq" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_OwnerCmd" DataType="DINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Inp_OpenedFdbkData" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_ClosedFdbkData" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_PosFdbk" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_HandFdbk" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_IntlkOK" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_NBIntlkOK" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_IntlkAvailable" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_IntlkTripInh" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_SmartDvcSts" DataType="DINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Inp_SmartDvcDiagAvailable" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_IOFault" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_DeviceFault" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_Hand" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_Ovrd" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_OvrdCV" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_ExtInh" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_RdyReset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_Reset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_AllowDisable" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_AllowShelve" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_StuckTime" DataType="REAL" Radix="Float" Value="60.0"/>
+<DataValueMember Name="Cfg_HasSmartDvc" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_SetTrack" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_ShedHold" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_SkipRoCLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_SetTrackOvrdHand" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_FdbkFail" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasOpenedFdbk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasClosedFdbk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasPosFdbk" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_UseOpenedFdbk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_UseClosedFdbk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_UsePosFdbk" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasCombinedFdbk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_UseCombinedFdbk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasPulseOut" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasOutNav" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_OvrdIntlk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_ShedOnDeviceFault" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_ShedOnIOFault" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_CVLoLim" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVHiLim" DataType="REAL" Radix="Float" Value="100.0"/>
+<DataValueMember Name="Cfg_CVRoCIncrLim" DataType="REAL" Radix="Float" Value="100.0"/>
+<DataValueMember Name="Cfg_CVRoCDecrLim" DataType="REAL" Radix="Float" Value="100.0"/>
+<DataValueMember Name="Cfg_CVIntlk" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVEUMin" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVEUMax" DataType="REAL" Radix="Float" Value="100.0"/>
+<DataValueMember Name="Cfg_CVRawMin" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVRawMax" DataType="REAL" Radix="Float" Value="20.0"/>
+<DataValueMember Name="Cfg_MaxInactiveCV" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_HiDevLim" DataType="REAL" Radix="Float" Value="1.50000000e+038"/>
+<DataValueMember Name="Cfg_LoDevLim" DataType="REAL" Radix="Float" Value="-1.50000000e+038"/>
+<DataValueMember Name="Cfg_DevDly" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CycleTime" DataType="REAL" Radix="Float" Value="10.0"/>
+<DataValueMember Name="Cfg_OpenRate" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="Cfg_CloseRate" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="Cfg_MaxOnTime" DataType="REAL" Radix="Float" Value="5.0"/>
+<DataValueMember Name="Cfg_MinOnTime" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="Cfg_BumpTime" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_DeadTime" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_MaxClosedPos" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_HasIntlkObj" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasOper" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasOperLocked" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasProg" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasProgLocked" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasExt" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasMaint" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasMaintOoS" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_OvrdOverLock" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_ExtOverLock" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_ProgPwrUp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_ProgNormal" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_PCmdPriority" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_PCmdProgAsLevel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_PCmdLockAsLevel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_ExtAcqAsLevel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_CVDecPlcs" DataType="SINT" Radix="Decimal" Value="2"/>
+<DataValueMember Name="Cfg_CnfrmReqd" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_CVPwrUpSel" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_CVPwrUp" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_HasMoreObj" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasPosFdbkNav" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasHistTrend" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="PSet_CV" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="PSet_Owner" DataType="DINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="PCmd_Oper" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Prog" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Lock" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Unlock" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Normal" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Reset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Physical" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Virtual" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XSet_CV" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="XCmd_Acq" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_BumpClose" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_BumpOpen" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_Rel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_Reset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_ResetAckAll" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Out_CVData" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Out_CVOpenData" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Out_CVCloseData" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Out_Reset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Val_Dev" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_Pos" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_CVSet" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_CVOut" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_CVEUMin" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_CVEUMax" DataType="REAL" Radix="Float" Value="100.0"/>
+<DataValueMember Name="Out_SmartDvcSts" DataType="DINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Out_OwnerSts" DataType="DINT" Radix="Decimal" Value="568590848"/>
+<DataValueMember Name="Sts_Initialized" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_SmartDvcDiagAvailable" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_CVInfNaN" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_PosInfNaN" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_BumpOpen" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_BumpClose" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_PosStuck" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Ramping" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Clamped" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_WindupHi" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_WindupLo" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_SkipRoCLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Active" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_FdbkFail" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Virtual" DataType="BOOL" Value="0"/>
+<DataValueMember Name="SrcQ_IO" DataType="SINT" Radix="Decimal" Value="1"/>
+<DataValueMember Name="SrcQ" DataType="SINT" Radix="Decimal" Value="1"/>
+<DataValueMember Name="Sts_eFdbk" DataType="SINT" Radix="Decimal" Value="2"/>
+<DataValueMember Name="Sts_eSts" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eFault" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotify" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyAll" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyIOFault" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyDeviceFault" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyDev" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyIntlkTrip" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_UnackAlmCount" DataType="DINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eSrc" DataType="INT" Radix="Decimal" Value="66"/>
+<DataValueMember Name="Sts_bSrc" DataType="INT" Radix="Decimal" Value="512"/>
+<DataValueMember Name="Sts_Available" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_IntlkAvailable" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_Bypass" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_BypActive" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_MaintByp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NotRdy" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyOoS" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyCfgErr" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyDeviceFault" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyIntlk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyIOFault" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Err" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVRaw" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVEU" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVRoCDecrLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVRoCIncrLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrHiDevLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrLoDevLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrDevDly" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVIntlk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVPwrUp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCycleTime" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrOpenRate" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCloseRate" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrStuckTime" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrMaxClosedPos" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrMaxOnTime" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrMinOnTime" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrBumpTime" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrDeadTime" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrAlm" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Hand" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_OoS" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Maint" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Ovrd" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Ext" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Prog" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ProgLocked" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Oper" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_OperLocked" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ProgOperSel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ProgOperLock" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Normal" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_ExtReqInh" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_ProgReqInh" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_MAcqRcvd" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Alm" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_AlmInh" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_IOFault" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_DeviceFault" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Dev" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_IntlkTrip" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_RdyAck" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_RdyReset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_Acq" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_BumpClose" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_BumpOpen" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_Rel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_Reset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_ResetAckAll" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Val_Owner" DataType="DINT" Radix="Decimal" Value="0"/>
+</Structure>
+</Data>
+</Tag>
+<Tag Name="PIC_57423B" TagType="Base" DataType="P_PID" Constant="false" ExternalAccess="Read/Write">
+<AlarmConditions>
+<AlarmCondition Name="Alm_Fail" AlarmConditionDefinition="Alm_Fail" Input=".Sts_Fail" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0"
+ Used="false" AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" InFault="false" AckRequired="true" Latched="false" ProgAck="false" OperAck="false" ProgReset="false" OperReset="false" ProgSuppress="false"
+ OperSuppress="false" ProgUnsuppress="false" OperUnsuppress="false" OperShelve="false" ProgUnshelve="false" OperUnshelve="false" ProgDisable="false" OperDisable="false" ProgEnable="false" OperEnable="false" AlarmCountReset="false"
+ EvaluationPeriod="500 millisecond" Expression="= 1">
+<AlarmConfig/>
+</AlarmCondition>
+<AlarmCondition Name="Alm_HiDev" AlarmConditionDefinition="Alm_HiDev" Input=".Sts_HiDev" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0"
+ Used="false" AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" InFault="false" AckRequired="true" Latched="false" ProgAck="false" OperAck="false" ProgReset="false" OperReset="false" ProgSuppress="false"
+ OperSuppress="false" ProgUnsuppress="false" OperUnsuppress="false" OperShelve="false" ProgUnshelve="false" OperUnshelve="false" ProgDisable="false" OperDisable="false" ProgEnable="false" OperEnable="false" AlarmCountReset="false"
+ EvaluationPeriod="500 millisecond" Expression="= 1" AssocTag1=".Val_E" AssocTag2=".Cfg_HiDevLim">
+<AlarmConfig/>
+</AlarmCondition>
+<AlarmCondition Name="Alm_HiHiDev" AlarmConditionDefinition="Alm_HiHiDev" Input=".Sts_HiHiDev" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0"
+ Used="false" AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" InFault="false" AckRequired="true" Latched="false" ProgAck="false" OperAck="false" ProgReset="false" OperReset="false" ProgSuppress="false"
+ OperSuppress="false" ProgUnsuppress="false" OperUnsuppress="false" OperShelve="false" ProgUnshelve="false" OperUnshelve="false" ProgDisable="false" OperDisable="false" ProgEnable="false" OperEnable="false" AlarmCountReset="false"
+ EvaluationPeriod="500 millisecond" Expression="= 1" AssocTag1=".Val_E" AssocTag2=".Cfg_HiHiDevLim">
+<AlarmConfig/>
+</AlarmCondition>
+<AlarmCondition Name="Alm_IntlkTrip" AlarmConditionDefinition="Alm_IntlkTrip" Input=".Sts_IntlkTrip" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0"
+ Used="false" AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" InFault="false" AckRequired="true" Latched="false" ProgAck="false" OperAck="false" ProgReset="false" OperReset="false" ProgSuppress="false"
+ OperSuppress="false" ProgUnsuppress="false" OperUnsuppress="false" OperShelve="false" ProgUnshelve="false" OperUnshelve="false" ProgDisable="false" OperDisable="false" ProgEnable="false" OperEnable="false" AlarmCountReset="false"
+ EvaluationPeriod="500 millisecond" Expression="= 1">
+<AlarmConfig/>
+</AlarmCondition>
+<AlarmCondition Name="Alm_LoDev" AlarmConditionDefinition="Alm_LoDev" Input=".Sts_LoDev" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0"
+ Used="false" AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" InFault="false" AckRequired="true" Latched="false" ProgAck="false" OperAck="false" ProgReset="false" OperReset="false" ProgSuppress="false"
+ OperSuppress="false" ProgUnsuppress="false" OperUnsuppress="false" OperShelve="false" ProgUnshelve="false" OperUnshelve="false" ProgDisable="false" OperDisable="false" ProgEnable="false" OperEnable="false" AlarmCountReset="false"
+ EvaluationPeriod="500 millisecond" Expression="= 1" AssocTag1=".Val_E" AssocTag2=".Cfg_LoDevLim">
+<AlarmConfig/>
+</AlarmCondition>
+<AlarmCondition Name="Alm_LoLoDev" AlarmConditionDefinition="Alm_LoLoDev" Input=".Sts_LoLoDev" ConditionType="TRIP" Limit="0.0" Severity="500" OnDelay="0" OffDelay="0" ShelveDuration="0" MaxShelveDuration="0" Deadband="0.0"
+ Used="false" AlarmSetOperIncluded="true" AlarmSetRollupIncluded="true" InFault="false" AckRequired="true" Latched="false" ProgAck="false" OperAck="false" ProgReset="false" OperReset="false" ProgSuppress="false"
+ OperSuppress="false" ProgUnsuppress="false" OperUnsuppress="false" OperShelve="false" ProgUnshelve="false" OperUnshelve="false" ProgDisable="false" OperDisable="false" ProgEnable="false" OperEnable="false" AlarmCountReset="false"
+ EvaluationPeriod="500 millisecond" Expression="= 1" AssocTag1=".Val_E" AssocTag2=".Cfg_LoLoDevLim">
+<AlarmConfig/>
+</AlarmCondition>
+</AlarmConditions>
+<Description>
+<![CDATA[Pressure Controller]]>
+</Description>
+<EngineeringUnits>
+<EngineeringUnit Operand=".INP_PV">
+<![CDATA[°C]]>
+</EngineeringUnit>
+<EngineeringUnit Operand=".VAL_CVOUT">
+<![CDATA[°C]]>
+</EngineeringUnit>
+</EngineeringUnits>
+<Librarys>
+<Library>
+<![CDATA[raP-5_10]]>
+</Library>
+</Librarys>
+<Labels>
+<Label>
+<![CDATA[PIC-57423B]]>
+</Label>
+<Label Operand=".STS_HIHIDEV">
+<![CDATA[High High Deviation]]>
+</Label>
+<Label Operand=".STS_HIDEV">
+<![CDATA[High Deviation]]>
+</Label>
+<Label Operand=".STS_LODEV">
+<![CDATA[Low Deviation]]>
+</Label>
+<Label Operand=".STS_LOLODEV">
+<![CDATA[Low Low Deviation]]>
+</Label>
+<Label Operand=".STS_FAIL">
+<![CDATA[Fail]]>
+</Label>
+<Label Operand=".STS_INTLKTRIP">
+<![CDATA[Interlock Trip]]>
+</Label>
+</Labels>
+<Instructions>
+<Instruction>
+<![CDATA[PPID]]>
+</Instruction>
+</Instructions>
+<Areas>
+<Area>
+<![CDATA[PT3]]>
+</Area>
+</Areas>
+<URLs>
+<URL>
+<![CDATA[n/a]]>
+</URL>
+</URLs>
+<Data Format="L5K">
+<![CDATA[[966657795,6.25000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000,2.12700470e+002
+		,0.00000000e+000,0.00000000e+000,0,0,0,0,0.00000000e+000,0,0.00000000e+000,0.00000000e+000,0.00000000e+000
+		,1.00000000e+000,0.00000000e+000,1.00000000e+000,8.00000000e-001,1.20000000e+001,0.00000000e+000
+		,0.00000000e+000,1.00000000e+000,0.00000000e+000,3457,0.00000000e+000,0.00000000e+000,0,0
+		,0,0,0,1,4,1,0,1,0,0,2,1,1,1,0,0,0,0,1,1,2,0.00000000e+000,1.00000000e+000,0.00000000e+000,3.00000000e+002
+		,0.00000000e+000,0.00000000e+000,1.00000000e+002,0.00000000e+000,3.00000000e+002,0.00000000e+000
+		,3.00000000e+002,0.00000000e+000,3.00000000e+002,0.00000000e+000,0.00000000e+000,0.00000000e+000
+		,0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000,0,1.50000000e+038,0.00000000e+000
+		,0.00000000e+000,1.50000000e+038,0.00000000e+000,0.00000000e+000,-1.50000000e+038,0.00000000e+000
+		,0.00000000e+000,-1.50000000e+038,0.00000000e+000,0.00000000e+000,0,1.00000000e+000,0.00000000e+000
+		,0.00000000e+000,0.00000000e+000,0.00000000e+000,0,1.00000000e+000,0.00000000e+000,0.00000000e+000
+		,0.00000000e+000,0.00000000e+000,268452480,6.25000000e+000,1.00000000e+000,0.00000000e+000
+		,0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000
+		,-6.25000000e+000,0.00000000e+000,0.00000000e+000,2.08333349e+000,0.00000000e+000,-2.08333349e+000
+		,0.00000000e+000,1.00000000e+000,0,0,2,0,8,0,0,0,0,0,0,0,0,0,1185792,0,149760,0,0,5505024,1.00000000e+000
+		,0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000,74752,176,2.50000000e-001
+		,0.00000000e+000,[[0],[0],[0],[0],[0],[0],[0]],0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000
+		,6.25000000e+000,[2.08333349e+000,2.08333349e+000,2.08333349e+000],[0.00000000e+000,0.00000000e+000
+		,0.00000000e+000],0.00000000e+000,-4.16666716e-001,2.50000000e-001,2.00000000e-001,0.00000000e+000
+		,-2.08343387e-001,0.00000000e+000,0.00000000e+000,0.00000000e+000,-2.08343387e-001,0.00000000e+000
+		,1.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000
+		,0.00000000e+000,6.25000000e+000,0.00000000e+000,1.00000000e+002,-2.08333349e+000,-2.08333349e+000
+		,0.00000000e+000,0.00000000e+000,0.00000000e+000,0.00000000e+000,3.33333343e-001,0,0,1,8.00000000e-001
+		,[[0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],[-1071089777,2147483647,0],[-1607960689,0,0],[-1607960689,0,0],[-1607960689,0,0],[-1607960689
+		,0,0],[0,0,0]],[244675,0,11245600,33,64,568590400,2023]]]]>
+</Data>
+<Data Format="Decorated">
+<Structure DataType="P_PID">
+<DataValueMember Name="EnableIn" DataType="BOOL" Value="1"/>
+<DataValueMember Name="EnableOut" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_InitializeReq" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_OwnerCmd" DataType="DINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Inp_PV" DataType="REAL" Radix="Float" Value="6.25"/>
+<DataValueMember Name="Inp_CascSP" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_FF" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_FFPrev" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_CVTrack" DataType="REAL" Radix="Float" Value="212.70047"/>
+<DataValueMember Name="Inp_CVInitialVal" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_CVPrev" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_UseFFPrev" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_UseCVInitialVal" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_UseCVPrev" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_WindupHi" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_WindupLo" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_InnerAvailable" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_IntlkOK" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_NBIntlkOK" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_IntlkAvailable" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_IntlkTripInh" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_RdyReset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_CVIOFault" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_PVBad" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_PVUncertain" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_PVSrcQ" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Inp_PVNotify" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Inp_CVNotify" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Inp_CascSPNotify" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Inp_HiHiDevGate" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_HiDevGate" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_LoDevGate" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_LoLoDevGate" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Inp_Hand" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_HandFdbk" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_HandFdbkBad" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_Ovrd" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_OvrdCmd" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Inp_OvrdSP" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_OvrdSPTarget" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_OvrdSPRampTime" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_OvrdRatio" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="Inp_OvrdCV" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Inp_ExtInh" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Inp_Reset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_AllowDisable" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_AllowShelve" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasRatio" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasCasc" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasAuto" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasMan" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasSPRamp" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_ExecTime" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="Cfg_PGain" DataType="REAL" Radix="Float" Value="0.8"/>
+<DataValueMember Name="Cfg_IGain" DataType="REAL" Radix="Float" Value="12.0"/>
+<DataValueMember Name="Cfg_DGain" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVTrackGain" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_UseCVTrack" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_PSPWeight" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="Cfg_DSPWeight" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_PVTrack" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_GainBumpless" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_PositionBump" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_UseESquared" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_CtrlAction" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_Dependent" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_UseDSmoothing" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_DevDB" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_DevDBEnter" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_UseIntegDevDB" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_SkipCVManLim" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_SkipCVManRoC" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_InitializeToMan" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_SetTrack" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_SetTrackOvrdHand" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasIntlkObj" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasMoreObj" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasHistTrend" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_HasCascSPNav" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasPVNav" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasCVNav" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasOper" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasOperLocked" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasProg" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasProgLocked" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasExt" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_HasMaint" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_HasMaintOoS" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_OvrdOverLock" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_ExtOverLock" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_eKeepLM" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_eKeepCV" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_eKeepSP" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_eKeepRatio" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_ProgPwrUp" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_ProgNormal" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_PCmdPriority" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Cfg_PCmdProgAsLevel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_PCmdLockAsLevel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_ExtAcqAsLevel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_OvrdIntlk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_SPFailLatch" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_PVFailLatch" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_CVFailLatch" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_LockLM" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_NormLM" DataType="SINT" Radix="Decimal" Value="1"/>
+<DataValueMember Name="Cfg_PwrUpLM" DataType="SINT" Radix="Decimal" Value="4"/>
+<DataValueMember Name="Cfg_PVFailTrigger" DataType="SINT" Radix="Decimal" Value="1"/>
+<DataValueMember Name="Cfg_IntlkTripSPAction" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_SPFailSPAction" DataType="SINT" Radix="Decimal" Value="1"/>
+<DataValueMember Name="Cfg_PVFailSPAction" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_CVFailSPAction" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_IntlkTripCVAction" DataType="SINT" Radix="Decimal" Value="2"/>
+<DataValueMember Name="Cfg_SPFailCVAction" DataType="SINT" Radix="Decimal" Value="1"/>
+<DataValueMember Name="Cfg_PVFailCVAction" DataType="SINT" Radix="Decimal" Value="1"/>
+<DataValueMember Name="Cfg_CVFailCVAction" DataType="SINT" Radix="Decimal" Value="1"/>
+<DataValueMember Name="Cfg_IntlkTripLMAction" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_SPFailLMAction" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_PVFailLMAction" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_CVFailLMAction" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_PVDecPlcs" DataType="SINT" Radix="Decimal" Value="1"/>
+<DataValueMember Name="Cfg_CVDecPlcs" DataType="SINT" Radix="Decimal" Value="1"/>
+<DataValueMember Name="Cfg_RatioDecPlcs" DataType="SINT" Radix="Decimal" Value="2"/>
+<DataValueMember Name="Cfg_RatioLoLim" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_RatioHiLim" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="Cfg_SPLoLim" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_SPHiLim" DataType="REAL" Radix="Float" Value="300.0"/>
+<DataValueMember Name="Cfg_SPRoCIncrLim" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_SPRoCDecrLim" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_SkipSPRoCLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Cfg_SPRampMaxDev" DataType="REAL" Radix="Float" Value="100.0"/>
+<DataValueMember Name="Cfg_PVEUMin" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_PVEUMax" DataType="REAL" Radix="Float" Value="300.0"/>
+<DataValueMember Name="Cfg_CVEUMin" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVEUMax" DataType="REAL" Radix="Float" Value="300.0"/>
+<DataValueMember Name="Cfg_CVLoLim" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVHiLim" DataType="REAL" Radix="Float" Value="300.0"/>
+<DataValueMember Name="Cfg_CVRoCIncrLim" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVRoCDecrLim" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_MaxInactiveCV" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_SPIntlk" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVIntlk" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_SPPwrUp" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVPwrUp" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CVPwrUpSel" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Cfg_HiHiDevLim" DataType="REAL" Radix="Float" Value="1.50000000e+038"/>
+<DataValueMember Name="Cfg_HiHiDevDB" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_HiHiDevGateDly" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_HiDevLim" DataType="REAL" Radix="Float" Value="1.50000000e+038"/>
+<DataValueMember Name="Cfg_HiDevDB" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_HiDevGateDly" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_LoDevLim" DataType="REAL" Radix="Float" Value="-1.50000000e+038"/>
+<DataValueMember Name="Cfg_LoDevDB" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_LoDevGateDly" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_LoLoDevLim" DataType="REAL" Radix="Float" Value="-1.50000000e+038"/>
+<DataValueMember Name="Cfg_LoLoDevDB" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_LoLoDevGateDly" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Cfg_CnfrmReqd" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="PSet_Ratio" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="PSet_SP" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="PSet_SPTarget" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="PSet_SPRampTime" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="PSet_CV" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="PSet_Owner" DataType="DINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="XSet_Ratio" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="XSet_SP" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="XSet_SPTarget" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="XSet_SPRampTime" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="XSet_CV" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="PCmd_Casc" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Auto" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Man" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_NormLM" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_SPRampStart" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_SPRampStop" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Oper" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Prog" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Lock" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Unlock" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Normal" DataType="BOOL" Value="0"/>
+<DataValueMember Name="PCmd_Reset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_Casc" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_Auto" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_Man" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_NormLM" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_SPRampStart" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_SPRampStop" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_Acq" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_Rel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_Reset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XCmd_ResetAckAll" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Val_PV" DataType="REAL" Radix="Float" Value="6.25"/>
+<DataValueMember Name="Val_Ratio" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="Val_SPSet" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_SP" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_SPTarget" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_SPRampTime" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_SPRampRoC" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_SPRoCIncr" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_SPRoCDecr" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_E" DataType="REAL" Radix="Float" Value="-6.25"/>
+<DataValueMember Name="Val_CVSet" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_CVOut" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_PVPercent" DataType="REAL" Radix="Float" Value="2.0833335"/>
+<DataValueMember Name="Val_SPPercent" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_EPercent" DataType="REAL" Radix="Float" Value="-2.0833335"/>
+<DataValueMember Name="Val_CVOutPercent" DataType="REAL" Radix="Float" Value="0.0"/>
+<DataValueMember Name="Val_ExecTime" DataType="REAL" Radix="Float" Value="1.0"/>
+<DataValueMember Name="Out_Reset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Out_OwnerSts" DataType="DINT" Radix="Decimal" Value="568590400"/>
+<DataValueMember Name="Sts_Initialized" DataType="BOOL" Value="1"/>
+<DataValueMember Name="SrcQ_IO" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="SrcQ" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eSts" DataType="SINT" Radix="Decimal" Value="2"/>
+<DataValueMember Name="Sts_eFault" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eState" DataType="SINT" Radix="Decimal" Value="8"/>
+<DataValueMember Name="Sts_eNotify" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyAll" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyHiHiDev" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyHiDev" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyLoDev" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyLoLoDev" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyFail" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_eNotifyIntlkTrip" DataType="SINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_UnackAlmCount" DataType="DINT" Radix="Decimal" Value="0"/>
+<DataValueMember Name="Sts_Casc" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Auto" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_Man" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NormLM" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Initializing" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_WindupHi" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_WindupLo" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_RatioClamped" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_IntlkSP" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPHeld" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPShedPV" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPShed" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPTrackPV" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPHiClamped" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPLoClamped" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPClamped" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPRampingUp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPRampingDown" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPRamping" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPRampWizardInProgress" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SkipSPRoCLim" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_DevDBAct" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_PVUncertain" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_PVBad" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_SPBad" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_FFBad" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_FFPrevBad" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_CVInfNaN" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_CVBad" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_CVPrevBad" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_HandFdbkBad" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_IntlkCV" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_CVHeld" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_CVShed" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_CVHiClamped" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_CVLoClamped" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_CVClamped" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_CVRampingUp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_CVRampingDown" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_CVRamping" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Active" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Available" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_CascAvailable" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ExtAvailable" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_IntlkAvailable" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_Bypass" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_BypActive" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NotRdy" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyCfgErr" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyInit" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyIntlk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyFail" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyCVFail" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyPVFail" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdySPFail" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyOoS" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_MaintByp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_NrdyInner" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Err" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrRatioLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrSPLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrPVEU" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVEU" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrDevDB" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrExecTime" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrPGain" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrIGain" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrDGain" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVTrackGain" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrPSPWeight" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrDSPWeight" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrSPRoCIncrLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrSPRoCDecrLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVRoCIncrLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVRoCDecrLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrSPIntlk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVIntlk" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrSPPwrUp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrCVPwrUp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrAlm" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrHiHiDevLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrHiHiDevGateDly" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrHiHiDevDB" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrHiDevLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrHiDevGateDly" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrHiDevDB" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrLoDevLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrLoDevGateDly" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrLoDevDB" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrLoLoDevLim" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrLoLoDevGateDly" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ErrLoLoDevDB" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_eSrc" DataType="INT" Radix="Decimal" Value="33"/>
+<DataValueMember Name="Sts_bSrc" DataType="INT" Radix="Decimal" Value="64"/>
+<DataValueMember Name="Sts_Hand" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_OoS" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Maint" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Ovrd" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Ext" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Prog" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_ProgLocked" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_Oper" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_OperLocked" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_ProgOperSel" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_ProgOperLock" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_Normal" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_ExtReqInh" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_ProgReqInh" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_MAcqRcvd" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Alm" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_AlmInh" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_HiHiDevCmp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_HiHiDevGate" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_HiHiDev" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_HiDevCmp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_HiDevGate" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_HiDev" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_LoDevCmp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_LoDevGate" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_LoDev" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_LoLoDevCmp" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_LoLoDevGate" DataType="BOOL" Value="1"/>
+<DataValueMember Name="Sts_LoLoDev" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_Fail" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_IntlkTrip" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_RdyReset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Sts_RdyAck" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_Acq" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_Rel" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_Casc" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_Auto" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_Man" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_NormLM" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_SPRampStart" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_SPRampStop" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_Reset" DataType="BOOL" Value="0"/>
+<DataValueMember Name="XRdy_ResetAckAll" DataType="BOOL" Value="0"/>
+<DataValueMember Name="Val_Owner" DataType="DINT" Radix="Decimal" Value="0"/>
+</Structure>
+</Data>
+</Tag>
+</Tags>
+<Programs Use="Context">
+<Program Use="Context" Name="ControlModules">
+<Tags Use="Context">
+<Tag Name="PIC_07002_Pos" TagType="Base" DataType="REAL" Radix="Float" Usage="Public" Constant="false" ExternalAccess="Read/Write">
+<Data Format="L5K">
+<![CDATA[0.00000000e+000]]>
+</Data>
+<Data Format="Decorated">
+<DataValue DataType="REAL" Radix="Float" Value="0.0"/>
+</Data>
+</Tag>
+</Tags>
+<Routines Use="Context">
+<Routine Use="Target" Name="PIC_07002" Type="FBD">
+<FBDContent SheetSize="B - 11 x 17 in" SheetOrientation="Landscape">
+<Sheet Number="1">
+<IRef ID="0" X="100" Y="420" Operand="PIC_07002_Pos" HideDesc="false"/>
+<IRef ID="1" X="100" Y="140" Operand="PIC_57423B.Val_CVOut" HideDesc="false"/>
+<Block Type="PAO" ID="2" X="460" Y="100" Operand="PIC_07002" VisiblePins="Inp_OpenedFdbkData Inp_ClosedFdbkData Inp_PosFdbk Inp_HandFdbk Inp_IntlkOK Inp_NBIntlkOK Inp_IntlkAvailable Inp_IntlkTripInh Inp_IOFault Inp_DeviceFault Inp_RdyReset Inp_Reset PSet_CV Out_CVData Out_CVOpenData Out_CVCloseData Out_Reset Val_Pos Val_CVSet Val_CVOut Sts_BypActive Sts_Err Sts_Hand Sts_OoS Sts_Maint Sts_Ovrd Sts_Ext Sts_Prog Sts_Oper Sts_ProgOperLock BusObj" HideDesc="false">
+<Array Name="BusObj" Operand="0"/>
+</Block>
+<Wire FromID="0" ToID="2" ToParam="Inp_PosFdbk"/>
+<Wire FromID="1" ToID="2" ToParam="PSet_CV"/>
+</Sheet>
+</FBDContent>
+</Routine>
+</Routines>
+</Program>
+</Programs>
+</Controller>
+</RSLogix5000Content>

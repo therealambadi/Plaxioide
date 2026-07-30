@@ -1,0 +1,772 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RSLogix5000Content SchemaRevision="1.0" SoftwareRevision="37.00" TargetName="MyFirstPLCProject" TargetType="Controller" ContainsContext="false" Owner="Training" ExportDate="Wed Jun 24 12:00:00 2026" ExportOptions="NoRawData L5KData DecoratedData ForceProtectedEncoding AllProjDocTrans">
+<Controller Use="Target" Name="MyFirstPLCProject" ProcessorType="1756-L72" MajorRev="37" MinorRev="11" TimeSlice="20" ShareUnusedTimeSlice="1" ProjectCreationDate="Wed Jun 24 12:00:00 2026" LastModifiedDate="Wed Jun 24 12:00:00 2026" SFCExecutionControl="CurrentActive" SFCRestartPosition="MostRecent" SFCLastScan="DontScan" ProjectSN="16#0000_0000" MatchProjectToController="false" CanUseRPIFromProducer="false" InhibitAutomaticFirmwareUpdate="0" PassThroughConfiguration="EnabledWithAppend" DownloadProjectDocumentationAndExtendedProperties="true" DownloadProjectCustomProperties="true" ReportMinorOverflow="false">
+<RedundancyInfo Enabled="false" KeepTestEditsOnSwitchOver="false" IOMemoryPadPercentage="90" DataTablePadPercentage="50"/>
+<Security Code="0" ChangesToDetect="16#ffff_ffff_ffff_ffff"/>
+<SafetyInfo/>
+<DataTypes/>
+<Modules>
+<Module Name="Local" CatalogNumber="1756-L72" Vendor="1" ProductType="14" ProductCode="93" Major="37" Minor="11" ParentModule="Local" ParentModPortId="1" Inhibited="false" MajorFault="true">
+<EKey State="ExactMatch"/>
+<Ports>
+<Port Id="1" Address="0" Type="ICP" Upstream="false">
+<Bus Size="10"/>
+</Port>
+</Ports>
+</Module>
+</Modules>
+<AddOnInstructionDefinitions/>
+<Tags>
+<Tag Name="PushButton_Green_Start" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[The GREEN button. When an operator presses this, the conveyor should start running. This is a MOMENTARY button - it's only TRUE while your finger is on it. Let go, and it goes back to FALSE. That's why we need the seal-in circuit in Routine 02.]]></Description>
+<Data Format="L5K"><![CDATA[0]]></Data>
+<Data Format="Decorated"><DataValue DataType="BOOL" Radix="Decimal" Value="0"/></Data>
+</Tag>
+<Tag Name="PushButton_Red_Stop" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[The RED button. When pressed, the conveyor should stop. Also momentary. In a real machine, this would be wired as normally-closed (NC) so if a wire breaks, the machine stops. That's why we use XIO for it - read Routine 02 to understand why.]]></Description>
+<Data Format="L5K"><![CDATA[1]]></Data>
+<Data Format="Decorated"><DataValue DataType="BOOL" Radix="Decimal" Value="1"/></Data>
+</Tag>
+<Tag Name="PushButton_Mushroom_EmergencyStop" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[The BIG RED MUSHROOM button. This is the emergency stop. Wired normally-closed: when NOT pressed, the circuit is complete and this tag reads 1. When pressed (or if the wire breaks!), the circuit opens and this tag reads 0. This FAIL-SAFE behavior is why we use XIO for E-Stops.]]></Description>
+<Data Format="L5K"><![CDATA[1]]></Data>
+<Data Format="Decorated"><DataValue DataType="BOOL" Radix="Decimal" Value="1"/></Data>
+</Tag>
+<Tag Name="PushButton_Blue_Reset" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[The BLUE reset button. Press this to reset counters and clear any latched alarms. Momentary.]]></Description>
+<Data Format="L5K"><![CDATA[0]]></Data>
+<Data Format="Decorated"><DataValue DataType="BOOL" Radix="Decimal" Value="0"/></Data>
+</Tag>
+<Tag Name="Sensor_PhotoEye_PartDetected" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[A photo-eye sensor mounted on the conveyor frame. When a box passes in front of it, the beam is broken and this tag becomes TRUE. When no box is present, it's FALSE. This is how the PLC "sees" parts moving down the line.]]></Description>
+<Data Format="L5K"><![CDATA[0]]></Data>
+<Data Format="Decorated"><DataValue DataType="BOOL" Radix="Decimal" Value="0"/></Data>
+</Tag>
+<Tag Name="Sensor_Gate_SafetyDoorClosed" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[A limit switch on the safety gate around the conveyor. TRUE when the gate is closed and locked. FALSE when someone opens the gate to access the machine. Used as a safety interlock - if the gate opens, the conveyor stops.]]></Description>
+<Data Format="L5K"><![CDATA[1]]></Data>
+<Data Format="Decorated"><DataValue DataType="BOOL" Radix="Decimal" Value="1"/></Data>
+</Tag>
+<Tag Name="Motor_Conveyor_RunCommand" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[This is the MAIN output of our program. When TRUE, the conveyor motor contactor is energized and the belt moves. When FALSE, the conveyor stops. In a real machine, this tag would be connected to a physical output module that sends 24VDC to the motor contactor coil.]]></Description>
+<Data Format="L5K"><![CDATA[0]]></Data>
+<Data Format="Decorated"><DataValue DataType="BOOL" Radix="Decimal" Value="0"/></Data>
+</Tag>
+<Tag Name="Light_Green_MachineRunning" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[Green beacon light on top of the machine. ON = conveyor is running, everything is normal. OFF = conveyor is stopped.]]></Description>
+</Tag>
+<Tag Name="Light_Red_MachineStopped" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[Red beacon light. ON = conveyor is stopped (either normally or due to a fault). Lets the operator see machine status from across the factory floor.]]></Description>
+</Tag>
+<Tag Name="Light_Amber_BatchComplete" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[Amber/yellow beacon. ON = the batch is complete (we've counted enough parts). Flashing = call the forklift driver to pick up the finished pallet.]]></Description>
+</Tag>
+<Tag Name="Timer_StartDelay" TagType="Base" DataType="TIMER" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[A TON (Timer On Delay). After the start button is pressed, this timer counts to 3000 milliseconds (3 seconds) before allowing the conveyor to actually start. This gives the operator time to clear the area. The timer's .DN bit goes TRUE when the 3 seconds are up.]]></Description>
+</Tag>
+<Tag Name="Counter_TotalPartsProduced" TagType="Base" DataType="COUNTER" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[A CTU (Count Up) counter. Every time a part passes the photo-eye sensor, this counter increments by 1. The .ACC member tells you how many parts have passed. The .DN member goes TRUE when .ACC reaches the Preset value.]]></Description>
+</Tag>
+<Tag Name="Tag_HowManyPartsBeforeStopping" TagType="Base" DataType="DINT" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[CONFIGURATION VALUE: How many parts should the conveyor process before automatically stopping? The operator sets this. When Counter_TotalPartsProduced.ACC reaches this number, the conveyor stops and the amber light turns on. Change this number to process different batch sizes.]]></Description>
+<Data Format="L5K"><![CDATA[10]]></Data>
+<Data Format="Decorated"><DataValue DataType="DINT" Radix="Decimal" Value="10"/></Data>
+</Tag>
+<Tag Name="Bit_SealIn_ConveyorRunning" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[INTERNAL MEMORY BIT. This is the "memory" of the start/stop circuit. When the operator presses Start, this bit turns ON and STAYS ON (seals itself in). When Stop or E-Stop is pressed, it turns OFF. This bit is used by all the other routines - it's the master "conveyor should be running" signal.]]></Description>
+</Tag>
+<Tag Name="Bit_OneShot_PartEdge" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[INTERNAL STORAGE for a one-shot. The ONS instruction uses this bit to remember the previous scan's state of the photo-eye sensor. Every ONS instruction needs its OWN unique storage bit - never reuse this bit for another one-shot.]]></Description>
+</Tag>
+<Tag Name="Bit_BatchComplete" TagType="Base" DataType="BOOL" Radix="Decimal" Constant="false" ExternalAccess="Read/Write">
+<Description><![CDATA[INTERNAL FLAG. TRUE when we've produced enough parts (Counter .ACC >= Tag_HowManyPartsBeforeStopping). Used to stop the conveyor and light the amber beacon.]]></Description>
+</Tag>
+</Tags>
+<Programs>
+<Program Name="MainProgram" TestEdits="false" MainRoutineName="Routine_00_MainOrchestrator" Disabled="false" UseAsFolder="false">
+<Description><![CDATA[This is the MAIN program. It contains 8 routines that teach PLC programming from absolute zero. Start with Routine 01 and work your way up. Each routine builds on the previous one. The MainOrchestrator calls them all in order every scan.]]></Description>
+<Tags/>
+<Routines>
+<Routine Name="Routine_00_MainOrchestrator" Type="RLL">
+<Description><![CDATA[THE ORCHESTRATOR - This routine runs every scan. It uses JSR (Jump to Subroutine) to call each teaching routine in order. Think of this as the "table of contents" - look here to see what order things happen. JSR is like calling a function: it runs the named routine, then comes back here. You can double-click any routine name to jump to it.]]></Description>
+<RLLContent>
+<Rung Number="0" Type="N">
+<Comment><![CDATA[ROUTINE 01: Your first PLC rung ever. One button turns on one light. Teaches XIC and OTE. If you understand nothing else, understand this rung.]]></Comment>
+<Text><![CDATA[JSR(Routine_01_YourFirstRung,0,0);]]></Text>
+</Rung>
+<Rung Number="1" Type="N">
+<Comment><![CDATA[ROUTINE 02: The seal-in circuit. This is THE most important pattern in PLC programming. Start button starts the conveyor, Stop button stops it. The conveyor "remembers" it's supposed to be running even after you let go of the Start button.]]></Comment>
+<Text><![CDATA[JSR(Routine_02_SealIn_StartStop,0,0);]]></Text>
+</Rung>
+<Rung Number="2" Type="N">
+<Comment><![CDATA[ROUTINE 03: Adding safety. The Emergency Stop mushroom button and safety gate sensor are added in series with the seal-in circuit. If EITHER one is triggered, the conveyor stops immediately - no matter what.]]></Comment>
+<Text><![CDATA[JSR(Routine_03_AddSafety_EmergencyStop,0,0);]]></Text>
+</Rung>
+<Rung Number="3" Type="N">
+<Comment><![CDATA[ROUTINE 04: Adding a timer. The conveyor doesn't start immediately - it waits 3 seconds after the Start button is pressed. Teaches the TON (Timer On Delay) instruction and how to use the .DN (Done) bit.]]></Comment>
+<Text><![CDATA[JSR(Routine_04_AddTimer_StartDelay,0,0);]]></Text>
+</Rung>
+<Rung Number="4" Type="N">
+<Comment><![CDATA[ROUTINE 05: Counting parts. Every time a part passes the photo-eye, increment a counter. Teaches CTU (Count Up) and the ONS (One-Shot) instruction that prevents counting the same part multiple times.]]></Comment>
+<Text><![CDATA[JSR(Routine_05_CountParts,0,0);]]></Text>
+</Rung>
+<Rung Number="5" Type="N">
+<Comment><![CDATA[ROUTINE 06: Making decisions. When the counter reaches the target number of parts, stop the conveyor automatically. Teaches the GEQ (Greater-than-or-Equal) comparison instruction.]]></Comment>
+<Text><![CDATA[JSR(Routine_06_Decision_AutoStop,0,0);]]></Text>
+</Rung>
+<Rung Number="6" Type="N">
+<Comment><![CDATA[ROUTINE 07: Status lights. Turn on green/red/amber beacon lights based on what the machine is doing. Teaches how to use multiple OTE outputs and how to combine conditions.]]></Comment>
+<Text><![CDATA[JSR(Routine_07_StatusLights,0,0);]]></Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="Routine_01_YourFirstRung" Type="RLL">
+<Description><![CDATA[YOUR FIRST PLC RUNG - One button, one light. This is the simplest possible PLC program. When you press the green button, the conveyor motor turns on. When you let go, it turns off. That's it. Simple, but it teaches you the two most important instructions: XIC (contact) and OTE (coil).]]></Description>
+<RLLContent>
+<Rung Number="0" Type="N">
+<Comment><![CDATA[
+============================================================
+YOUR FIRST RUNG: Push button turns on the conveyor motor.
+============================================================
+
+HOW TO READ THIS RUNG (read left to right, like English):
+  [PushButton_Green_Start] ----> (Motor_Conveyor_RunCommand)
+       "contact"                       "coil"
+
+  The contact is like a light switch.
+  The coil is like the light bulb.
+  When the switch is ON, the bulb lights up.
+
+THE TWO INSTRUCTIONS ON THIS RUNG:
+
+  XIC = "Examine If Closed" = the -[ ]- contact
+        This is TRUE when the tag is 1 (button pressed).
+        It's called "normally open" because when the tag is 0,
+        the contact is OPEN and power can't flow through.
+
+  OTE = "Output Energize" = the -( )- coil
+        This makes the tag equal to whatever the rung says.
+        If power reaches the coil, the tag becomes 1.
+        If power does NOT reach the coil, the tag becomes 0.
+
+WHAT THE PLC DOES (the "scan cycle"):
+
+  The PLC does this loop forever, thousands of times per second:
+  1. READ all inputs (check the button)
+  2. EXECUTE the logic (this rung)
+  3. WRITE all outputs (turn the motor on or off)
+  4. Go back to step 1
+
+  So if you press the button, the NEXT scan will see it
+  and turn on the motor. This happens in milliseconds -
+  it feels instant to a human.
+
+TRY THIS IN YOUR HEAD:
+  - Nobody pressing the button: PushButton_Green_Start = 0
+    The XIC is FALSE (open). Power can't reach the coil.
+    Motor_Conveyor_RunCommand = 0. Conveyor is OFF.
+
+  - Operator presses and HOLDS the button:
+    PushButton_Green_Start = 1
+    The XIC is TRUE (closed). Power flows to the coil.
+    Motor_Conveyor_RunCommand = 1. Conveyor is ON.
+
+  - Operator lets go of the button:
+    PushButton_Green_Start = 0 again.
+    Motor goes back to 0. Conveyor stops.
+
+PROBLEM WITH THIS RUNG:
+  The operator has to HOLD the button down to keep the
+  conveyor running! That's not practical. We need the
+  conveyor to STAY ON after a quick press.
+  That's what Routine 02 solves with the "seal-in circuit."
+============================================================
+]]></Comment>
+<Text><![CDATA[XIC(PushButton_Green_Start)OTE(Motor_Conveyor_RunCommand);]]></Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="Routine_02_SealIn_StartStop" Type="RLL">
+<Description><![CDATA[THE SEAL-IN CIRCUIT - The most important pattern in all of PLC programming. Press Start once = conveyor runs forever. Press Stop once = conveyor stops. No need to hold the button. This is how EVERY motor starter, pump, fan, and conveyor in a factory works.]]></Description>
+<RLLContent>
+<Rung Number="0" Type="N">
+<Comment><![CDATA[
+============================================================
+THE SEAL-IN CIRCUIT (also called "Start/Stop" or "latch")
+============================================================
+
+THE PROBLEM WITH ROUTINE 01:
+  You had to HOLD the Start button to keep the conveyor
+  running. That's not how real machines work. You press
+  Start once, let go, and the machine keeps running.
+
+THE SOLUTION: THE SEAL-IN CONTACT
+
+  Look at this rung. See the parallel branch with
+  Bit_SealIn_ConveyorRunning inside it? That's the "seal."
+
+  [PushButton_Green_Start] --+-- [PushButton_Red_Stop] --(Bit_SealIn_ConveyorRunning)
+                              |
+  [Bit_SealIn_ConveyorRunning]-+
+
+  Let me break this down:
+
+  BRANCH 1: PushButton_Green_Start
+    This is the "start" path. TRUE when you press the button.
+
+  BRANCH 2: Bit_SealIn_ConveyorRunning
+    This is the "seal" path. TRUE when we are ALREADY running.
+
+  The two branches are in PARALLEL (the + sign).
+  Parallel = OR logic. Either branch being TRUE is enough.
+
+  Then in SERIES: PushButton_Red_Stop
+    This is the "stop" path. XIO means it's TRUE when the
+    button is NOT pressed. When you press Stop, XIO becomes
+    FALSE, breaking the circuit.
+
+HOW IT WORKS - TRACE THE SIGNAL:
+
+  t=0: Everything is OFF. Bit_SealIn_ConveyorRunning = 0.
+       Nobody pressing any buttons.
+
+  t=1: Operator QUICKLY PRESSES and RELEASES Start.
+       For that split second, Branch 1 is TRUE.
+       XIO(Stop) is TRUE (nobody pressing Stop).
+       Power reaches the coil!
+       Bit_SealIn_ConveyorRunning becomes 1.
+
+  t=2: Operator has LET GO of Start.
+       Branch 1 is now FALSE (button released).
+       BUT Branch 2 is now TRUE! (Bit_SealIn_ConveyorRunning=1)
+       XIO(Stop) is still TRUE.
+       Power STILL reaches the coil through Branch 2!
+       The conveyor keeps running. It's "sealed in."
+
+  t=3: Operator presses Stop.
+       PushButton_Red_Stop becomes 1 (pressed).
+       XIO(Stop) means "TRUE when tag is 0."
+       Tag is 1, so XIO is FALSE.
+       The path is broken. Coil de-energizes.
+       Bit_SealIn_ConveyorRunning becomes 0.
+       Branch 2 becomes FALSE too (no more seal).
+       Conveyor stops and stays stopped.
+
+WHY USE A SEPARATE BIT (Bit_SealIn_ConveyorRunning)?
+  Instead of directly controlling the motor, we use an
+  INTERNAL bit as the "memory" of the seal-in circuit.
+  Other routines can read this bit to know if the
+  conveyor should be running, and can add more stop
+  conditions in series with the seal-in.
+
+  The actual motor output (Motor_Conveyor_RunCommand) will
+  be controlled in Routine 04, after we add safety and
+  the start delay.
+
+XIO EXPLAINED SIMPLY:
+  XIO = "Examine If OPEN"
+  TRUE when tag = 0 (NOT pressed, NOT faulted, NOT tripped)
+  FALSE when tag = 1 (PRESSED, faulted, tripped)
+
+  We use XIO for Stop buttons because:
+  - Button NOT pressed = tag = 0 = XIO is TRUE = rung works
+  - Button PRESSED = tag = 1 = XIO is FALSE = rung breaks
+  - If the WIRE BREAKS = tag = 0 = XIO is TRUE (but the
+    machine also has other safeties, so this is OK for
+    a Stop button, NOT OK for an E-Stop - see Routine 03)
+============================================================
+]]></Comment>
+<Text><![CDATA[[XIC(PushButton_Green_Start),XIC(Bit_SealIn_ConveyorRunning)]XIO(PushButton_Red_Stop)OTE(Bit_SealIn_ConveyorRunning);]]></Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="Routine_03_AddSafety_EmergencyStop" Type="RLL">
+<Description><![CDATA[ADDING SAFETY - Now we add the Emergency Stop and safety gate in SERIES with the seal-in circuit. Series = ALL conditions must be TRUE. If the E-Stop is pressed OR the gate is opened, the rung breaks and the conveyor stops immediately. No software can override this - it's hardwired logic.]]></Description>
+<RLLContent>
+<Rung Number="0" Type="N">
+<Comment><![CDATA[
+============================================================
+ADDING SAFETY INTERLOCKS IN SERIES
+============================================================
+
+THE RULE OF SERIES CONTACTS:
+  When contacts are in SERIES (one after another on the
+  same line), ALL of them must be TRUE for power to flow.
+  It's like Christmas lights - if one bulb is dead,
+  the whole string goes out.
+
+  Contact1 --- Contact2 --- Contact3 --- Coil
+  ALL must be TRUE for the coil to energize.
+
+  This is AND logic: Condition1 AND Condition2 AND Condition3.
+
+OUR SAFETY CHAIN:
+  Bit_SealIn_ConveyorRunning (from Routine 02)
+  AND PushButton_Mushroom_EmergencyStop is NOT pressed
+  AND Sensor_Gate_SafetyDoorClosed is TRUE
+  = Motor_Conveyor_RunCommand
+
+  If ANY one of these fails, the motor stops.
+
+WHY XIO FOR E-STOP? THE FAIL-SAFE PRINCIPLE:
+
+  In a real machine, the E-Stop button is wired as
+  NORMALLY CLOSED (NC). When nobody is touching it,
+  electricity flows through it, and the PLC input reads 1.
+
+  When someone SLAMS the E-Stop:
+  - The physical contacts OPEN
+  - Electricity stops flowing
+  - The PLC input reads 0
+  - XIO(E-Stop) becomes FALSE (because XIO = TRUE when tag=0,
+    wait... XIO means "Examine If Open" - it's TRUE when
+    the tag value is 0)
+  - The rung breaks, motor stops.
+
+  CRITICALLY, if the E-Stop WIRE BREAKS:
+  - Electricity also stops flowing
+  - PLC input reads 0
+  - XIO becomes FALSE
+  - Motor stops!
+
+  This is FAIL-SAFE: a broken wire causes a STOP, not a
+  dangerous "can't stop" situation. This is why safety
+  devices use NC wiring + XIO in the PLC.
+
+  (For the Stop button in Routine 02, we also used XIO,
+  but a broken Stop button wire wouldn't be as dangerous
+  as a broken E-Stop wire. Some engineers use XIC for
+  Stop buttons and XIO for E-Stops to distinguish them.)
+
+WHY XIC FOR THE SAFETY GATE?
+  XIC = TRUE when tag = 1.
+  The gate sensor reads 1 when the gate is CLOSED and LOCKED.
+  If someone opens the gate, the sensor reads 0.
+  XIC becomes FALSE, rung breaks, motor stops.
+  Simple: gate closed = run, gate open = stop.
+
+  In a real safety system, the gate switch would be a
+  "forced-guided" contact with redundant channels wired
+  to a safety relay - the PLC is a SECONDARY safety layer,
+  not the primary one. But for learning, this shows the
+  pattern.
+
+WHAT THIS MEANS FOR THE OPERATOR:
+  - Press Start: conveyor runs (seal-in engages)
+  - Press Stop: conveyor stops (seal-in breaks)
+  - Slam E-Stop: conveyor stops IMMEDIATELY
+  - Open safety gate: conveyor stops IMMEDIATELY
+  - To restart after E-Stop: twist E-Stop to release,
+    close the gate, then press Start again.
+============================================================
+]]></Comment>
+<Text><![CDATA[XIC(Bit_SealIn_ConveyorRunning)XIO(PushButton_Mushroom_EmergencyStop)XIC(Sensor_Gate_SafetyDoorClosed)OTE(Motor_Conveyor_RunCommand);]]></Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="Routine_04_AddTimer_StartDelay" Type="RLL">
+<Description><![CDATA[ADDING A START DELAY - Instead of the conveyor starting instantly, we add a 3-second delay. This gives the operator time to step back after pressing Start. Teaches the TON (Timer On Delay) instruction - the most-used timer in PLC programming.]]></Description>
+<RLLContent>
+<Rung Number="0" Type="N">
+<Comment><![CDATA[
+============================================================
+TIMER ON DELAY (TON) - Wait before starting
+============================================================
+
+THE TON INSTRUCTION:
+  TON(TimerName, Preset, Accumulator)
+
+  TimerName = which TIMER tag to use (Timer_StartDelay)
+  Preset    = how many milliseconds to wait (3000 = 3 seconds)
+  Accumulator = where to store elapsed time (use ? for default)
+
+  When the rung before the TON is TRUE, the timer starts
+  counting up in milliseconds. When it reaches the Preset
+  value, the .DN (Done) bit becomes TRUE.
+
+  When the rung goes FALSE, the timer RESETS to 0.
+  .DN goes back to FALSE.
+
+THE TIMER'S SUB-ELEMENTS (you can use these in logic):
+  Timer_StartDelay.EN  = Timer is Enabled (rung TRUE)
+  Timer_StartDelay.TT  = Timer is actively Timing (running)
+  Timer_StartDelay.DN  = Timer is Done (reached preset)
+  Timer_StartDelay.ACC = Accumulator (current count in ms)
+  Timer_StartDelay.PRE = Preset (the target time)
+
+HOW THIS RUNG WORKS:
+
+  When the operator presses Start and the seal-in engages,
+  Bit_SealIn_ConveyorRunning becomes 1.
+
+  The TON rung is: XIC(Bit_SealIn_ConveyorRunning) TON(Timer_StartDelay, 3000, ?)
+
+  If the conveyor should be running:
+    - Timer starts counting: 0, 1, 2, ... 2999, 3000
+    - After 3 seconds: Timer_StartDelay.DN becomes 1
+    - The timer STAYS at 3000 and .DN stays 1
+      (TON does NOT reset until the rung goes FALSE)
+
+  If the conveyor stops (Stop pressed, E-Stop, etc.):
+    - Bit_SealIn_ConveyorRunning becomes 0
+    - TON rung goes FALSE
+    - Timer RESETS: .ACC = 0, .DN = 0
+    - Next start will wait the full 3 seconds again
+
+WHY USE A START DELAY?
+  - Safety: gives operator time to clear the area
+  - Sound a warning horn during the delay (not shown here)
+  - Allow motor starters to pre-charge
+  - In real machines, this is often 5-10 seconds with
+    a flashing beacon and audible alarm
+
+THE ? IN THE PRESET FIELD:
+  Writing TON(Timer, 3000, ?) means "use the tag's current
+  accumulator value." For a new timer, this is 0. You can
+  also write TON(Timer, 3000, 0) to be explicit.
+============================================================
+]]></Comment>
+<Text><![CDATA[XIC(Bit_SealIn_ConveyorRunning)TON(Timer_StartDelay,3000,?);]]></Text>
+</Rung>
+<Rung Number="1" Type="N">
+<Comment><![CDATA[
+============================================================
+USING THE TIMER'S .DN BIT TO CONTROL THE MOTOR
+============================================================
+
+This rung UPDATES Routine 03's motor control. Now the
+motor only runs when ALL of these are TRUE:
+
+  1. Seal-in circuit says "run" (Bit_SealIn_ConveyorRunning)
+  2. Timer has finished waiting (Timer_StartDelay.DN)
+  3. E-Stop is NOT pressed (XIO)
+  4. Safety gate IS closed (XIC)
+
+The timer .DN bit is just another contact in series.
+It works exactly like the other contacts - it's either
+TRUE (timer done) or FALSE (timer still counting).
+
+WHAT THIS MEANS FOR THE OPERATOR:
+  Press Start -> conveyor does NOT start immediately
+  -> 3-second delay (operator steps back)
+  -> Timer.DN becomes TRUE -> conveyor starts running.
+
+  This is how real machines work. The start button doesn't
+  start the machine - it starts the START SEQUENCE, which
+  includes delays, warnings, and safety checks.
+
+THIS OVERRIDES ROUTINE 03:
+  Routine 03 wrote to Motor_Conveyor_RunCommand directly.
+  This routine ALSO writes to it. Since both routines run
+  every scan (in order, via JSR), the LAST one to write
+  "wins." This routine runs AFTER Routine 03, so its OTE
+  is the final value for this scan.
+
+  This is called "destructive overwrite" and is a common
+  pattern: each routine adds more conditions. Just be
+  careful - if you change the JSR order, you change which
+  OTE "wins."
+============================================================
+]]></Comment>
+<Text><![CDATA[XIC(Bit_SealIn_ConveyorRunning)XIC(Timer_StartDelay.DN)XIO(PushButton_Mushroom_EmergencyStop)XIC(Sensor_Gate_SafetyDoorClosed)OTE(Motor_Conveyor_RunCommand);]]></Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="Routine_05_CountParts" Type="RLL">
+<Description><![CDATA[COUNTING PARTS - Every time a box passes the photo-eye sensor, we increment a counter. But there's a catch: the sensor might see the same box for MANY scans (while it's passing through the beam). We need to count each box exactly ONCE. That's what the ONS (One-Shot) does.]]></Description>
+<RLLContent>
+<Rung Number="0" Type="N">
+<Comment><![CDATA[
+============================================================
+COUNTING PARTS WITH CTU (Count Up) AND ONS (One-Shot)
+============================================================
+
+THE PROBLEM: COUNTING TOO MANY TIMES
+
+  The PLC scans thousands of times per second.
+  A box passing the photo-eye might take 0.5 seconds.
+  In that time, the PLC scans ~500 times.
+
+  Without ONS: the counter would increment 500 times
+  for ONE box! That's wrong.
+
+  With ONS: the counter increments exactly ONCE per box,
+  on the FIRST scan when the sensor sees it.
+
+THE CTU INSTRUCTION:
+  CTU(CounterName, Preset, Accumulator)
+
+  Each time the rung goes from FALSE to TRUE,
+  the counter increments .ACC by 1.
+
+  Counter_TotalPartsProduced.ACC = how many parts counted
+  Counter_TotalPartsProduced.PRE = preset value (999999 here)
+  Counter_TotalPartsProduced.DN  = TRUE when .ACC >= .PRE
+  Counter_TotalPartsProduced.OV  = TRUE on overflow (>2.1B)
+
+  We set Preset to 999999 (effectively "no limit").
+  We'll use the comparison in Routine 06 to decide
+  when to stop.
+
+THE ONS INSTRUCTION:
+  ONS(Bit_OneShot_PartEdge)
+
+  The ONS makes the rung AFTER it TRUE for exactly ONE
+  scan when the logic BEFORE it transitions from
+  FALSE to TRUE.
+
+  Bit_OneShot_PartEdge is the "storage bit" - it remembers
+  what the sensor saw last scan. If it was FALSE last scan
+  and TRUE this scan = rising edge = fire the one-shot.
+
+  CRITICAL RULE: Every ONS needs its OWN unique storage bit.
+  If you reuse Bit_OneShot_PartEdge for another ONS,
+  both one-shots will malfunction. The storage bit is
+  like a private notepad for the ONS - don't share it.
+
+HOW THIS RUNG WORKS, SCAN BY SCAN:
+
+  Scan 1: No box. Sensor = 0.
+          XIC(Sensor) = FALSE. No count.
+
+  Scan 100: Box enters beam. Sensor = 1.
+          XIC(Sensor) = TRUE (was FALSE last scan).
+          ONS fires! CTU increments. Count = 1.
+          Bit_OneShot_PartEdge becomes 1 (remembers).
+
+  Scan 101: Box still in beam. Sensor = 1.
+          XIC(Sensor) = TRUE (was TRUE last scan too).
+          ONS does NOT fire (not a rising edge).
+          CTU does NOT increment. Count stays at 1.
+
+  ... (scans 102-600: box passes through, sensor stays 1,
+        ONS never fires again, count stays at 1)
+
+  Scan 601: Box has passed. Sensor = 0.
+          XIC(Sensor) = FALSE.
+          Bit_OneShot_PartEdge becomes 0 (resets for next box).
+
+  Scan 800: Next box enters. Sensor = 1.
+          XIC(Sensor) = TRUE (was FALSE last scan).
+          ONS fires! CTU increments. Count = 2.
+
+  Each box = exactly ONE count. That's the magic of ONS.
+
+RESETTING THE COUNTER:
+  Press the Blue Reset button to set the counter back to 0.
+  This is a separate rung so the operator can reset
+  whenever they want, independent of counting.
+============================================================
+]]></Comment>
+<Text><![CDATA[XIC(Sensor_PhotoEye_PartDetected)ONS(Bit_OneShot_PartEdge)CTU(Counter_TotalPartsProduced,999999,?);]]></Text>
+</Rung>
+<Rung Number="1" Type="N">
+<Comment><![CDATA[RESET RUNG: Press the Blue Reset button to clear the counter back to 0. The RES instruction resets .ACC to 0 and .DN to FALSE.]]></Comment>
+<Text><![CDATA[XIC(PushButton_Blue_Reset)RES(Counter_TotalPartsProduced);]]></Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="Routine_06_Decision_AutoStop" Type="RLL">
+<Description><![CDATA[MAKING A DECISION - When we've produced enough parts, automatically stop the conveyor. This is where the PLC stops being a "dumb relay replacer" and starts being a "smart controller." It looks at a value, compares it to a target, and makes a decision.]]></Description>
+<RLLContent>
+<Rung Number="0" Type="N">
+<Comment><![CDATA[
+============================================================
+MAKING DECISIONS: GEQ (Greater-than-or-Equal) Comparison
+============================================================
+
+THE GEQ INSTRUCTION:
+  GEQ(SourceA, SourceB)
+  TRUE when A >= B. FALSE when A < B.
+
+  It acts like a contact - you put it in the middle of
+  a rung. If the comparison is TRUE, power continues
+  to the right. If FALSE, power stops.
+
+  Other comparison instructions work the same way:
+  EQU(A,B) = A equals B
+  NEQ(A,B) = A does NOT equal B
+  GRT(A,B) = A is greater than B  (strictly >)
+  LES(A,B) = A is less than B     (strictly <)
+  GEQ(A,B) = A >= B
+  LEQ(A,B) = A <= B
+
+HOW THIS RUNG WORKS:
+
+  We compare two numbers:
+  SourceA = Counter_TotalPartsProduced.ACC (how many we counted)
+  SourceB = Tag_HowManyPartsBeforeStopping (our target)
+
+  If .ACC >= Target: GEQ is TRUE -> set Bit_BatchComplete
+  If .ACC < Target:  GEQ is FALSE -> don't set the bit
+
+  Bit_BatchComplete is then used in the NEXT rung to
+  break the seal-in circuit. When the seal-in breaks,
+  Bit_SealIn_ConveyorRunning becomes 0, and the motor
+  stops (because Routine 04's rung requires it to be 1).
+
+  The batch-complete bit stays TRUE until the operator
+  presses Reset (see Routine 05, rung 1), which resets
+  the counter. Then .ACC = 0, GEQ becomes FALSE,
+  Bit_BatchComplete becomes FALSE, and the conveyor
+  can be started again.
+
+CHANGING THE BATCH SIZE:
+  Change Tag_HowManyPartsBeforeStopping to a different
+  number. Try 5 for a small batch, 50 for a large one.
+  The logic adapts automatically - that's the power of
+  using a tag instead of a hardcoded number.
+
+  In a real machine, this tag would be set from an HMI
+  (touchscreen) so the operator can change batch sizes
+  without modifying the PLC program.
+
+WHY GEQ AND NOT EQU?
+  GEQ (>=) is safer than EQU (==). If the counter somehow
+  skips the exact target number (unlikely with CTU, but
+  possible in other scenarios), EQU would never become
+  TRUE and the conveyor would never stop. GEQ catches
+  "reached or passed" the target.
+============================================================
+]]></Comment>
+<Text><![CDATA[GEQ(Counter_TotalPartsProduced.ACC,Tag_HowManyPartsBeforeStopping)OTE(Bit_BatchComplete);]]></Text>
+</Rung>
+<Rung Number="1" Type="N">
+<Comment><![CDATA[
+============================================================
+USING THE DECISION TO STOP THE CONVEYOR
+============================================================
+
+This rung UPDATES the seal-in circuit. We add
+XIO(Bit_BatchComplete) in series with the existing
+seal-in rung.
+
+When Bit_BatchComplete = 0 (batch not done yet):
+  XIO is TRUE. Rung works normally. Seal-in functions.
+
+When Bit_BatchComplete = 1 (we've made enough parts):
+  XIO is FALSE. Rung breaks. Seal-in disengages.
+  Bit_SealIn_ConveyorRunning becomes 0.
+  Conveyor stops (because Routine 04 requires it to be 1).
+
+This OVERRIDES Routine 02's seal-in rung (just like
+Routine 04 overrode Routine 03's motor output).
+
+After stopping, the operator:
+  1. Removes the finished parts
+  2. Presses Blue Reset (resets counter to 0)
+  3. GEQ becomes FALSE
+  4. Bit_BatchComplete becomes FALSE
+  5. XIO becomes TRUE again
+  6. Can press Green Start to begin next batch
+============================================================
+]]></Comment>
+<Text><![CDATA[[XIC(PushButton_Green_Start),XIC(Bit_SealIn_ConveyorRunning)]XIO(PushButton_Red_Stop)XIO(Bit_BatchComplete)OTE(Bit_SealIn_ConveyorRunning);]]></Text>
+</Rung>
+</RLLContent>
+</Routine>
+<Routine Name="Routine_07_StatusLights" Type="RLL">
+<Description><![CDATA[STATUS LIGHTS - The operator can't see the code, but they CAN see the beacon lights on top of the machine. Green = running, Red = stopped, Amber = batch complete. This routine translates internal bits into visible signals.]]></Description>
+<RLLContent>
+<Rung Number="0" Type="N">
+<Comment><![CDATA[
+============================================================
+GREEN LIGHT: Machine is running normally
+============================================================
+
+Simple: if the motor is running, the green light is ON.
+If the motor stops for any reason, the green light is OFF.
+
+The OTE makes Light_Green_MachineRunning exactly equal
+to Motor_Conveyor_RunCommand. They will always have the
+same value.
+
+In a real machine, this tag would be wired to a physical
+output module channel that drives a 24VDC green beacon.
+]]></Comment>
+<Text><![CDATA[XIC(Motor_Conveyor_RunCommand)OTE(Light_Green_MachineRunning);]]></Text>
+</Rung>
+<Rung Number="1" Type="N">
+<Comment><![CDATA[
+============================================================
+RED LIGHT: Machine is stopped
+============================================================
+
+The red light is ON when the motor is NOT running.
+This is the OPPOSITE of the green light.
+
+We use XIO instead of XIC:
+  XIO(Motor_Conveyor_RunCommand) = TRUE when motor is OFF.
+
+So the red light is ON whenever the conveyor is stopped -
+whether because of Stop button, E-Stop, safety gate,
+batch complete, or just hasn't been started yet.
+
+Between the green and red lights, there should ALWAYS
+be exactly one light on. If both are off or both are on,
+something is wrong with the wiring or the program.
+]]></Comment>
+<Text><![CDATA[XIO(Motor_Conveyor_RunCommand)OTE(Light_Red_MachineStopped);]]></Text>
+</Rung>
+<Rung Number="2" Type="N">
+<Comment><![CDATA[
+============================================================
+AMBER LIGHT: Batch is complete
+============================================================
+
+The amber light is ON when:
+  1. Bit_BatchComplete is TRUE (we made enough parts), AND
+  2. The motor is NOT running (it already stopped)
+
+Both conditions in SERIES = both must be TRUE.
+
+This tells the operator: "The batch is done, the machine
+has stopped safely, come pick up the finished parts."
+
+Without the XIO(Motor), the amber light would come on
+the INSTANT the counter hit the target, even while the
+conveyor was still coasting to a stop. By checking that
+the motor has actually stopped, we give a cleaner signal.
+]]></Comment>
+<Text><![CDATA[XIC(Bit_BatchComplete)XIO(Motor_Conveyor_RunCommand)OTE(Light_Amber_BatchComplete);]]></Text>
+</Rung>
+<Rung Number="3" Type="N">
+<Comment><![CDATA[
+============================================================
+BONUS RUNG: Multiple outputs from one condition
+============================================================
+
+When the motor is running AND the timer is still counting
+down (hasn't reached .DN yet), we're in the "start delay"
+phase. In a real machine, you might flash a warning light
+or sound a horn during this time.
+
+Timer_StartDelay.TT = Timer Timing (rung is TRUE AND
+                      timer hasn't finished yet).
+
+This rung shows that you can put MULTIPLE outputs on the
+same rung. All of them will be controlled by the same
+conditions. No need to repeat the logic for each output.
+]]></Comment>
+<Text><![CDATA[XIC(Motor_Conveyor_RunCommand)XIC(Timer_StartDelay.TT)OTE(Light_Amber_BatchComplete);]]></Text>
+</Rung>
+</RLLContent>
+</Routine>
+</Routines>
+</Program>
+</Programs>
+<Tasks>
+<Task Name="MainTask" Type="CONTINUOUS" Priority="10" Watchdog="500" DisableUpdateOutputs="false" InhibitTask="false">
+<Description><![CDATA[CONTINUOUS TASK - Runs MainProgram in an endless loop, as fast as the CPU can go. Every scan: read inputs, execute all 7 routines (in JSR order), write outputs. The scan time is typically 1-5 milliseconds for a program this size.]]></Description>
+<ScheduledPrograms>
+<ScheduledProgram Name="MainProgram"/>
+</ScheduledPrograms>
+</Task>
+</Tasks>
+<CST MasterID="0"/>
+<WallClockTime LocalTimeAdjustment="0" TimeZone="0"/>
+<Trends/>
+<DataLogs/>
+<TimeSynchronize Priority1="128" Priority2="128" PTPEnable="false"/>
+</Controller>
+</RSLogix5000Content>

@@ -1,0 +1,52 @@
+{
+  "downloaded": [
+    {
+      "desc": "PLCopen XML SFC simultaneous divergence",
+      "file": "PLC_Samples/PLCopen/PLCopen_XML_SFC_simultaneous_divergence_PMC3639448.tei.xml",
+      "url": "https://raw.githubusercontent.com/howisonlab/softcite-dataset/18522db3b8642eef2c0ac57a5ffd043a97824cff/data/tei/PMC3639448.tei.xml"
+    },
+    {
+      "desc": "Rockwell PID RLL",
+      "file": "PLC_Samples/Rockwell/Rockwell_PID_RLL_Op_PID_AOI.L5X",
+      "url": "https://raw.githubusercontent.com/JeremyMedders/LogixLibraries/b27a0e7fdf99f644d3d32fb84d45810db469a8f7/src/Process/Op_PID_AOI.L5X"
+    },
+    {
+      "desc": "Rockwell FBD routine",
+      "file": "PLC_Samples/Rockwell/Rockwell_FBD_routine_ACDTestsWithAOI.L5X",
+      "url": "https://raw.githubusercontent.com/hutcheb/acd/019fb7872e090f71fc11313b5b98ed468a92cc75/resources/ACDTestsWithAOI.L5X"
+    },
+    {
+      "desc": "Rockwell FFL/FFU FIFO",
+      "file": "PLC_Samples/Rockwell/Rockwell_FFL_FFU_FIFO_CameraControl_Routine_RLL.L5X",
+      "url": "https://raw.githubusercontent.com/etymology/dune-monorepo/acd46c476ae54cfc56aa74b5cc4535552e1245f3/winder/plc/Camera/CameraControl_Routine_RLL.L5X"
+    },
+    {
+      "desc": "Rockwell Add-On Instruction",
+      "file": "PLC_Samples/Rockwell/Rockwell_Add-On_Instruction_T_DOW_AOI.L5X",
+      "url": "https://raw.githubusercontent.com/JeremyMedders/LogixLibraries/b27a0e7fdf99f644d3d32fb84d45810db469a8f7/src/Time/T_DOW_AOI.L5X"
+    },
+    {
+      "desc": "Schneider SFC",
+      "file": "PLC_Samples/Schneider/Schneider_SFC_sim_wthout_framework.xef",
+      "url": "https://raw.githubusercontent.com/pupenasan/PACFramework/5ff28393539bfc1152248f696a8f7972aabacdaf/platforms/unitypro/sim_wthout_framework.xef"
+    },
+    {
+      "desc": "Schneider FBD SCALE",
+      "file": "PLC_Samples/Schneider/Schneider_FBD_SCALE_=.xef",
+      "url": "https://raw.githubusercontent.com/mueslo/fplore_example_data/65784877966e1f9fb383ee32ccf8922992a602ad/fermi/=.xef"
+    },
+    {
+      "desc": "Schneider EBOOL variables",
+      "file": "PLC_Samples/Schneider/Schneider_EBOOL_variables_sim_wthout_framework.xef",
+      "url": "https://raw.githubusercontent.com/pupenasan/PACFramework/5ff28393539bfc1152248f696a8f7972aabacdaf/platforms/unitypro/sim_wthout_framework.xef"
+    }
+  ],
+  "not_found": [
+    "PLCopen_XML_V201.xsd",
+    "Rockwell SQO RLL",
+    "Rockwell nested BST/NXB",
+    "Siemens LAD with TON/CTU",
+    "Siemens GRAPH SFC Divergence",
+    "Siemens SCL with special characters"
+  ]
+}

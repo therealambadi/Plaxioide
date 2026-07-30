@@ -1,0 +1,6 @@
+{
+  "name": "fuxa-plugin-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "description": "FUXA isolated runtime for dynamic npm packages"
+}

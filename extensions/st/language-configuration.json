@@ -1,0 +1,35 @@
+{
+	"comments": {
+		"blockComment": [ "(*", "*)" ]
+	},
+	"brackets": [
+		["{", "}"],
+		["[", "]"],
+		["(", ")"]
+	],
+	"autoClosingPairs": [
+		{ "open": "{", "close": "}" },
+		{ "open": "[", "close": "]" },
+		{ "open": "(", "close": ")" },
+		{ "open": "\"", "close": "\"", "notIn": ["string"] },
+		{ "open": "(*", "close": "*)" }
+	],
+	"surroundingPairs": [
+		["{", "}"],
+		["[", "]"],
+		["(", ")"],
+		["\"", "\""],
+		["'", "'"]
+	],
+	"wordPattern": "[A-Za-z_][A-Za-z0-9_]*",
+	"indentationRules": {
+		"increaseIndentPattern": "(?i)\\b(PROGRAM|VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_EXTERNAL|VAR_ACCESS|VAR_GLOBAL|FUNCTION|FUNCTION_BLOCK|IF|THEN|ELSE|ELSIF|CASE|FOR|WHILE|REPEAT|TYPE|STRUCT|ARRAY)\\b",
+		"decreaseIndentPattern": "(?i)\\b(END_VAR|END_PROGRAM|END_FUNCTION|END_FUNCTION_BLOCK|END_IF|END_CASE|END_FOR|END_WHILE|UNTIL|END_REPEAT|END_TYPE|END_STRUCT|ELSE|ELSIF)\\b"
+	},
+	"folding": {
+		"markers": {
+			"start": "(?i)\\b(PROGRAM|FUNCTION|FUNCTION_BLOCK|VAR|IF|CASE|FOR|WHILE|REPEAT|TYPE|STRUCT)\\b",
+			"end": "(?i)\\b(END_PROGRAM|END_FUNCTION|END_FUNCTION_BLOCK|END_VAR|END_IF|END_CASE|END_FOR|END_WHILE|END_REPEAT|END_TYPE|END_STRUCT)\\b"
+		}
+	}
+}

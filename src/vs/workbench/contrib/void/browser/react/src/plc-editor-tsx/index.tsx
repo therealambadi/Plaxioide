@@ -1,0 +1,62 @@
+/*
+ * PLC Logic Editor — bundle entry point.
+ * Exports mountPlcEditor for use by the VS Code webview panel host.
+ */
+
+import { mountFnGenerator } from '../util/mountFnGenerator.js';
+import { LogicTab } from './LogicTab.js';
+import { PlcNavigator } from './PlcNavigator.js';
+import { TagMonitorPanel } from './TagMonitorPanel.js';
+import { ConsolePanel } from './ConsolePanel.js';
+import { RuntimePanel } from './RuntimePanel.js';
+import { ExportPanel } from './ExportPanel.js';
+import { VerifyPanel } from './verification/VerifyPanel.js';
+import React from 'react';
+import * as ReactDOM from 'react-dom/client';
+export { clmToST, resolveTagDebugLeaf, buildTagIndexMap } from './clm/clmToST.js';
+export { buildCLMFromStore } from './clm/builder.js';
+export { logicStore } from './logicStore.js';
+export { verificationStore } from './verification/verificationStore.js';
+export { importVendorFile } from './vendor/unifiedImportService.js';
+export { exportVendorFile } from './vendor/unifiedExportService.js';
+
+// Mounted in the left sidebar ViewPane (program list, tags, monitor status)
+export const mountPlcNavigator = mountFnGenerator(PlcNavigator);
+
+// Mounted in the center EditorPane (toolbar + LD/FBD/SFC canvas)
+export const mountPlcEditor = mountFnGenerator(LogicTab);
+
+// TagMonitorPanel — live variable value table
+export const mountTagMonitor = (rootElement: HTMLElement) => {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(React.createElement(TagMonitorPanel));
+  return { dispose: () => root.unmount() };
+};
+
+// ConsolePanel — simulation output log
+export const mountConsolePanel = (rootElement: HTMLElement) => {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(React.createElement(ConsolePanel));
+  return { dispose: () => root.unmount() };
+};
+
+// RuntimePanel — simulation engine status
+export const mountRuntimePanel = (rootElement: HTMLElement) => {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(React.createElement(RuntimePanel));
+  return { dispose: () => root.unmount() };
+};
+
+// ExportPanel — vendor export tab (full-page, opened as editor tab)
+export const mountExportPanel = (rootElement: HTMLElement) => {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(React.createElement(ExportPanel));
+  return { dispose: () => root.unmount() };
+};
+
+// VerifyPanel — formal verification (ESBMC-PLC+ integration)
+export const mountVerifyPanel = (rootElement: HTMLElement) => {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(React.createElement(VerifyPanel));
+  return { dispose: () => root.unmount() };
+};

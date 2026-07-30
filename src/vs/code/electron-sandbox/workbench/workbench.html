@@ -1,0 +1,93 @@
+<!-- Copyright (C) Microsoft Corporation. All rights reserved. -->
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="
+				default-src
+					'none'
+				;
+				img-src
+					'self'
+					data:
+					blob:
+					vscode-remote-resource:
+					vscode-managed-remote-resource:
+					https:
+				;
+				media-src
+					'self'
+				;
+				frame-src
+					'self'
+					vscode-webview:
+					http://127.0.0.1:1881
+				;
+				script-src
+					'self'
+					'unsafe-eval'
+					'unsafe-inline'
+					blob:
+					https://browser.sentry-cdn.com
+				;
+				style-src
+					'self'
+					'unsafe-inline'
+				;
+				connect-src
+					'self'
+					https:
+					ws:
+					http://127.0.0.1:1881
+					http://127.0.0.1:9091
+					https://*.ingest.us.sentry.io
+				;
+				font-src
+					'self'
+					vscode-remote-resource:
+					vscode-managed-remote-resource:
+					https://*.vscode-unpkg.net
+				;
+				require-trusted-types-for
+					'script'
+				;
+				trusted-types
+					amdLoader
+					cellRendererEditorText
+					defaultWorkerFactory
+					diffEditorWidget
+					diffReview
+					domLineBreaksComputer
+					dompurify
+					editorGhostText
+					editorViewLayer
+					notebookRenderer
+					stickyScrollViewLayer
+					tokenizeToString
+					notebookChatEditController
+				;
+		"/>
+
+		<!-- Workbench CSS -->
+		<link rel="stylesheet" href="../../../workbench/workbench.desktop.main.css">
+	</head>
+
+	<body aria-label="">
+	</body>
+
+	<!-- Sentry error monitoring -->
+	<script src="https://browser.sentry-cdn.com/9.30.0/bundle.min.js" crossorigin="anonymous"></script>
+	<script>
+		if (window.Sentry) {
+			window.Sentry.init({
+				dsn: 'https://8a6f725200764b1582a4ef6969bd00da@o4511817253322753.ingest.us.sentry.io/4511817413689344',
+				environment: 'desktop'
+			});
+		}
+	</script>
+
+	<!-- Startup (do not modify order of script tags!) -->
+	<script src="./workbench.js" type="module"></script>
+</html>
