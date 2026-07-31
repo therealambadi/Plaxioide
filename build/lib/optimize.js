@@ -109,6 +109,62 @@ function bundleESMTask(opts) {
                     });
                 }
             };
+            // Plugin: rewrite `import electron from 'electron'` to use createRequire.
+            // Static ESM default-import of the 'electron' CJS built-in triggers
+            // Node 20's cjsPreparseModuleExports which crashes because the built-in
+            // has no CJS module wrapper at link time. Using createRequire at runtime works.
+            const electronCJSShim = {
+                name: 'electron-cjs-shim',
+                setup(build) {
+                    build.onResolve({ filter: /^electron$/ }, () => {
+                        return { path: 'electron-cjs-shim', namespace: 'electron-cjs-shim' };
+                    });
+                    build.onLoad({ filter: /.*/, namespace: 'electron-cjs-shim' }, () => {
+                        return {
+                            resolveDir: REPO_ROOT_PATH,
+                            contents: `import { createRequire as __cr } from 'module';
+const __electron = __cr(import.meta.url)('electron');
+export default __electron;
+export const app = __electron.app;
+export const autoUpdater = __electron.autoUpdater;
+export const BrowserView = __electron.BrowserView;
+export const BrowserWindow = __electron.BrowserWindow;
+export const clipboard = __electron.clipboard;
+export const contentTracing = __electron.contentTracing;
+export const crashReporter = __electron.crashReporter;
+export const desktopCapturer = __electron.desktopCapturer;
+export const dialog = __electron.dialog;
+export const globalShortcut = __electron.globalShortcut;
+export const inAppPurchase = __electron.inAppPurchase;
+export const ipcMain = __electron.ipcMain;
+export const Menu = __electron.Menu;
+export const MenuItem = __electron.MenuItem;
+export const MessageChannelMain = __electron.MessageChannelMain;
+export const nativeImage = __electron.nativeImage;
+export const nativeTheme = __electron.nativeTheme;
+export const net = __electron.net;
+export const netLog = __electron.netLog;
+export const Notification = __electron.Notification;
+export const powerMonitor = __electron.powerMonitor;
+export const powerSaveBlocker = __electron.powerSaveBlocker;
+export const protocol = __electron.protocol;
+export const pushNotifications = __electron.pushNotifications;
+export const safeStorage = __electron.safeStorage;
+export const screen = __electron.screen;
+export const session = __electron.session;
+export const shell = __electron.shell;
+export const systemPreferences = __electron.systemPreferences;
+export const TouchBar = __electron.TouchBar;
+export const Tray = __electron.Tray;
+export const utilityProcess = __electron.utilityProcess;
+export const webContents = __electron.webContents;
+export const webFrameMain = __electron.webFrameMain;
+`,
+                            loader: 'js',
+                        };
+                    });
+                },
+            };
             const externalOverride = {
                 name: 'external-override',
                 setup(build) {
@@ -125,7 +181,7 @@ function bundleESMTask(opts) {
                 platform: 'neutral', // makes esm
                 format: 'esm',
                 sourcemap: 'external',
-                plugins: [contentsMapper, externalOverride],
+                plugins: [electronCJSShim, contentsMapper, externalOverride],
                 target: ['es2022'],
                 loader: {
                     '.ttf': 'file',

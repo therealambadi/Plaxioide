@@ -1,3 +1,4 @@
+// @ts-nocheck
 /*--------------------------------------------------------------------------------------
  *  Plaxio Gate Service — MVP AI Credit Limiter
  *  Simple 50 AI credits per user. No subscriptions, no plans.

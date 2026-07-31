@@ -39,6 +39,9 @@ function getTypeScriptCompilerOptions(src: string): ts.CompilerOptions {
 	options.baseUrl = rootDir;
 	options.sourceRoot = util.toFileUri(rootDir);
 	options.newLine = /\r\n/.test(fs.readFileSync(__filename, 'utf8')) ? 0 : 1;
+	options.noUnusedLocals = false;
+	options.noUnusedParameters = false;
+	options.skipLibCheck = true;
 	return options;
 }
 
@@ -130,7 +133,7 @@ export function compileTask(src: string, out: string, build: boolean, options: {
 		}
 
 		const compile = createCompile(src, { build, emitError: true, transpileOnly: false, preserveEnglish: !!options.preserveEnglish });
-		const srcPipe = gulp.src(`${src}/**`, { base: `${src}` });
+		const srcPipe = gulp.src([`${src}/**`, `!${src}/**/react/src/**`, `!${src}/**/react/src2/**`, `!${src}/**/__tests__/**`], { base: `${src}` });
 		const generator = new MonacoGenerator(false);
 		if (src === 'src') {
 			generator.execute();

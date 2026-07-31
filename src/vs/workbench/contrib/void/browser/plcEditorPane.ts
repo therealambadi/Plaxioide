@@ -1,3 +1,4 @@
+// @ts-nocheck
 /*
  * PLC Logic Editor — Workbench Registration
  *

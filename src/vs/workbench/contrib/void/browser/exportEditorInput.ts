@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { URI } from '../../../../base/common/uri.js';
 

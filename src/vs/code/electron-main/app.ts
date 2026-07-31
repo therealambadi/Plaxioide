@@ -543,7 +543,7 @@ export class CodeApplication extends Disposable {
 	}
 
 	private _killPortOccupant(): void {
-		const { execSync } = require('child_process') as typeof import('child_process');
+		const execSync = nodeExecSync;
 		try {
 			if (process.platform === 'win32') {
 				const output = execSync('netstat -ano | findstr :1881 | findstr LISTENING', { encoding: 'utf-8' });
@@ -558,12 +558,9 @@ export class CodeApplication extends Disposable {
 	}
 
 	private startFuxaServer(): void {
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const path = require('path') as typeof import('path');
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const { spawn } = require('child_process') as typeof import('child_process');
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const fs = require('fs') as typeof import('fs');
+		const path = nodePath;
+		const spawn = nodeSpawn;
+		const fs = nodeFs;
 		const fuxaServerPath = path.join(this.environmentMainService.appRoot, 'vendor', 'fuxa-server');
 		const fuxaMain = path.join(fuxaServerPath, 'main.js');
 		const userDir = path.join(this.environmentMainService.userDataPath, 'fuxa-data');

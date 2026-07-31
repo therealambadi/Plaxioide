@@ -29,9 +29,10 @@ function getNpmProductionDependencies(folder: string): string[] {
 			}
 		}
 
-		raw = err.stdout;
+		raw = err.stdout || '';
 	}
 
+	if (!raw) { return []; }
 	return raw.split(/\r?\n/).filter(line => {
 		return !!line.trim() && path.relative(root, line) !== path.relative(root, folder);
 	});

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';

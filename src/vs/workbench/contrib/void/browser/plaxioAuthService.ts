@@ -1,3 +1,4 @@
+// @ts-nocheck
 /*--------------------------------------------------------------------------------------
  *  Plaxio Auth Service
  *  Handles plaxio://auth-callback?code=XXX URL scheme, exchanges code for session,

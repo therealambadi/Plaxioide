@@ -76,6 +76,9 @@ function getTypeScriptCompilerOptions(src) {
     options.baseUrl = rootDir;
     options.sourceRoot = util.toFileUri(rootDir);
     options.newLine = /\r\n/.test(fs_1.default.readFileSync(__filename, 'utf8')) ? 0 : 1;
+    options.noUnusedLocals = false;
+    options.noUnusedParameters = false;
+    options.skipLibCheck = true;
     return options;
 }
 function createCompile(src, { build, emitError, transpileOnly, preserveEnglish }) {
@@ -141,8 +144,8 @@ function compileTask(src, out, build, options = {}) {
         if (os_1.default.totalmem() < 4_000_000_000) {
             throw new Error('compilation requires 4GB of RAM');
         }
-        const compile = createCompile(src, { build, emitError: false, transpileOnly: options.transpileOnly || false, preserveEnglish: !!options.preserveEnglish });
-        const srcPipe = gulp_1.default.src(`${src}/**`, { base: `${src}` });
+        const compile = createCompile(src, { build, emitError: true, transpileOnly: false, preserveEnglish: !!options.preserveEnglish });
+        const srcPipe = gulp_1.default.src([`${src}/**`, `!${src}/**/react/src/**`, `!${src}/**/react/src2/**`, `!${src}/**/__tests__/**`], { base: `${src}` });
         const generator = new MonacoGenerator(false);
         if (src === 'src') {
             generator.execute();

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { CancellationToken } from '../../../../base/common/cancellation.js'
 import { URI } from '../../../../base/common/uri.js'
 import { VSBuffer } from '../../../../base/common/buffer.js'

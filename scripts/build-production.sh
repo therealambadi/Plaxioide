@@ -18,6 +18,16 @@ set -e
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# Electron 34.3.2 embeds Node 20.x — the build MUST use Node 20 to produce compatible bundles
+REQUIRED_NODE_MAJOR=20
+ACTUAL_NODE_MAJOR=$(node -e "console.log(process.version.split('.')[0].slice(1))")
+if [ "$ACTUAL_NODE_MAJOR" != "$REQUIRED_NODE_MAJOR" ]; then
+  echo "ERROR: This build requires Node ${REQUIRED_NODE_MAJOR}.x (Electron 34 embeds Node 20.18.3)."
+  echo "       You are running Node $(node --version)."
+  echo "       Run 'nvm use' or 'export PATH=\"/opt/homebrew/opt/node@20/bin:\$PATH\"' first."
+  exit 1
+fi
+
 PLATFORM="${1:-$(uname -s | tr '[:upper:]' '[:lower:]')}"
 ARCH="${2:-$(uname -m)}"
 

@@ -208,7 +208,7 @@ export class SidebarPart extends AbstractPaneCompositePart {
 			// Re-layout composite with reduced height
 			const composite = this.getActivePaneComposite();
 			if (composite) {
-				try { composite.layout({ width, height: topH }); } catch { /* ignore */ }
+				try { composite.layout?.({ width, height: topH }); } catch { /* ignore */ }
 			}
 
 			if (this._plcSash) {

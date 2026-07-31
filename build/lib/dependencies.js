@@ -34,16 +34,18 @@ function getNpmProductionDependencies(folder) {
                 throw err;
             }
         }
-        raw = err.stdout;
+        raw = err.stdout || '';
     }
+    if (!raw) { return []; }
     return raw.split(/\r?\n/).filter(line => {
         return !!line.trim() && path_1.default.relative(root, line) !== path_1.default.relative(root, folder);
     });
 }
 function getProductionDependencies(folderPath) {
-    const result = getNpmProductionDependencies(folderPath);
+    const absoluteFolderPath = path_1.default.isAbsolute(folderPath) ? folderPath : path_1.default.join(root, folderPath);
+    const result = getNpmProductionDependencies(absoluteFolderPath);
     // Account for distro npm dependencies
-    const realFolderPath = fs_1.default.realpathSync(folderPath);
+    const realFolderPath = fs_1.default.realpathSync(absoluteFolderPath);
     const relativeFolderPath = path_1.default.relative(root, realFolderPath);
     const distroFolderPath = `${root}/.build/distro/npm/${relativeFolderPath}`;
     if (fs_1.default.existsSync(distroFolderPath)) {

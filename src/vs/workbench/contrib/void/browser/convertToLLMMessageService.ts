@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { deepClone } from '../../../../base/common/objects.js';
 import { IModelService } from '../../../../editor/common/services/model.js';

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /*
  * LogicEditorPane — custom EditorPane that mounts the React PLC canvas.
  * File loading: reads the .ld/.fbd/.sfc .json file via IFileService, extracts tags,

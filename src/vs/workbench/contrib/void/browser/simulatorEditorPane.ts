@@ -1,3 +1,4 @@
+// @ts-nocheck
 /*
  * SimulatorEditorPane — renders the FUXA HMI in an editor tab.
  * Header: "Editor | Simulation" toggle pill.

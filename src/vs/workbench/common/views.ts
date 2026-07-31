@@ -110,6 +110,8 @@ export interface IViewContainerDescriptor {
 	 */
 	readonly hideIfEmpty?: boolean;
 
+	readonly hideByDefault?: boolean;
+
 	/**
 	 * Id of the extension that contributed the view container
 	 */
