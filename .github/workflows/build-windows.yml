@@ -56,21 +56,23 @@ jobs:
           python-version: '3.11'
 
       # ── Configure native build env ────────────────────────────────────────
-      # node-gyp (used by @parcel/watcher) needs VS 2022 and Python 3.11 explicitly.
-      # The runner has VS 2022 but node-gyp may not detect it without msvs_version.
-      # Python 3.14 is also present on the runner and would be picked up instead of 3.11.
-      - name: Configure npm for native builds
+      # node-gyp (used by @parcel/watcher) needs VS 2022 and Python 3.11.
+      # npm 10+ no longer accepts `python` or `msvs_version` as npm config keys —
+      # use environment variables GYP_MSVS_VERSION and PYTHON instead.
+      # Python 3.14 is on the runner and would be picked up over 3.11 otherwise.
+      - name: Configure node-gyp environment
         shell: powershell
         run: |
           $py = (Get-Command python).Source
-          Write-Host "Python: $py"
-          npm config set msvs_version 2022
-          npm config set python "$py"
-          # Also ensure VS tools are available
+          Write-Host "Python 3.11: $py"
+          # Set env vars for this job (appended to GITHUB_ENV so subsequent steps inherit them)
+          "PYTHON=$py" | Out-File -Append $env:GITHUB_ENV
+          "GYP_MSVS_VERSION=2022" | Out-File -Append $env:GITHUB_ENV
+          "npm_config_python=$py" | Out-File -Append $env:GITHUB_ENV
+          # Log VS installation for debugging
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           if (Test-Path $vswhere) {
-            $vsPath = & $vswhere -latest -property installationPath 2>$null
-            Write-Host "VS install: $vsPath"
+            & $vswhere -all -property installationVersion,installationPath 2>$null | Write-Host
           }
 
       # ── Install dependencies ──────────────────────────────────────────────
