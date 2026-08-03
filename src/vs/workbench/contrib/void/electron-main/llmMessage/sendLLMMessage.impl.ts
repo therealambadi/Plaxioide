@@ -22,13 +22,49 @@ import { extractReasoningWrapper, extractXMLToolsWrapper } from './extractGramma
 import { availableTools, InternalToolInfo } from '../../common/prompt/prompts.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 
-const getGoogleApiKey = async () => {
-	// module‑level singleton
-	const auth = new GoogleAuth({ scopes: `https://www.googleapis.com/auth/cloud-platform` });
-	const key = await auth.getAccessToken()
-	if (!key) throw new Error(`Google API failed to generate a key.`)
-	return key
-}
+// Singleton GoogleGenAI instance — auth token is cached inside the SDK after first call
+let _plaxioGenAI: GoogleGenAI | null = null;
+const _getPlaxioGenAI = (project: string, location: string): GoogleGenAI => {
+	if (!_plaxioGenAI) {
+		const saKeyPath = new URL('../../../../../plaxio-sa-key.json', import.meta.url).pathname;
+		process.env.GOOGLE_APPLICATION_CREDENTIALS = saKeyPath;
+		_plaxioGenAI = new GoogleGenAI({ vertexai: true, project, location });
+	}
+	return _plaxioGenAI;
+};
+
+// Context cache: maps a hash of the system prompt → {name, expiresAt}
+const _plaxioContextCaches = new Map<string, { name: string; expiresAt: number }>();
+const _plaxioContextCacheModel = 'gemini-2.5-flash-001';
+let _plaxioCacheDisabled = false; // permanently disabled for this session if creation fails/times out
+const _simplehash = (s: string): string => {
+	let h = 0;
+	for (let i = 0; i < s.length; i++) { h = (Math.imul(31, h) + s.charCodeAt(i)) | 0; }
+	return (h >>> 0).toString(16);
+};
+const _getOrCreateContextCache = async (genAI: GoogleGenAI, systemPrompt: string): Promise<string | null> => {
+	if (_plaxioCacheDisabled) return null;
+	const key = _simplehash(systemPrompt);
+	const existing = _plaxioContextCaches.get(key);
+	if (existing && existing.expiresAt > Date.now() + 60_000) {
+		return existing.name;
+	}
+	try {
+		// 5-second timeout — if Vertex cachedContent API is slow, fail fast and use inline
+		const _cachePromise = (genAI as any).caches.create({
+			model: _plaxioContextCacheModel,
+			config: { systemInstruction: systemPrompt, ttl: '3600s', displayName: 'plaxio-plc-system-prompt' },
+		});
+		const _timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
+		const cache: any = await Promise.race([_cachePromise, _timeout]);
+		_plaxioContextCaches.set(key, { name: cache.name, expiresAt: Date.now() + 3_600_000 });
+		return cache.name;
+	} catch (e: any) {
+		_plaxioCacheDisabled = true; // don't retry this session
+		console.warn('[Plaxio] Context cache unavailable, using inline prompt:', e?.message);
+		return null;
+	}
+};
 
 
 
@@ -755,15 +791,9 @@ const sendGeminiChat = async ({
 		potentialTools
 		: undefined
 
-	// Use the configured Vertex API key. The previous configuration only tried
-	// Application Default Credentials, so API-key users could wait indefinitely.
+	// Use cached Vertex AI singleton — avoids fresh token fetch on every request.
 	const vertexConfig = settingsOfProvider['googleVertex'];
-	const genAI = new GoogleGenAI({
-		vertexai: true,
-		project: vertexConfig.project,
-		location: vertexConfig.region,
-		apiKey: vertexConfig.apiKey,
-	})
+	const genAI = _getPlaxioGenAI(vertexConfig.project || 'videogen-496506', vertexConfig.region || 'us-central1');
 
 	// manually parse out tool results if XML
 	if (!specialToolFormat) {
@@ -782,15 +812,34 @@ const sendGeminiChat = async ({
 	const allGeminiParts: any[] = []
 
 	try {
-			const stream = await genAI.models.generateContentStream({
-				model: modelName,
-				config: {
-					systemInstruction: separateSystemMessage,
-					tools: toolConfig,
-					maxOutputTokens: 65536,
-				},
-				contents: messages,
-			})
+			// Use context cache for large system prompts (>20KB) to eliminate per-request prefill latency.
+			let _cacheName: string | null = null;
+			const _useCache = separateSystemMessage && separateSystemMessage.length > 20_000;
+			if (_useCache) {
+				_cacheName = await _getOrCreateContextCache(genAI, separateSystemMessage);
+			}
+
+			let stream: any;
+			let _retryDelay = 10000; // start at 10s for Vertex 429s
+			for (let _attempt = 0; _attempt < 4; _attempt++) {
+				try {
+					const _config = _cacheName
+						? { cachedContent: _cacheName, tools: toolConfig, maxOutputTokens: 8192 }
+						: { systemInstruction: separateSystemMessage, tools: toolConfig, maxOutputTokens: 8192 };
+					stream = await genAI.models.generateContentStream({
+						model: _cacheName ? _plaxioContextCacheModel : modelName,
+						config: _config,
+						contents: messages,
+					});
+					break;
+				} catch (_err: any) {
+					if (_err?.status === 429 && _attempt < 3) {
+						console.warn(`[Plaxio] Rate limited, retrying in ${_retryDelay/1000}s (attempt ${_attempt+1}/4)`);
+						await new Promise(r => setTimeout(r, _retryDelay));
+						_retryDelay = Math.min(_retryDelay * 2, 60000);
+					} else { throw _err; }
+				}
+			}
 			_setAborter(() => { stream.return(fullTextSoFar) })
 			for await (const chunk of stream) {
 				const parts = (chunk as any).candidates?.[0]?.content?.parts
@@ -825,7 +874,9 @@ const sendGeminiChat = async ({
 		} catch (error: any) {
 			const message = error?.message
 			if (typeof message === 'string') {
-				if (error.message?.includes('API key')) {
+				if (error.message?.includes('Could not load the default credentials') || error.message?.includes('Application Default Credentials')) {
+					onError({ message: 'AI is not available. Please sign in to Plaxio to use AI features.', fullError: error })
+				} else if (error.message?.includes('API key')) {
 					onError({ message: invalidApiKeyMessage(providerName), fullError: error })
 				} else if (error?.message?.includes('429')) {
 					onError({ message: 'Rate limit reached. ' + error, fullError: error })
