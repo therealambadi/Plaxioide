@@ -78,14 +78,14 @@ jobs:
           }
 
       # ── Install dependencies ──────────────────────────────────────────────
-      # postinstall.js uses cp.spawnSync(..., {shell: true}) per extension dir.
-      # On Windows this resolves to ComSpec (cmd.exe). The GitHub Actions runner sets
-      # COMSPEC correctly but Git Bash overrides the shell resolution — so we use
-      # PowerShell which preserves the Windows environment and cmd.exe PATH correctly.
+      # postinstall.js spawns npm.cmd per extension with shell:true → resolves to cmd.exe.
+      # cmd.exe can't be found because C:\Windows\System32 is not in the spawned PATH.
+      # Fix: add System32 to PATH, set COMSPEC, then run npm ci from cmd.exe directly.
       - name: Install npm dependencies
-        shell: powershell
+        shell: cmd
         run: |
-          $env:COMSPEC = "C:\Windows\System32\cmd.exe"
+          set "PATH=C:\Windows\System32;C:\Windows;%PATH%"
+          set "COMSPEC=C:\Windows\System32\cmd.exe"
           npm ci
 
       # ── Build React bundle ────────────────────────────────────────────────
