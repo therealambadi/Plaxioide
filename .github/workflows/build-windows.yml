@@ -55,6 +55,24 @@ jobs:
         with:
           python-version: '3.11'
 
+      # ── Configure native build env ────────────────────────────────────────
+      # node-gyp (used by @parcel/watcher) needs VS 2022 and Python 3.11 explicitly.
+      # The runner has VS 2022 but node-gyp may not detect it without msvs_version.
+      # Python 3.14 is also present on the runner and would be picked up instead of 3.11.
+      - name: Configure npm for native builds
+        shell: powershell
+        run: |
+          $py = (Get-Command python).Source
+          Write-Host "Python: $py"
+          npm config set msvs_version 2022
+          npm config set python "$py"
+          # Also ensure VS tools are available
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            $vsPath = & $vswhere -latest -property installationPath 2>$null
+            Write-Host "VS install: $vsPath"
+          }
+
       # ── Install dependencies ──────────────────────────────────────────────
       - name: Install npm dependencies
         run: npm ci
