@@ -18,7 +18,9 @@ on:
 jobs:
   build:
     name: Windows ${{ github.event.inputs.arch || 'x64' }}
-    runs-on: windows-latest
+    # windows-latest now uses Windows Server 2025 with VS 18 (2027) which node-gyp
+    # doesn't support yet. windows-2022 has VS 17 (2022) which node-gyp knows.
+    runs-on: windows-2022
     timeout-minutes: 120
 
     env:
