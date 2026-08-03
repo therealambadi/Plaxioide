@@ -27,26 +27,20 @@ jobs:
 
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────
-      # Sparse checkout: skip Projects/ directory which contains filenames
-      # with colons (e.g. "Logix 5000 Controllers Import:Export.pdf") that
-      # are invalid on Windows and cause git checkout to fail.
-      - name: Checkout repository (sparse)
+      # The repo contains Projects/PLC_Samples/Rockwell/Logix 5000 Controllers Import:Export.pdf
+      # which has a colon — an invalid Windows path character. Git refuses to check it out.
+      # Fix: disable core.protectNTFS so git skips the path validation, then the OS
+      # simply won't create that file (Windows silently drops it) and the rest checks out fine.
+      - name: Configure git for Windows paths
+        shell: cmd
+        run: |
+          git config --global core.protectNTFS false
+          git config --global core.longpaths true
+
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          sparse-checkout: |
-            src
-            build
-            scripts
-            resources
-            extensions
-            product.json
-            package.json
-            package-lock.json
-            tsconfig.json
-            .eslintrc.json
-            .github
-          sparse-checkout-cone-mode: false
 
       # ── Node.js 20 (matches Electron 34 embedded Node) ───────────────────
       - name: Set up Node.js 20
