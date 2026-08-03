@@ -1,0 +1,233 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Target architecture'
+        required: true
+        default: 'x64'
+        type: choice
+        options:
+          - x64
+          - arm64
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Windows ${{ github.event.inputs.arch || 'x64' }}
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    env:
+      ARCH: ${{ github.event.inputs.arch || 'x64' }}
+      NODE_OPTIONS: --max-old-space-size=8192
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Node.js 20 (matches Electron 34 embedded Node) ───────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ── Python 3.11 (gulp build scripts need Python, avoid 3.14 bug) ─────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # ── Install dependencies ──────────────────────────────────────────────
+      - name: Install npm dependencies
+        run: npm ci
+        shell: bash
+
+      # ── Build React bundle ────────────────────────────────────────────────
+      - name: Build React bundle
+        run: npm run buildreact
+        shell: bash
+
+      # ── Compile TypeScript (with mangling for production) ─────────────────
+      - name: Compile TypeScript
+        run: npx gulp compile-build-with-mangling
+        shell: bash
+
+      # ── Compile built-in extensions ───────────────────────────────────────
+      - name: Compile extensions
+        run: npx gulp compile-extensions-build
+        shell: bash
+
+      # ── Minify/bundle ─────────────────────────────────────────────────────
+      - name: Minify VSCode
+        run: npx gulp minify-vscode
+        shell: bash
+
+      # ── Package for Windows ───────────────────────────────────────────────
+      - name: Package win32-${{ env.ARCH }}
+        run: npx gulp vscode-win32-${{ env.ARCH }}-min-ci
+        shell: bash
+
+      # ── Verify output ─────────────────────────────────────────────────────
+      - name: Verify build output
+        shell: powershell
+        run: |
+          $dest = "..\VSCode-win32-$env:ARCH"
+          if (-not (Test-Path $dest)) {
+            Write-Error "Build output not found at $dest"
+            exit 1
+          }
+          $exe = Get-ChildItem -Path $dest -Filter "*.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "No .exe found in $dest"
+            exit 1
+          }
+          Write-Host "Build output: $dest"
+          Write-Host "Executable:   $($exe.FullName)"
+          Write-Host "Size:         $([math]::Round($exe.Length / 1MB, 1)) MB"
+
+      # ── Read version from product.json ────────────────────────────────────
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(node -e "const p=require('./product.json'); console.log(p.version || require('./package.json').version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      # ── Create Inno Setup installer (.exe) ────────────────────────────────
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          $url = "https://jrsoftware.org/download.php/is.exe"
+          $out = "$env:TEMP\inno-setup.exe"
+          Write-Host "Downloading Inno Setup..."
+          Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+          Write-Host "Installing Inno Setup..."
+          Start-Process -FilePath $out -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
+          # Add to PATH
+          $isPath = "C:\Program Files (x86)\Inno Setup 6"
+          echo "$isPath" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+          Write-Host "Inno Setup installed at $isPath"
+
+      - name: Build installer with Inno Setup
+        shell: powershell
+        run: |
+          $repoDir  = (Get-Location).Path
+          $srcDir   = (Resolve-Path "..\VSCode-win32-$env:ARCH").Path
+          $distDir  = "$repoDir\dist"
+          New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+
+          Write-Host "RepoDir:   $repoDir"
+          Write-Host "SourceDir: $srcDir"
+          Write-Host "OutputDir: $distDir"
+
+          $issFile = "$repoDir\build\win32\code.iss"
+          if (-not (Test-Path $issFile)) {
+            Write-Error "code.iss not found at $issFile"
+            exit 1
+          }
+
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DRepoDir=$repoDir" `
+            "/DSourceDir=$srcDir" `
+            "/DOutputDir=$distDir" `
+            $issFile
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Inno Setup failed with exit code $LASTEXITCODE"
+            exit 1
+          }
+
+          # Rename to standard naming convention: PlaxioSetup.exe -> Plaxio-{version}-{arch}-setup.exe
+          $setup = Get-ChildItem -Path $distDir -Filter "PlaxioSetup*.exe" | Select-Object -First 1
+          if ($setup) {
+            $newName = "Plaxio-${{ steps.version.outputs.version }}-$env:ARCH-setup.exe"
+            Rename-Item -Path $setup.FullName -NewName $newName
+            Write-Host "Installer: $distDir\$newName"
+          } else {
+            # Fallback: rename any .exe produced
+            $setup = Get-ChildItem -Path $distDir -Filter "*.exe" | Select-Object -First 1
+            if ($setup) {
+              $newName = "Plaxio-${{ steps.version.outputs.version }}-$env:ARCH-setup.exe"
+              Rename-Item -Path $setup.FullName -NewName $newName
+              Write-Host "Installer (renamed): $distDir\$newName"
+            } else {
+              Write-Error "No installer .exe found in $distDir"
+              exit 1
+            }
+          }
+
+      # ── Also create a portable ZIP (no installer required) ────────────────
+      - name: Create portable ZIP
+        shell: powershell
+        run: |
+          $srcDir  = (Resolve-Path "..\VSCode-win32-$env:ARCH").Path
+          $distDir = ".\dist"
+          $zipName = "Plaxio-${{ steps.version.outputs.version }}-$env:ARCH-portable.zip"
+          Write-Host "Creating portable ZIP from $srcDir..."
+          Compress-Archive -Path "$srcDir\*" -DestinationPath "$distDir\$zipName" -CompressionLevel Optimal
+          $size = [math]::Round((Get-Item "$distDir\$zipName").Length / 1MB, 1)
+          Write-Host "Created: $distDir\$zipName ($size MB)"
+
+      # ── List artifacts ────────────────────────────────────────────────────
+      - name: List dist artifacts
+        shell: powershell
+        run: |
+          Write-Host "=== dist/ ==="
+          Get-ChildItem -Path ".\dist" | ForEach-Object {
+            $size = [math]::Round($_.Length / 1MB, 1)
+            Write-Host "  $($_.Name) ($size MB)"
+          }
+
+      # ── Upload installer as artifact ──────────────────────────────────────
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Plaxio-${{ steps.version.outputs.version }}-${{ env.ARCH }}-setup
+          path: dist/Plaxio-*-setup.exe
+          retention-days: 30
+          if-no-files-found: error
+
+      # ── Upload portable ZIP as artifact ───────────────────────────────────
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Plaxio-${{ steps.version.outputs.version }}-${{ env.ARCH }}-portable
+          path: dist/Plaxio-*-portable.zip
+          retention-days: 30
+          if-no-files-found: error
+
+      # ── On tag push: create GitHub Release and attach artifacts ──────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Plaxio ${{ steps.version.outputs.version }}
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist/Plaxio-*-setup.exe
+            dist/Plaxio-*-portable.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Diagnostics on failure ────────────────────────────────────────────
+      - name: Show build logs on failure
+        if: failure()
+        shell: powershell
+        run: |
+          Write-Host "=== Node version ==="
+          node --version
+          Write-Host "=== npm version ==="
+          npm --version
+          Write-Host "=== Directory listing ==="
+          Get-ChildItem -Path ".." | Select-Object Name, Length, LastWriteTime
