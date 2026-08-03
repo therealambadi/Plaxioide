@@ -18,7 +18,9 @@ on:
 jobs:
   build:
     name: Windows ${{ github.event.inputs.arch || 'x64' }}
-    runs-on: windows-latest
+    # windows-latest now uses Windows Server 2025 with VS 18 (2027) which node-gyp
+    # doesn't support yet. windows-2022 has VS 17 (2022) which node-gyp knows.
+    runs-on: windows-2022
     timeout-minutes: 120
 
     env:
@@ -27,10 +29,20 @@ jobs:
 
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────
+      # The repo contains Projects/PLC_Samples/Rockwell/Logix 5000 Controllers Import:Export.pdf
+      # which has a colon — an invalid Windows path character. Git refuses to check it out.
+      # Fix: disable core.protectNTFS so git skips the path validation, then the OS
+      # simply won't create that file (Windows silently drops it) and the rest checks out fine.
+      - name: Configure git for Windows paths
+        shell: cmd
+        run: |
+          git config --global core.protectNTFS false
+          git config --global core.longpaths true
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       # ── Node.js 20 (matches Electron 34 embedded Node) ───────────────────
       - name: Set up Node.js 20
@@ -45,10 +57,37 @@ jobs:
         with:
           python-version: '3.11'
 
+      # ── Configure native build env ────────────────────────────────────────
+      # node-gyp (used by @parcel/watcher) needs VS 2022 and Python 3.11.
+      # npm 10+ no longer accepts `python` or `msvs_version` as npm config keys —
+      # use environment variables GYP_MSVS_VERSION and PYTHON instead.
+      # Python 3.14 is on the runner and would be picked up over 3.11 otherwise.
+      - name: Configure node-gyp environment
+        shell: powershell
+        run: |
+          $py = (Get-Command python).Source
+          Write-Host "Python 3.11: $py"
+          # Persist env vars for ALL subsequent steps via GITHUB_ENV.
+          # COMSPEC is critical: postinstall.js calls spawnSync with shell:true which
+          # resolves to process.env.ComSpec. Without it Node can't find cmd.exe.
+          "PYTHON=$py" | Out-File -Append $env:GITHUB_ENV
+          "GYP_MSVS_VERSION=2022" | Out-File -Append $env:GITHUB_ENV
+          "npm_config_python=$py" | Out-File -Append $env:GITHUB_ENV
+          "COMSPEC=C:\Windows\System32\cmd.exe" | Out-File -Append $env:GITHUB_ENV
+          # Also add System32 to PATH so cmd.exe is always resolvable
+          "C:\Windows\System32;C:\Windows" | Out-File -Append $env:GITHUB_PATH
+          # Log VS installation for debugging
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            & $vswhere -all -property installationVersion,installationPath 2>$null | Write-Host
+          }
+
       # ── Install dependencies ──────────────────────────────────────────────
+      # postinstall.js uses cp.spawnSync with shell:true per extension dir.
+      # COMSPEC is set above via GITHUB_ENV so it propagates through npm → node → spawnSync.
       - name: Install npm dependencies
+        shell: powershell
         run: npm ci
-        shell: bash
 
       # ── Build React bundle ────────────────────────────────────────────────
       - name: Build React bundle

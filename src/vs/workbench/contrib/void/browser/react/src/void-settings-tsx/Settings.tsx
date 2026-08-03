@@ -1036,7 +1036,14 @@ const AccountSection = ({ nativeHostService }: { nativeHostService: any }) => {
 	const accessor = useAccessor()
 	const plaxioAuthService = accessor.get('IPlaxioAuthService')
 
+	// Refresh credits whenever this section is rendered (settings page opened)
+	useEffect(() => {
+		const gateService = accessor.get('IPlaxioGateService') as any
+		if (gateService?.fetchCredits) gateService.fetchCredits()
+	}, [])
+
 	if (authState?.isSignedIn) {
+		const isLoading = balance === null
 		const remaining = balance?.remaining ?? 0
 		const total = balance?.total ?? 50
 		const used = balance?.used ?? 0
@@ -1065,15 +1072,21 @@ const AccountSection = ({ nativeHostService }: { nativeHostService: any }) => {
 				<div className='flex flex-col gap-2'>
 					<h4 className='text-base text-void-fg-1'>AI Credits</h4>
 					<div className='flex items-center gap-4 p-3 rounded-md bg-void-bg-2'>
-						<div className='flex flex-col'>
-							<span className='text-void-fg-3 text-xs'>Remaining</span>
-							<span className='text-void-fg-1 text-sm font-medium'>{remaining} / {total}</span>
-						</div>
-						<div className='w-[1px] h-8 bg-void-bg-1' />
-						<div className='flex flex-col'>
-							<span className='text-void-fg-3 text-xs'>Used</span>
-							<span className='text-void-fg-1 text-sm font-medium'>{used} messages</span>
-						</div>
+						{isLoading ? (
+							<span className='text-void-fg-3 text-xs italic'>Loading credits…</span>
+						) : (
+							<>
+								<div className='flex flex-col'>
+									<span className='text-void-fg-3 text-xs'>Remaining</span>
+									<span className='text-void-fg-1 text-sm font-medium'>{remaining} / {total}</span>
+								</div>
+								<div className='w-[1px] h-8 bg-void-bg-1' />
+								<div className='flex flex-col'>
+									<span className='text-void-fg-3 text-xs'>Used</span>
+									<span className='text-void-fg-1 text-sm font-medium'>{used} messages</span>
+								</div>
+							</>
+						)}
 					</div>
 					<div className='w-full h-2 bg-void-bg-1 rounded-full overflow-hidden'>
 						<div

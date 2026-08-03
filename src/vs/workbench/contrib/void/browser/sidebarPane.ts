@@ -30,6 +30,8 @@ import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { mountSidebar } from './react/out/sidebar-tsx/index.js';
 
 import { Codicon } from '../../../../base/common/codicons.js';
+import { URI } from '../../../../base/common/uri.js';
+import { FileAccess } from '../../../../base/common/network.js';
 import { Orientation } from '../../../../base/browser/ui/sash/sash.js';
 import { toDisposable } from '../../../../base/common/lifecycle.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -98,7 +100,7 @@ const container = viewContainerRegistry.registerViewContainer({
 	hideIfEmpty: false,
 	order: 1,
 	rejectAddedViews: true,
-	icon: Codicon.symbolMethod,
+	icon: FileAccess.asBrowserUri('vs/workbench/contrib/void/browser/media/plaxio-icon.png'),
 }, ViewContainerLocation.AuxiliaryBar, { doNotRegisterOpenCommand: true, isDefault: true });
 
 const viewsRegistry = Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry);
@@ -143,7 +145,7 @@ export class SidebarStartContribution implements IWorkbenchContribution {
 				this.layoutService.setPartHidden(true, Parts.SIDEBAR_PART);
 				this.layoutService.setPartHidden(true, Parts.ACTIVITYBAR_PART);
 			} else {
-				this.layoutService.setPartHidden(false, Parts.ACTIVITYBAR_PART);
+				this.layoutService.setPartHidden(true, Parts.ACTIVITYBAR_PART);
 				this.layoutService.setPartHidden(false, Parts.SIDEBAR_PART);
 				this.commandService.executeCommand(VOID_OPEN_SIDEBAR_ACTION_ID);
 

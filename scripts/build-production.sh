@@ -91,7 +91,11 @@ build_target() {
     local app_dir="$dest_dir/Plaxio.app"
     if [ -d "$app_dir" ]; then
       echo "macOS app bundle: $app_dir"
-      # Create ZIP for distribution
+      # Create DMG installer (drag-to-Applications)
+      echo "Creating DMG installer..."
+      "$REPO/scripts/create-dmg.sh" "$app_dir" "$arch"
+
+      # Also create ZIP for CI/alternative distribution
       pushd "$(dirname "$dest_dir")" > /dev/null
       local zip_name="Plaxio-${plat}-${arch}.zip"
       rm -f "$zip_name"

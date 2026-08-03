@@ -324,6 +324,13 @@
 	border-right: 1px solid var(--vscode-sideBar-border, rgba(255,255,255,0.08)) !important;
 }
 
+/* ─── Hide left activity bar (Plaxio uses top-positioned activity bar) ───── */
+.monaco-workbench .part.activitybar {
+	display: none !important;
+	width: 0 !important;
+	min-width: 0 !important;
+}
+
 /* ─── Editor Tabs ──────────────────────────────────────────────────────────── */
 .monaco-workbench .part.editor > .content .editor-group-container > .title .tabs-container .tab {
 	height: 32px !important;

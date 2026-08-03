@@ -133,7 +133,7 @@ viewsRegistry.registerViews([
 		hideByDefault: false,
 		collapsed: true,
 		order: 11,
-		weight: 20,
+		weight: 50,
 	}
 ], VIEW_CONTAINER);
 

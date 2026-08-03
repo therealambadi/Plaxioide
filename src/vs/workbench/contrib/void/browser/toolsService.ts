@@ -161,6 +161,35 @@ export class ToolsService implements IToolsService {
 	) {
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
 
+		// Listen for auto-import persist requests from React sidebar
+		window.addEventListener('message', async (event) => {
+			if (event.data?.type === 'volt:plc-persist-after-import') {
+				const folders = workspaceContextService.getWorkspace().folders
+				if (folders.length === 0) return
+				const s = logicStore.getState()
+				const pouName = s.pous?.[0]?.name || event.data.projectName?.replace(/[^a-zA-Z0-9_]/g, '_') || 'main'
+				const base = folders[0].uri
+				const writeIfNonempty = async (subPath: string, obj: unknown) => {
+					const content = obj ? JSON.stringify(obj) : ''
+					if (!content || content === '{}' || content === 'null' || content === '{"rungs":[]}') return
+					await fileService.writeFile(URI.joinPath(base, subPath), VSBuffer.fromString(content))
+				}
+				await Promise.all([
+					writeIfNonempty(`${pouName}.ld.json`, s.ladderProgram),
+					writeIfNonempty(`${pouName}.fbd.json`, s.fbdProgram),
+					writeIfNonempty(`${pouName}.sfc.json`, s.sfcProgram),
+				])
+				try {
+					const clm = buildCLMFromStore(s.ladderProgram, s.fbdProgram, s.sfcProgram, s.tagDatabase as any)
+					const compiled = clmToST(clm)
+					if (compiled.stCode) {
+						await fileService.writeFile(URI.joinPath(base, `${pouName}.st`), VSBuffer.fromString(compiled.stCode))
+					}
+				} catch {}
+				console.log(`[Plaxio] Auto-persisted imported program files for: ${pouName}`)
+			}
+		})
+
 		this.validateParams = {
 			read_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, start_line: startLineUnknown, end_line: endLineUnknown, page_number: pageNumberUnknown } = params
@@ -594,7 +623,10 @@ export class ToolsService implements IToolsService {
 				const MAX_TOOL_RESULT = 8000
 				let result: string
 				if (json.length > MAX_TOOL_RESULT) {
-					const summary = `Program summary: ${s.ladderProgram.rungs.length} LD rungs, ${s.fbdProgram.nodes.length} FBD nodes, ${s.sfcProgram.steps.length} SFC steps, ${s.tagDatabase.length} tags. Active POU: ${s.activePouId}. Full JSON (${json.length} chars, truncated):\n`
+					const fbdEmpty = s.fbdProgram.nodes.length === 0
+					const sfcEmpty = s.sfcProgram.steps.length === 0
+					const hint = ''
+					const summary = `Program summary: ${s.ladderProgram.rungs.length} LD rungs, ${s.fbdProgram.nodes.length} FBD nodes, ${s.sfcProgram.steps.length} SFC steps, ${s.tagDatabase.length} tags. Active POU: ${s.activePouId}.${hint} Full JSON (${json.length} chars, truncated):\n`
 					result = summary + json.substring(0, MAX_TOOL_RESULT - summary.length)
 				} else {
 					result = json
@@ -740,12 +772,12 @@ export class ToolsService implements IToolsService {
 			plc_export_vendor: async ({ format }) => {
 				const tToolStart = performance.now()
 				const formatMap: Record<string, string> = {
-					PLCopen: 'plcopen_xml', L5X: 'rockwell_l5x', SimaticML: 'siemens_simatic_ml',
+					PLCopen: 'plcopen_xml', L5X: 'rockwell_l5x', SimaticML: 'siemens_simatic_ml', XEF: 'schneider_xef',
 				}
 				const vendorFormat = (formatMap[format] ?? 'plcopen_xml') as any
 				const result = await exportVendorFile({ format: vendorFormat })
 				if (result.ok && result.xmlContent) {
-					const ext = vendorFormat === 'rockwell_l5x' ? 'l5x' : vendorFormat === 'siemens_simatic_ml' ? 'xml' : 'xml'
+					const ext = vendorFormat === 'rockwell_l5x' ? 'l5x' : vendorFormat === 'schneider_xef' ? 'xef' : vendorFormat === 'siemens_simatic_ml' ? 'xml' : 'xml'
 					console.log(`[Plaxio Perf] Tool plc_export_vendor: ${(performance.now() - tToolStart).toFixed(0)}ms`)
 					return { result: { content: result.xmlContent, format, fileName: `program.${ext}` } }
 				} else {
@@ -798,6 +830,30 @@ export class ToolsService implements IToolsService {
 				const result = await importVendorFile(xmlContent, filename, uri?.fsPath ?? filename)
 				console.log(`[Plaxio Perf] Tool import_vendor_file: ${(performance.now() - tToolStart).toFixed(0)}ms`)
 				if (result.ok) {
+					// Auto-persist imported program to workspace files
+					const folders = workspaceContextService.getWorkspace().folders
+					if (folders.length > 0) {
+						const s = logicStore.getState()
+						const pouName = s.pous?.[0]?.name || (result as any).projectName?.replace(/[^a-zA-Z0-9_]/g, '_') || 'main'
+						const base = folders[0].uri
+						const writeIfNonempty = async (subPath: string, obj: unknown) => {
+							const content = obj ? JSON.stringify(obj) : ''
+							if (!content || content === '{}' || content === 'null' || content === '{"rungs":[]}') return
+							await fileService.writeFile(URI.joinPath(base, subPath), VSBuffer.fromString(content))
+						}
+						await Promise.all([
+							writeIfNonempty(`${pouName}.ld.json`, s.ladderProgram),
+							writeIfNonempty(`${pouName}.fbd.json`, s.fbdProgram),
+							writeIfNonempty(`${pouName}.sfc.json`, s.sfcProgram),
+						])
+						try {
+							const clm = buildCLMFromStore(s.ladderProgram, s.fbdProgram, s.sfcProgram, s.tagDatabase as any)
+							const compiled = clmToST(clm)
+							if (compiled.stCode) {
+								await fileService.writeFile(URI.joinPath(base, `${pouName}.st`), VSBuffer.fromString(compiled.stCode))
+							}
+						} catch {}
+					}
 					return {
 						result: {
 							projectName: (result as any).projectName ?? filename,
@@ -805,6 +861,7 @@ export class ToolsService implements IToolsService {
 							tagCount: (result as any).tagCount ?? 0,
 							unmappedCount: (result as any).unmappedCount ?? 0,
 							warnings: (result as any).warnings ?? [],
+							filesSaved: true,
 						}
 					}
 				} else {

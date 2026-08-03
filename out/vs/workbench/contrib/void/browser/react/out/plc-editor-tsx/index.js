@@ -40124,157 +40124,9 @@ var init_logicStore = __esm({
   "src2/plc-editor-tsx/logicStore.ts"() {
     init_immer();
     import_react2 = __toESM(require_react(), 1);
-    createInitialLadder = () => ({
-      rungs: [
-        {
-          id: "rung-1",
-          number: 1,
-          comment: "Motor start/stop circuit",
-          elements: [
-            { kind: "contact", id: "el-1", type: "NO", tag: { name: "PB_START", dataType: "BOOL" }, position: { x: 0, y: 0 } },
-            { kind: "contact", id: "el-2", type: "NC", tag: { name: "PB_STOP", dataType: "BOOL" }, position: { x: 60, y: 0 } },
-            { kind: "contact", id: "el-3", type: "NC", tag: { name: "OVERLOAD", dataType: "BOOL" }, position: { x: 120, y: 0 } },
-            { kind: "coil", id: "el-4", type: "normal", tag: { name: "MOTOR_RUN", dataType: "BOOL" }, position: { x: 180, y: 0 } }
-          ],
-          branches: [
-            {
-              id: "branch-1",
-              startNodeId: "el-1",
-              endNodeId: "el-2",
-              elements: [
-                { kind: "contact", id: "el-5", type: "NO", tag: { name: "MOTOR_RUN", dataType: "BOOL" }, position: { x: 0, y: 0 } }
-              ]
-            }
-          ]
-        },
-        {
-          id: "rung-2",
-          number: 2,
-          comment: "Motor run timer",
-          elements: [
-            { kind: "contact", id: "el-6", type: "NO", tag: { name: "MOTOR_RUN", dataType: "BOOL" }, position: { x: 0, y: 0 } },
-            { kind: "block", id: "el-7", fbType: "TON", instanceName: "RUN_TMR", pins: { IN: { name: "MOTOR_RUN", dataType: "BOOL" }, PT: { name: "T#10s", dataType: "TIME" } }, position: { x: 60, y: 0 } },
-            { kind: "coil", id: "el-8", type: "set", tag: { name: "RUN_TIMEOUT", dataType: "BOOL" }, position: { x: 180, y: 0 } }
-          ],
-          branches: []
-        },
-        {
-          id: "rung-3",
-          number: 3,
-          comment: "Fault reset",
-          elements: [
-            { kind: "contact", id: "el-9", type: "NO", tag: { name: "FAULT_RESET", dataType: "BOOL" }, position: { x: 0, y: 0 } },
-            { kind: "coil", id: "el-10", type: "reset", tag: { name: "RUN_TIMEOUT", dataType: "BOOL" }, position: { x: 60, y: 0 } }
-          ],
-          branches: []
-        }
-      ]
-    });
-    createInitialFBD = () => ({
-      nodes: [
-        {
-          id: "fbd-input-1",
-          type: "IN_VARIABLE",
-          position: { x: 60, y: 80 },
-          inputs: [],
-          outputs: [{ id: "out-output-variable-0", name: "output-variable", dataType: "BOOL" }],
-          tag: { name: "PB_START", dataType: "BOOL" }
-        },
-        {
-          id: "fbd-input-2",
-          type: "IN_VARIABLE",
-          position: { x: 60, y: 180 },
-          inputs: [],
-          outputs: [{ id: "out-output-variable-0", name: "output-variable", dataType: "BOOL" }],
-          tag: { name: "PB_STOP", dataType: "BOOL" }
-        },
-        {
-          id: "fbd-and-1",
-          type: "AND",
-          position: { x: 280, y: 100 },
-          instanceName: "and1",
-          inputs: [{ id: "in-IN1-0", name: "IN1", dataType: "BOOL" }, { id: "in-IN2-1", name: "IN2", dataType: "BOOL" }],
-          outputs: [{ id: "out-OUT-0", name: "OUT", dataType: "BOOL" }]
-        },
-        {
-          id: "fbd-ton-1",
-          type: "TON",
-          position: { x: 500, y: 90 },
-          instanceName: "RUN_TMR",
-          inputs: [{ id: "in-IN-0", name: "IN", dataType: "BOOL" }, { id: "in-PT-1", name: "PT", dataType: "TIME" }],
-          outputs: [{ id: "out-Q-0", name: "Q", dataType: "BOOL" }, { id: "out-ET-1", name: "ET", dataType: "TIME" }]
-        },
-        {
-          id: "fbd-output-1",
-          type: "OUT_VARIABLE",
-          position: { x: 720, y: 110 },
-          inputs: [{ id: "in-input-variable-0", name: "input-variable", dataType: "BOOL" }],
-          outputs: [],
-          tag: { name: "MOTOR_RUN", dataType: "BOOL" }
-        }
-      ],
-      wires: [
-        { id: "fbd-w1", from: { nodeId: "fbd-input-1", pin: "output-variable" }, to: { nodeId: "fbd-and-1", pin: "IN1" } },
-        { id: "fbd-w2", from: { nodeId: "fbd-input-2", pin: "output-variable" }, to: { nodeId: "fbd-and-1", pin: "IN2" } },
-        { id: "fbd-w3", from: { nodeId: "fbd-and-1", pin: "OUT" }, to: { nodeId: "fbd-ton-1", pin: "IN" } },
-        { id: "fbd-w4", from: { nodeId: "fbd-ton-1", pin: "Q" }, to: { nodeId: "fbd-output-1", pin: "input-variable" } }
-      ]
-    });
-    createInitialSFC = () => ({
-      steps: [
-        {
-          id: "step-initial",
-          name: "Init",
-          isInitial: true,
-          actions: [{ id: "a1", qualifier: "N", tag: { name: "RESET_ALL", dataType: "BOOL" } }],
-          position: { x: 100, y: 60 }
-        },
-        {
-          id: "step-run",
-          name: "Running",
-          isInitial: false,
-          actions: [
-            { id: "a2", qualifier: "N", tag: { name: "MOTOR_ON", dataType: "BOOL" } },
-            { id: "a3", qualifier: "D", tag: { name: "START_TMR", dataType: "BOOL" }, duration: "T#5s" }
-          ],
-          position: { x: 100, y: 260 }
-        },
-        {
-          id: "step-stop",
-          name: "Stopped",
-          isInitial: false,
-          actions: [{ id: "a4", qualifier: "N", tag: { name: "MOTOR_OFF", dataType: "BOOL" } }],
-          position: { x: 100, y: 480 }
-        }
-      ],
-      transitions: [
-        {
-          id: "trans-0",
-          condition: "PB_START",
-          position: { x: 100, y: 180 }
-        },
-        {
-          id: "trans-1",
-          condition: "PB_STOP OR TIMEOUT",
-          position: { x: 100, y: 400 }
-        },
-        {
-          id: "trans-2",
-          condition: "TRUE",
-          position: { x: 100, y: 620 }
-        }
-      ],
-      links: [
-        { id: "link-0", from: "step-initial", to: "trans-0", type: "simple" },
-        { id: "link-1", from: "trans-0", to: "step-run", type: "simple" },
-        { id: "link-2", from: "step-run", to: "trans-1", type: "simple" },
-        { id: "link-3", from: "trans-1", to: "step-stop", type: "simple" },
-        { id: "link-4", from: "step-stop", to: "trans-2", type: "simple" },
-        { id: "link-5", from: "trans-2", to: "step-initial", type: "simple" }
-      ],
-      branches: [],
-      jumps: []
-    });
+    createInitialLadder = () => ({ rungs: [] });
+    createInitialFBD = () => ({ nodes: [], wires: [] });
+    createInitialSFC = () => ({ steps: [], transitions: [], links: [], branches: [], jumps: [] });
     _initialLadder = createInitialLadder();
     _initialFBD = createInitialFBD();
     _initialSFC = createInitialSFC();
@@ -40286,14 +40138,7 @@ var init_logicStore = __esm({
       selectedElementIds: /* @__PURE__ */ new Set(),
       selectedRungId: null,
       clipboard: {},
-      tagDatabase: [
-        { name: "PB_START", address: "%I0.0", dataType: "BOOL", description: "Start pushbutton" },
-        { name: "PB_STOP", address: "%I0.1", dataType: "BOOL", description: "Stop pushbutton" },
-        { name: "OVERLOAD", address: "%I0.2", dataType: "BOOL", description: "Motor overload relay" },
-        { name: "MOTOR_RUN", address: "%Q0.0", dataType: "BOOL", description: "Motor contactor output" },
-        { name: "FAULT_RESET", address: "%I0.3", dataType: "BOOL", description: "Fault reset button" },
-        { name: "RUN_TIMEOUT", address: "%M0.0", dataType: "BOOL", description: "Motor run timeout flag" }
-      ],
+      tagDatabase: [],
       crossRefIndex: /* @__PURE__ */ new Map(),
       monitorMode: "stopped",
       scanRate: 10,
@@ -40920,9 +40765,138 @@ var init_logicStore = __esm({
       }
       loadFBDProgram(program) {
         this.setState((d2) => {
-          d2.fbdProgram = program;
+          d2.fbdProgram = this._normalizeFBD(program);
           this._rebuildCrossRef(d2);
         });
+      }
+      _normalizeFBD(raw) {
+        if (!raw || typeof raw !== "object") return { nodes: [], wires: [] };
+        const nodes = raw.nodes ?? [];
+        const rawWires = raw.wires ?? [];
+        const normalizedNodes = nodes.map((n2) => {
+          const t3 = (n2.type ?? "").toUpperCase();
+          const isVar = t3 === "IN_VARIABLE" || t3 === "OUT_VARIABLE" || t3 === "INOUT_VARIABLE";
+          const node2 = {
+            id: n2.id,
+            type: t3,
+            position: n2.position ?? { x: 0, y: 0 },
+            instanceName: n2.instanceName,
+            inputs: [],
+            outputs: []
+          };
+          if (isVar) {
+            node2.tag = n2.tag ?? n2.output?.tag ?? n2.input?.tag ?? { name: n2.id, dataType: "BOOL" };
+            if (t3 === "IN_VARIABLE") {
+              node2.outputs = [{ id: "out-output-variable-0", name: "output-variable", dataType: "BOOL" }];
+            } else if (t3 === "OUT_VARIABLE") {
+              node2.inputs = [{ id: "in-input-variable-0", name: "input-variable", dataType: "BOOL" }];
+            } else {
+              node2.inputs = [{ id: "in-input-variable-0", name: "input-variable", dataType: "BOOL" }];
+              node2.outputs = [{ id: "out-output-variable-0", name: "output-variable", dataType: "BOOL" }];
+            }
+            return node2;
+          }
+          if (n2.inputs && Array.isArray(n2.inputs) && n2.inputs.length > 0) {
+            node2.inputs = n2.inputs.map((p3, i3) => ({
+              id: p3.id ?? `in-${p3.name ?? i3}-${i3}`,
+              name: p3.name ?? String(i3),
+              dataType: p3.dataType ?? "BOOL"
+            }));
+          } else if (n2.params) {
+            node2.inputs = Object.keys(n2.params).map((k2, i3) => ({ id: `in-${k2}-${i3}`, name: k2, dataType: "BOOL" }));
+          } else {
+            node2.inputs = this._defaultFBDInputs(t3);
+          }
+          if (n2.outputs && Array.isArray(n2.outputs) && n2.outputs.length > 0) {
+            node2.outputs = n2.outputs.map((p3, i3) => ({
+              id: p3.id ?? `out-${p3.name ?? i3}-${i3}`,
+              name: p3.name ?? String(i3),
+              dataType: p3.dataType ?? "BOOL"
+            }));
+          } else {
+            node2.outputs = this._defaultFBDOutputs(t3);
+          }
+          if (n2.output?.tag) node2.tag = n2.output.tag;
+          if (n2.tag) node2.tag = n2.tag;
+          return node2;
+        });
+        const normalizedWires = rawWires.map((w2) => {
+          const from = w2.from ?? w2.source ?? {};
+          const to = w2.to ?? w2.target ?? {};
+          return {
+            id: w2.id ?? `w-${Math.random().toString(36).slice(2)}`,
+            from: { nodeId: from.nodeId ?? from.node ?? from.id ?? "", pin: from.pin ?? from.handle ?? "" },
+            to: { nodeId: to.nodeId ?? to.node ?? to.id ?? "", pin: to.pin ?? to.handle ?? "" }
+          };
+        });
+        const pinAliases = {
+          SR: { Q: "Q1" },
+          RS: { Q: "Q1" }
+        };
+        const nodeTypeMap = new Map(normalizedNodes.map((n2) => [n2.id, n2.type]));
+        const fixedWires = normalizedWires.map((w2) => {
+          const srcType = nodeTypeMap.get(w2.from.nodeId);
+          const tgtType = nodeTypeMap.get(w2.to.nodeId);
+          const srcAliases = srcType ? pinAliases[srcType] ?? {} : {};
+          const tgtAliases = tgtType ? pinAliases[tgtType] ?? {} : {};
+          return {
+            ...w2,
+            from: { ...w2.from, pin: srcAliases[w2.from.pin] ?? w2.from.pin },
+            to: { ...w2.to, pin: tgtAliases[w2.to.pin] ?? w2.to.pin }
+          };
+        });
+        return { nodes: normalizedNodes, wires: fixedWires };
+      }
+      _defaultFBDInputs(type) {
+        switch (type) {
+          case "NOT":
+            return [{ id: "IN", name: "IN" }];
+          case "AND":
+          case "OR":
+          case "XOR":
+            return [{ id: "IN1", name: "IN1" }, { id: "IN2", name: "IN2" }];
+          case "TON":
+          case "TOF":
+          case "TP":
+            return [{ id: "IN", name: "IN" }, { id: "PT", name: "PT" }];
+          case "CTU":
+            return [{ id: "CU", name: "CU" }, { id: "R", name: "R" }, { id: "PV", name: "PV" }];
+          case "CTD":
+            return [{ id: "CD", name: "CD" }, { id: "LD", name: "LD" }, { id: "PV", name: "PV" }];
+          case "SR":
+            return [{ id: "S1", name: "S1" }, { id: "R", name: "R" }];
+          case "RS":
+            return [{ id: "S", name: "S" }, { id: "R1", name: "R1" }];
+          case "ADD":
+          case "SUB":
+          case "MUL":
+          case "DIV":
+          case "GT":
+          case "LT":
+          case "GE":
+          case "LE":
+          case "EQ":
+          case "NE":
+            return [{ id: "IN1", name: "IN1" }, { id: "IN2", name: "IN2" }];
+          default:
+            return [{ id: "IN", name: "IN" }];
+        }
+      }
+      _defaultFBDOutputs(type) {
+        switch (type) {
+          case "TON":
+          case "TOF":
+          case "TP":
+            return [{ id: "Q", name: "Q" }, { id: "ET", name: "ET" }];
+          case "CTU":
+          case "CTD":
+            return [{ id: "Q", name: "Q" }, { id: "CV", name: "CV" }];
+          case "SR":
+          case "RS":
+            return [{ id: "Q1", name: "Q1" }];
+          default:
+            return [{ id: "OUT", name: "OUT" }];
+        }
       }
       loadSFCProgram(program) {
         this.setState((d2) => {
@@ -40996,7 +40970,7 @@ var init_logicStore = __esm({
           if (!index3.has(tagName)) index3.set(tagName, []);
           index3.get(tagName).push({ rungId, elementId, language });
         };
-        for (const rung of d2.ladderProgram.rungs) {
+        for (const rung of d2.ladderProgram?.rungs ?? []) {
           for (const el of rung.elements) {
             if (el.kind === "contact" || el.kind === "coil") {
               addRef(el.tag.name, rung.id, el.id, "LD");
@@ -41014,7 +40988,7 @@ var init_logicStore = __esm({
             }
           }
         }
-        for (const node2 of d2.fbdProgram.nodes) {
+        for (const node2 of d2.fbdProgram?.nodes ?? []) {
           if (node2.tag) addRef(node2.tag.name, void 0, node2.id, "FBD");
         }
         d2.crossRefIndex = index3;
@@ -41644,6 +41618,8 @@ var _registerServices = (accessor) => {
       plaxioBalanceListeners.forEach((l3) => l3(b2));
     })
   );
+  plaxioGateService.fetchCredits().catch(() => {
+  });
   return disposables;
 };
 var getReactAccessor = (accessor) => {
@@ -76307,8 +76283,8 @@ function storeNodeToFlow(node2) {
     };
   }
   const defAdapted = {
-    inputs: node2.inputs.map((p3) => ({ name: p3.name, type: p3.dataType })),
-    outputs: node2.outputs.map((p3) => ({ name: p3.name, type: p3.dataType }))
+    inputs: (node2.inputs ?? []).map((p3) => ({ name: p3.name, type: p3.dataType })),
+    outputs: (node2.outputs ?? []).map((p3) => ({ name: p3.name, type: p3.dataType }))
   };
   const w2 = computeBlockW(defAdapted.inputs, defAdapted.outputs, type);
   const h3 = computeBlockH(defAdapted.inputs, defAdapted.outputs);
@@ -76323,8 +76299,8 @@ function storeNodeToFlow(node2) {
       blockType: type,
       instanceName: node2.instanceName ?? "",
       nodeId: node2.id,
-      inputs: node2.inputs.map((p3) => ({ id: p3.id, name: p3.name, negated: p3.negated })),
-      outputs: node2.outputs.map((p3) => ({ id: p3.id, name: p3.name, negated: p3.negated })),
+      inputs: (node2.inputs ?? []).map((p3) => ({ id: p3.id, name: p3.name, negated: p3.negated })),
+      outputs: (node2.outputs ?? []).map((p3) => ({ id: p3.id, name: p3.name, negated: p3.negated })),
       w: w2,
       h: h3,
       _monitorMode: blockState.monitorMode,
@@ -76333,7 +76309,7 @@ function storeNodeToFlow(node2) {
   };
 }
 function storeWiresToFlow(wires, nodes) {
-  return wires.map((w2) => {
+  return (wires ?? []).filter((w2) => w2?.from?.nodeId && w2?.to?.nodeId).map((w2) => {
     const srcNode = nodes.find((n2) => n2.id === w2.from.nodeId);
     const tgtNode = nodes.find((n2) => n2.id === w2.to.nodeId);
     let label;
@@ -76567,10 +76543,10 @@ var FBDCanvas = () => {
   const monitorMode = useLogicStoreSelector((s3) => s3.monitorMode);
   const tagDatabase = useLogicStoreSelector((s3) => s3.tagDatabase);
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    () => fbdProgram.nodes.map(storeNodeToFlow)
+    () => (fbdProgram?.nodes ?? []).map(storeNodeToFlow)
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    () => storeWiresToFlow(fbdProgram.wires, fbdProgram.nodes)
+    () => storeWiresToFlow(fbdProgram?.wires ?? [], fbdProgram?.nodes ?? [])
   );
   const [forceMenu, setForceMenu] = (0, import_react14.useState)(null);
   const [blockConfigId, setBlockConfigId] = (0, import_react14.useState)(null);
@@ -80742,9 +80718,16 @@ var LogicTab = ({ lockedLanguage, loadProgram, onSwitchToCode }) => {
     if (!loadProgram) return;
     const { language, program, tags, fileName } = loadProgram;
     logicStore.setActiveLanguage(language);
-    if (language === "LD") logicStore.loadLadderProgram(program);
-    else if (language === "FBD") logicStore.loadFBDProgram(program);
-    else if (language === "SFC") logicStore.loadSFCProgram(program);
+    if (language === "LD") {
+      const ld = program.ladderProgram ?? program;
+      logicStore.loadLadderProgram(ld);
+    } else if (language === "FBD") {
+      const fbd = program.fbdProgram ?? program;
+      logicStore.loadFBDProgram(fbd);
+    } else if (language === "SFC") {
+      const sfc = program.sfcProgram ?? program;
+      logicStore.loadSFCProgram(sfc);
+    }
     if (tags.length > 0) {
       logicStore.setTagDatabase(tags);
       logicStore.addAllTagsToWatchList();

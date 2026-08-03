@@ -737,7 +737,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VOID_GOTO_PREV_URI_ACTION_ID,
 			f1: true,
-			title: localize2('voidGoToPrevUriAction', 'Void: Go to Previous File with Diffs'),
+			title: localize2('voidGoToPrevUriAction', 'Plaxio: Go to Previous File with Diffs'),
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.LeftArrow,
 				mac: { primary: KeyMod.WinCtrl | KeyMod.Alt | KeyCode.LeftArrow },
@@ -764,7 +764,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VOID_ACCEPT_FILE_ACTION_ID,
 			f1: true,
-			title: localize2('voidAcceptFileAction', 'Void: Accept All Diffs in Current File'),
+			title: localize2('voidAcceptFileAction', 'Plaxio: Accept All Diffs in Current File'),
 			keybinding: {
 				primary: KeyMod.Alt | KeyMod.Shift | KeyCode.Enter,
 				weight: KeybindingWeight.VoidExtension,
@@ -795,7 +795,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VOID_REJECT_FILE_ACTION_ID,
 			f1: true,
-			title: localize2('voidRejectFileAction', 'Void: Reject All Diffs in Current File'),
+			title: localize2('voidRejectFileAction', 'Plaxio: Reject All Diffs in Current File'),
 			keybinding: {
 				primary: KeyMod.Alt | KeyMod.Shift | KeyCode.Backspace,
 				weight: KeybindingWeight.VoidExtension,
@@ -826,7 +826,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VOID_ACCEPT_ALL_DIFFS_ACTION_ID,
 			f1: true,
-			title: localize2('voidAcceptAllDiffsAction', 'Void: Accept All Diffs in All Files'),
+			title: localize2('voidAcceptAllDiffsAction', 'Plaxio: Accept All Diffs in All Files'),
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Enter,
 				weight: KeybindingWeight.VoidExtension,
@@ -851,7 +851,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: VOID_REJECT_ALL_DIFFS_ACTION_ID,
 			f1: true,
-			title: localize2('voidRejectAllDiffsAction', 'Void: Reject All Diffs in All Files'),
+			title: localize2('voidRejectAllDiffsAction', 'Plaxio: Reject All Diffs in All Files'),
 			keybinding: {
 				primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Backspace,
 				weight: KeybindingWeight.VoidExtension,

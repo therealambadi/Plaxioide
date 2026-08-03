@@ -60,6 +60,95 @@ const SubTabButton: React.FC<{
   </div>
 );
 
+// ── Normalize FBD from AI output format to renderer format ───────────────────
+function normalizeFBD(raw: any): any {
+  if (!raw || typeof raw !== 'object') return { nodes: [], wires: [] };
+  const nodes = raw.nodes ?? [];
+  const wires = raw.wires ?? [];
+  // If nodes already have inputs/outputs arrays, assume correct format
+  if (nodes.length === 0 || (nodes[0]?.inputs && Array.isArray(nodes[0].inputs))) {
+    return { nodes, wires };
+  }
+  // AI sometimes generates a non-standard format — normalize each node
+  const normalizedNodes = nodes.map((n: any) => {
+    if (n.inputs && Array.isArray(n.inputs)) return n; // already correct
+    const node: any = {
+      id: n.id,
+      type: normalizeNodeType(n.type),
+      position: n.position ?? { x: 0, y: 0 },
+      instanceName: n.instanceName,
+      inputs: [],
+      outputs: [],
+    };
+    // Handle tag for variable nodes
+    if (node.type === 'IN_VARIABLE' || node.type === 'OUT_VARIABLE') {
+      node.tag = n.tag ?? n.output?.tag ?? n.input?.tag ?? { name: n.id };
+      if (node.type === 'IN_VARIABLE') {
+        node.outputs = [{ id: 'OUT', name: 'OUT' }];
+      } else {
+        node.inputs = [{ id: 'IN', name: 'IN' }];
+      }
+      return node;
+    }
+    // For function blocks, build inputs/outputs from params or standard pins
+    if (n.params) {
+      // AI used params object — convert keys to inputs
+      const paramKeys = Object.keys(n.params);
+      node.inputs = paramKeys.map((k: string) => ({ id: k, name: k }));
+      node.outputs = [{ id: 'OUT', name: 'OUT' }];
+    }
+    if (n.input) {
+      node.inputs = [{ id: 'IN', name: 'IN' }];
+    }
+    if (n.output) {
+      node.outputs = [{ id: 'OUT', name: 'OUT' }];
+      if (n.output.tag) node.tag = n.output.tag;
+    }
+    // Fallback: use standard pin definitions based on type
+    if (node.inputs.length === 0) node.inputs = getDefaultInputs(node.type);
+    if (node.outputs.length === 0) node.outputs = getDefaultOutputs(node.type);
+    return node;
+  });
+  return { nodes: normalizedNodes, wires };
+}
+
+function normalizeNodeType(type: string): string {
+  const upper = (type ?? '').toUpperCase();
+  const map: Record<string, string> = {
+    'SR': 'SR', 'RS': 'RS', 'TON': 'TON', 'TOF': 'TOF', 'TP': 'TP',
+    'CTU': 'CTU', 'CTD': 'CTD', 'CTUD': 'CTUD',
+    'AND': 'AND', 'OR': 'OR', 'NOT': 'NOT', 'XOR': 'XOR',
+    'ADD': 'ADD', 'SUB': 'SUB', 'MUL': 'MUL', 'DIV': 'DIV',
+    'GT': 'GT', 'LT': 'LT', 'GE': 'GE', 'LE': 'LE', 'EQ': 'EQ', 'NE': 'NE',
+    'IN_VARIABLE': 'IN_VARIABLE', 'OUT_VARIABLE': 'OUT_VARIABLE', 'LITERAL': 'LITERAL',
+  };
+  return map[upper] ?? upper;
+}
+
+function getDefaultInputs(type: string): Array<{id: string; name: string}> {
+  switch (type) {
+    case 'NOT': return [{ id: 'IN', name: 'IN' }];
+    case 'AND': case 'OR': case 'XOR': return [{ id: 'IN1', name: 'IN1' }, { id: 'IN2', name: 'IN2' }];
+    case 'TON': case 'TOF': case 'TP': return [{ id: 'IN', name: 'IN' }, { id: 'PT', name: 'PT' }];
+    case 'CTU': return [{ id: 'CU', name: 'CU' }, { id: 'R', name: 'R' }, { id: 'PV', name: 'PV' }];
+    case 'CTD': return [{ id: 'CD', name: 'CD' }, { id: 'LD', name: 'LD' }, { id: 'PV', name: 'PV' }];
+    case 'SR': return [{ id: 'S1', name: 'S1' }, { id: 'R', name: 'R' }];
+    case 'RS': return [{ id: 'S', name: 'S' }, { id: 'R1', name: 'R1' }];
+    case 'ADD': case 'SUB': case 'MUL': case 'DIV': return [{ id: 'IN1', name: 'IN1' }, { id: 'IN2', name: 'IN2' }];
+    case 'GT': case 'LT': case 'GE': case 'LE': case 'EQ': case 'NE': return [{ id: 'IN1', name: 'IN1' }, { id: 'IN2', name: 'IN2' }];
+    default: return [{ id: 'IN', name: 'IN' }];
+  }
+}
+
+function getDefaultOutputs(type: string): Array<{id: string; name: string}> {
+  switch (type) {
+    case 'TON': case 'TOF': case 'TP': return [{ id: 'Q', name: 'Q' }, { id: 'ET', name: 'ET' }];
+    case 'CTU': case 'CTD': return [{ id: 'Q', name: 'Q' }, { id: 'CV', name: 'CV' }];
+    case 'SR': case 'RS': return [{ id: 'Q1', name: 'Q1' }];
+    default: return [{ id: 'OUT', name: 'OUT' }];
+  }
+}
+
 // ── Main LogicTab ─────────────────────────────────────────────────────────────
 export interface LoadProgramPayload {
   language: EditorLanguage;
@@ -78,12 +167,19 @@ export const LogicTab: React.FC<{ lockedLanguage?: EditorLanguage; onSwitchToCod
     if (!loadProgram) return;
     const { language, program, tags, fileName } = loadProgram;
     logicStore.setActiveLanguage(language);
-    if (language === 'LD') logicStore.loadLadderProgram(program);
-    else if (language === 'FBD') logicStore.loadFBDProgram(program);
-    else if (language === 'SFC') logicStore.loadSFCProgram(program);
+    if (language === 'LD') {
+      const ld = program.ladderProgram ?? program;
+      logicStore.loadLadderProgram(ld);
+    } else if (language === 'FBD') {
+      const fbd = program.fbdProgram ?? program;
+      logicStore.loadFBDProgram(fbd);
+    } else if (language === 'SFC') {
+      const sfc = program.sfcProgram ?? program;
+      logicStore.loadSFCProgram(sfc);
+    }
     if (tags.length > 0) {
       logicStore.setTagDatabase(tags);
-      logicStore.addAllTagsToWatchList(); // auto-populate tag monitor with all tags from this file
+      logicStore.addAllTagsToWatchList();
     }
     logicStore.addConsoleEntry('success', `Loaded ${language} program from ${fileName} (${tags.length} tags)`);
   }, [loadProgram]);

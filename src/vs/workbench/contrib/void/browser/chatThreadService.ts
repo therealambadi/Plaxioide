@@ -1265,37 +1265,41 @@ We only need to do it for files that were edited since `from`, ie files between 
 			await this.abortRunning(threadId)
 		}
 
-		// AI credit check before sending to LLM
-		const hasCredit = await this._plaxioGateService.checkAICredit();
-		if (!hasCredit) {
-			return;
-		}
-
 		// add dummy before this message to keep checkpoint before user message idea consistent
 		if (thread.messages.length === 0) {
 			this._addUserCheckpoint({ threadId })
 		}
 
-
-		// add user's message to chat history
+		// add user's message to chat history IMMEDIATELY so user sees it
 		const instructions = userMessage
 		const currSelns: StagingSelectionItem[] = _chatSelections ?? thread.state.stagingSelections
 
-		const userMessageContent = await chat_userMessageContent(instructions, currSelns, { directoryStrService: this._directoryStringService, fileService: this._fileService }) // user message + names of files (NOT content)
+		const userMessageContent = await chat_userMessageContent(instructions, currSelns, { directoryStrService: this._directoryStringService, fileService: this._fileService })
 		const userHistoryElt: ChatMessage = { role: 'user', content: userMessageContent, displayContent: displayMessage ?? instructions, selections: currSelns, attachedFileMeta, state: defaultMessageState }
 		this._addMessageToThread(threadId, userHistoryElt)
 
-		this._setThreadState(threadId, { currCheckpointIdx: null }) // no longer at a checkpoint because started streaming
+		// scroll to bottom immediately so user sees their message
+		this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted.then(m => {
+			m.scrollToBottom()
+		})
+
+		// Credit check: use cache for instant decision, refresh in background
+		const cached = this._plaxioGateService.cachedCredits;
+		if (cached && cached.remaining <= 0) {
+			// Definitively out of credits — block
+			await this._plaxioGateService.checkAICredit();
+			this._addUserCheckpoint({ threadId })
+			return;
+		}
+		// Otherwise start immediately — credit check runs in background
+		this._plaxioGateService.checkAICredit();
+
+		this._setThreadState(threadId, { currCheckpointIdx: null })
 
 		this._wrapRunAgentToNotify(
 			this._runChatAgent({ threadId, ...this._currentModelSelectionProps(), }),
 			threadId,
 		)
-
-		// scroll to bottom
-		this.state.allThreads[threadId]?.state.mountedInfo?.whenMounted.then(m => {
-			m.scrollToBottom()
-		})
 	}
 
 

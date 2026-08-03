@@ -287,7 +287,7 @@ const ChatModeDropdown = ({ className }: { className: string }) => {
 
 // ── Attached file types ──────────────────────────────────────────────────────
 type AttachedFile =
-	| { kind: 'text'; name: string; ext: string; content: string }
+	| { kind: 'text'; name: string; ext: string; content: string; importResult?: string }
 	| { kind: 'image'; name: string; ext: string; base64: string; mimeType: string; dataUrl: string };
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']);
@@ -356,21 +356,29 @@ async function processFileToAttachment(file: File): Promise<AttachedFile> {
 	const content = await file.text();
 
 	// Also import into PLC editor for vendor formats
+	let importResult: string | undefined;
 	if (['l5x', 'xml', 'xef', 'zef'].includes(ext)) {
 		try {
 			const { importVendorFile } = await import('../plc-editor-tsx/vendor/unifiedImportService.js');
 			const result = await importVendorFile(content, file.name, file.name);
 			if (result.ok) {
+				importResult = `AUTO-IMPORTED: "${result.projectName}" — ${result.pouCount} POU(s), ${result.tagCount} tag(s)${result.unmappedCount ? `, ${result.unmappedCount} unmapped elements` : ''}. Format: ${result.format}. The program is NOW LOADED in the PLC editor and files are being saved.`;
 				console.log(`[PLC Import] ✅ Imported ${result.projectName} — ${result.pouCount} POU(s), ${result.tagCount} tag(s)${result.unmappedCount ? `, ${result.unmappedCount} unmapped` : ''}`);
+				// Also persist files to workspace via postMessage to toolsService
+				try {
+					window.postMessage({ type: 'volt:plc-persist-after-import', projectName: result.projectName }, '*');
+				} catch {}
 			} else {
+				importResult = `IMPORT FAILED: ${result.errors.join('; ')}. You must call import_vendor_file with the uri parameter to retry.`;
 				console.error(`[PLC Import] ❌ Failed: ${result.errors.join('; ')}`);
 			}
 		} catch (err) {
+			importResult = `IMPORT ERROR: ${err}. You must call import_vendor_file with the uri parameter to retry.`;
 			console.error(`[PLC Import] ❌ Error:`, err);
 		}
 	}
 
-	return { kind: 'text', name: file.name, ext, content };
+	return { kind: 'text', name: file.name, ext, content, importResult };
 }
 
 const _FileAttachButton = ({ onFilesSelected, currentCount }: { onFilesSelected?: (files: AttachedFile[]) => void; currentCount: number }) => {
@@ -3351,88 +3359,34 @@ export const SidebarChat = () => {
 
 		// send message to LLM
 		const baseMessage = _forceSubmit || textAreaRef.current?.value || ''
-		const visionService = accessor.get('IVisionService')
-		const googleVertexSettings = settingsState.settingsOfProvider['googleVertex' as any] as any
+		if (!baseMessage.trim() && attachedFiles.length === 0) return
 
-		// Detect P&ID intent from message text
-		const isPIDRequest = /p\s*[&and]\s*id|piping.*instrument|p&id/i.test(baseMessage)
+		// Clear UI immediately so user sees instant feedback
+		const currentFiles = [...attachedFiles]
+		setSelections([])
+		setAttachedFiles([])
+		textAreaFnsRef.current?.setValue('')
+		textAreaRef.current?.focus()
 
+		// Build file context (lightweight — no async Vision/P&ID blocking)
 		const fileParts: string[] = []
-		for (const f of attachedFiles) {
+		for (const f of currentFiles) {
 			if (f.kind === 'image') {
-				let visionContext = `[Attached image: ${f.name}]`
-
-				// Try Google Cloud Vision if Vertex project is configured
-				try {
-					const project: string = googleVertexSettings?.project ?? ''
-					const region: string = googleVertexSettings?.region ?? 'us-central1'
-					if (project && visionService) {
-						const ann = await (visionService as any).analyzeImage(f.base64, f.mimeType, project, region)
-						if (ann) {
-							const lines = [`[Vision analysis of ${f.name}]`]
-							if (ann.labels?.length) lines.push(`Labels: ${ann.labels.join(', ')}`)
-							if (ann.objects?.length) lines.push(`Objects: ${ann.objects.map((o: any) => `${o.name} (${o.score}%)`).join(', ')}`)
-							if (ann.text?.trim()) lines.push(`Extracted text:\n${ann.text.trim().slice(0, 2000)}`)
-							visionContext = lines.join('\n')
-						}
-					}
-				} catch (vErr) {
-					console.warn('[Vision] Skipped:', vErr)
-				}
-
-				// Run P&ID pipeline if user requested it
-				if (isPIDRequest) {
-					try {
-						const { executePIDPipeline } = await import('../plc-editor-tsx/vendor/pid/pipeline.js')
-						const llmMessageService = accessor.get('ILLMMessageService')
-						// Build a simple AI provider that calls our LLM service
-						const aiProvider = async (prompt: string, image?: { data: string; mimeType: string }): Promise<string> => {
-							return new Promise((resolve) => {
-								let full = ''
-								const requestId = Math.random().toString(36).slice(2)
-								;(llmMessageService as any).sendLLMMessage({
-									messagesType: 'chatMessages',
-									messages: [{ role: 'user', content: image
-										? [{ type: 'image', image: `data:${image.mimeType};base64,${image.data}` }, { type: 'text', text: prompt }]
-										: prompt
-									}],
-									onText: (_: string, t: string) => { full = t },
-									onFinalMessage: (t: string) => { full = t; resolve(full) },
-									onError: () => resolve(full),
-									requestId,
-									_setAborter: () => {},
-								})
-							})
-						}
-						const result = await executePIDPipeline(
-							{ imageBase64: f.base64, mimeType: f.mimeType, scanTime: 'T#100ms', safetyLevel: 'none' },
-							aiProvider,
-						)
-						if (result.success && result.parseResult) {
-							const s = result.summary
-							visionContext += `\n\n[P&ID Pipeline Result for ${f.name}]\n`
-							visionContext += `Instruments: ${s.instrumentCount}, Valves: ${s.valveCount}, Pumps: ${s.pumpCount}, Control Loops: ${s.controlLoopCount}, Interlocks: ${s.interlockCount}\n`
-							visionContext += `I/O: ${s.ioCount.digitalInputs} DI / ${s.ioCount.digitalOutputs} DO / ${s.ioCount.analogInputs} AI / ${s.ioCount.analogOutputs} AO\n`
-							if (result.codeResult?.stCode) {
-								visionContext += `\nGenerated ST code:\n\`\`\`st\n${result.codeResult.stCode.slice(0, 4000)}\n\`\`\``
-							}
-							console.log('[P&ID] Pipeline complete:', s)
-						}
-					} catch (pidErr) {
-						console.warn('[P&ID] Pipeline skipped:', pidErr)
-					}
-				}
-
-				fileParts.push(visionContext)
+				fileParts.push(`[Attached image: ${f.name}]`)
 			} else {
-				fileParts.push(`[Attached file: ${f.name}]\n\`\`\`\n${f.content}\n\`\`\``)
+				if (f.importResult) {
+					const snippet = f.content.length > 2000 ? f.content.slice(0, 2000) + '\n... (truncated, full file already imported)' : f.content;
+					fileParts.push(`[Attached file: ${f.name}]\n${f.importResult}\nDo NOT call import_vendor_file — the file is already loaded. Call plc_get_program to see the imported state.\n\`\`\`xml\n${snippet}\n\`\`\``)
+				} else {
+					fileParts.push(`[Attached file: ${f.name}]\n\`\`\`\n${f.content}\n\`\`\``)
+				}
 			}
 		}
 
 		const fileContext = fileParts.length ? '\n\n' + fileParts.join('\n\n') : ''
 		const userMessage = baseMessage + fileContext
 		const displayMessage = baseMessage || undefined
-		const attachedFileMeta = attachedFiles.length ? attachedFiles.map(f => ({
+		const attachedFileMeta = currentFiles.length ? currentFiles.map(f => ({
 			name: f.name,
 			ext: f.ext,
 			kind: f.kind,
@@ -3444,11 +3398,6 @@ export const SidebarChat = () => {
 		} catch (e) {
 			console.error('Error while sending message in chat:', e)
 		}
-
-		setSelections([]) // clear staging
-		setAttachedFiles([]) // clear attached files
-		textAreaFnsRef.current?.setValue('')
-		textAreaRef.current?.focus() // focus input after submit
 
 	}, [chatThreadsService, isDisabled, isRunning, textAreaRef, textAreaFnsRef, setSelections, attachedFiles, settingsState, accessor])
 
@@ -3613,9 +3562,9 @@ export const SidebarChat = () => {
 
 	const initiallySuggestedPromptsHTML = <div className='flex flex-col gap-2 w-full text-nowrap text-void-fg-3 select-none'>
 		{[
-			'Summarize my codebase',
-			'How do types work in Rust?',
-			'Create a .voidrules file for me'
+			'Explain this PLC program',
+			'Generate a Ladder Diagram',
+			'Build a HMI'
 		].map((text, index) => (
 			<div
 				key={index}

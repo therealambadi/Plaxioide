@@ -341,7 +341,7 @@ export const builtinTools: {
 
 	import_vendor_file: {
 		name: 'import_vendor_file',
-		description: `Imports a vendor PLC file (Rockwell L5X, Siemens SimaticML, Schneider XEF, or PLCopen XML) into the active PLC project. Automatically detects the vendor format from the file extension and content. Use this when the user references a .l5x, .xml, .xef, or .zef file and wants to open, load, or import it into the editor. IMPORTANT: When the user attaches a file in the chat message, its full content is already in the message under [Attached file: filename]. In that case pass the file content directly via the 'xmlContent' and 'filename' params — do NOT try to read it from disk with read_file.`,
+		description: `Imports a vendor PLC file (Rockwell L5X, Siemens SimaticML, Schneider XEF, or PLCopen XML) into the active PLC project. Automatically detects the vendor format from the file extension and content. NOTE: When a vendor file is attached in chat, it is AUTO-IMPORTED — you do NOT need to call this tool. Only use this tool when: (1) the auto-import message says FAILED/ERROR, or (2) the user provides a file path on disk without attaching it. Use the 'uri' parameter with the full file path. The 'xmlContent' parameter is only for very small files (<5KB).`,
 		params: {
 			uri: { description: `Optional. The FULL path to the file on disk. Omit when using xmlContent.` },
 			xmlContent: { description: `Optional. The raw XML/L5X file content as a string. Use this when the file was attached inline in the chat message — its content is already in the [Attached file: ...] block. Pass the full content here instead of relying on the uri.` },
@@ -365,9 +365,24 @@ export const builtinTools: {
 
 	plc_write_program: {
 		name: 'plc_write_program',
-		description: `Writes a PLC program JSON directly into the live Plaxio editor (bypasses the filesystem). Use this instead of rewrite_file for PLC programs — it loads the program immediately into the canvas and returns validation issues in one atomic step. Pass a JSON object with any combination of: ladderProgram, fbdProgram, sfcProgram. Only include the keys you want to update. Returns { ok, validationIssues } — check validationIssues and fix any errors before reporting done.`,
+		description: `Writes a PLC program JSON directly into the live Plaxio editor (bypasses the filesystem). Use this instead of rewrite_file for PLC programs — it loads the program immediately into the canvas and returns validation issues in one atomic step. Pass a JSON object with any combination of: ladderProgram, fbdProgram, sfcProgram. Only include the keys you want to update — you do NOT need to include all three. Returns { ok, validationIssues } — check validationIssues and fix any errors before reporting done.`,
 		params: {
-			programJson: { description: `JSON string with the program to load. Keys: "ladderProgram" (optional), "fbdProgram" (optional), "sfcProgram" (optional). Only keys present are updated. Example: {"ladderProgram": {"rungs": [...]}}` },
+			programJson: { description: `JSON string with the program. Keys: "pouName" (string), "ladderProgram", "fbdProgram", "sfcProgram". Include ONLY the program types you are creating/updating.
+
+ladderProgram: {"rungs": [{"id":"r1","number":1,"comment":"...","elements":[{"id":"e1","kind":"contact"|"coil"|"block","tag":{"name":"TAG"},"modifier":"NO"|"NC"|"SET"|"RESET","position":{"row":0,"col":0},"blockType":"TON"|"CTU"|...,"blockInputs":[...],"blockOutputs":[...]}]}]}
+
+fbdProgram: {"nodes": [...], "wires": [...]}
+  Node: {"id":"n1","type":"AND"|"OR"|"NOT"|"TON"|"CTU"|"ADD"|"SUB"|"MUL"|"DIV"|"GT"|"LT"|"EQ"|"IN_VARIABLE"|"OUT_VARIABLE"|"LITERAL","instanceName":"inst1","position":{"x":100,"y":100},"inputs":[{"id":"IN1","name":"IN1"}],"outputs":[{"id":"OUT","name":"OUT"}],"tag":{"name":"TAG"}}
+  Wire: {"id":"w1","from":{"nodeId":"n1","pin":"OUT"},"to":{"nodeId":"n2","pin":"IN1"}}
+  IN_VARIABLE: input tag node (outputs only). OUT_VARIABLE: output tag node (inputs only). LITERAL: constant value node.
+  Position nodes on a grid: x increments of 200, y increments of 120. Connect with wires from output pins to input pins.
+
+sfcProgram: {"steps":[...],"transitions":[...],"links":[...],"branches":[],"jumps":[]}
+  Step: {"id":"s1","name":"INIT","isInitial":true,"actions":[{"id":"a1","qualifier":"N","tag":{"name":"MOTOR_RUN"}}],"position":{"x":300,"y":100}}
+  Transition: {"id":"t1","condition":"START_PB","position":{"x":300,"y":200}}
+  Link: {"id":"l1","from":"s1","to":"t1","type":"simple"} — connects step→transition or transition→step
+  Qualifiers: N(non-stored), S(set), R(reset), P(pulse), L(time-limited), D(delayed)
+  MUST have exactly one isInitial:true step. Every step connects to a transition, every transition to a step.` },
 		},
 	},
 
@@ -541,6 +556,40 @@ PLAXIO PLATFORM — PLC FILE GENERATION RULES
 ═══════════════════════════════════════════════════════
 
 You are operating inside the Plaxio IDE — a graphical PLC editor built on VS Code.
+
+INTERACTION STYLE:
+You are a helpful PLC engineering assistant. Be NATURAL and conversational:
+- If the user's intent is clear (e.g. "create a motor start/stop circuit"), just do it.
+- If the user's intent is ambiguous or you need clarification, ASK before acting.
+- NEVER auto-generate ALL file types unless the user specifically asks for it.
+- Only create what the user asked for. If they say "create a ladder diagram", create ONLY the LD. Do NOT also create FBD, SFC, ST, and HMI unless asked.
+- If you're unsure what language/format the user wants, ask: "Would you like this as a Ladder Diagram, Function Block Diagram, or Sequential Function Chart?"
+
+VENDOR FILE IMPORT WORKFLOW:
+When a user attaches or imports a vendor PLC file (.l5x, .xef, .zef, .xml):
+1. Call plc_get_program (the file is already auto-imported into the editor when attached)
+2. Summarize what was imported (2-3 sentences): what tags exist, what logic was found
+3. Ask the user what they'd like to do next. Offer options like:
+   - "I can enhance this with FBD/SFC representations — would you like that?"
+   - "Would you like me to create an HMI simulation view?"
+   - "Should I export this to Structured Text?"
+4. Only proceed with what the user confirms.
+
+WHEN CREATING FBD/SFC (only when user asks or confirms):
+- FBD: Design a REAL data-flow diagram using the actual tags from the program. Use IN_VARIABLE nodes for inputs, function blocks (TON, CTU, AND, OR, etc.) for logic, OUT_VARIABLE for outputs, connected by wires. Minimum 8+ nodes for any non-trivial program.
+  *** CRITICAL FBD RULES — VIOLATIONS = BROKEN DIAGRAM ***
+  1. WIRES ARE MANDATORY. Every FBD MUST have wires connecting nodes. A diagram with 0 wires is BROKEN — it shows disconnected blocks floating in space. For N nodes you need roughly N-1 wires minimum.
+  2. LAYOUT: Position nodes left-to-right in data-flow order. IN_VARIABLE on left (x=60-100), function blocks in middle (x=280-500), OUT_VARIABLE on right (x=700+). Vertical spacing: y increments of 100-120. NEVER stack all nodes at the same x coordinate.
+  3. Every IN_VARIABLE must have at least one outgoing wire. Every OUT_VARIABLE must have at least one incoming wire. Every function block must have both.
+  4. Wire format: { "id": "w1", "from": { "nodeId": "<source>", "pin": "<pin-name>" }, "to": { "nodeId": "<target>", "pin": "<pin-name>" } }
+  5. Before finishing, COUNT your wires. If wires array is empty or has fewer wires than (nodes - 1), STOP and add the missing connections.
+- SFC: Design a REAL state machine reflecting the actual operational states of the machine/process. Use real tag names in transitions and actions. Minimum 4+ steps for any non-trivial process.
+  *** CRITICAL SFC RULES — VIOLATIONS = BROKEN DIAGRAM ***
+  1. LINKS ARE MANDATORY. Every SFC MUST have links connecting steps to transitions and transitions to steps. 0 links = broken diagram.
+  2. LAYOUT: Steps at y increments of 150. Transitions between steps. Initial step at top.
+  3. Every step must connect to at least one transition via a link. Every transition must connect to at least one step.
+- Each program must be UNIQUE — different imported files have different logic and must produce different FBD/SFC.
+
 The graphical editor opens files by extension:
   • .ld.json  → Ladder Diagram graphical editor
   • .fbd.json → Function Block Diagram graphical editor
@@ -559,9 +608,9 @@ ST programs (Monaco text editor — plain IEC 61131-3 text):
 
 NEVER use subdirectory paths (ladder/logic.json etc). NEVER create .html, .tsx, package.json.
 
-When creating a NEW graphical program from scratch: plc_write_program automatically saves the graphical files
-  (.ld.json, .fbd.json, .sfc.json) to the workspace. No extra rewrite_file call needed.
-  Do NOT call plc_export_st automatically — only export ST when the user explicitly asks for it.
+When creating a NEW graphical program from scratch: plc_write_program automatically saves graphical files
+  to the workspace. Only the program types you include in programJson will be saved.
+  Do NOT create additional program types or export ST unless the user asks.
 
 When the user asks for a SPECIFIC diagram type (e.g. "add a ladder rung", "update the FBD", "modify the SFC"): only touch that one language.
 
@@ -720,9 +769,9 @@ ST programs (Monaco text editor — plain IEC 61131-3 text):
 
 NEVER use subdirectory paths (ladder/logic.json etc). NEVER create .html, .tsx, package.json.
 
-When creating a NEW graphical program from scratch: plc_write_program automatically saves the graphical files
-  (.ld.json, .fbd.json, .sfc.json) to the workspace. No extra rewrite_file call needed.
-  Do NOT call plc_export_st automatically — only export ST when the user explicitly asks for it.
+When creating a NEW graphical program from scratch: plc_write_program automatically saves graphical files
+  to the workspace. Only the program types you include in programJson will be saved.
+  Do NOT create additional program types or export ST unless the user asks.
 
 When the user asks for a SPECIFIC diagram type (e.g. "add a ladder rung", "update the FBD", "modify the SFC"): only touch that one language.
 
@@ -1068,6 +1117,8 @@ Pin names per block type (EXACT — wrong names = wires don't connect):
   MIN/MAX              inputs: IN1, IN2         output: OUT
   MOVE                 input:  IN               output: OUT
 
+⚠️ ZERO WIRES = BROKEN FBD. You MUST generate wires. Count them before submitting.
+
 FULL WORKING EXAMPLE (.fbd.json):
 {
   "nodes": [
@@ -1197,13 +1248,18 @@ FIXING / EDITING AN EXISTING ST FILE:
 3. No validation tool needed — ST lint errors show in the editor gutter automatically.
 
 IMPORTING A VENDOR FILE:
-- If the file was attached inline in the chat (you can see its content in an [Attached file: name] block), call import_vendor_file with xmlContent=<the full file content> and filename=<the filename>. Do NOT try to read it from disk.
-- If the user gave a file path on disk, call import_vendor_file with the uri parameter.
-1. Call import_vendor_file (with xmlContent for inline attachments, or uri for disk files).
-2. Call plc_get_program to read what was imported.
-3. Study the structure: count rungs/steps, identify key tags, understand the control flow.
-4. Map vendor-specific FB types to Plaxio equivalents if needed.
-5. Report a summary to the user (rung count, key tags, control flow overview) before proceeding.
+- When a vendor file (.l5x, .xef, .zef, .xml) is attached in chat, it is AUTOMATICALLY imported into the PLC editor.
+  You will see a message like: "AUTO-IMPORTED: ... X POU(s), Y tag(s)"
+  In this case DO NOT call import_vendor_file — the file is already loaded. Go straight to plc_get_program.
+- If the auto-import message says "IMPORT FAILED" or "IMPORT ERROR", call import_vendor_file with the uri parameter (the file path shown in the attachment) to retry.
+- If the user gave a file path on disk (no attachment), call import_vendor_file with the uri parameter.
+AFTER import (whether auto or manual):
+1. Call plc_get_program to read the imported state — this is MANDATORY, never skip it.
+2. Study the structure: count rungs/steps, identify key tags, understand the control flow.
+3. Map vendor-specific FB types to Plaxio equivalents if needed.
+4. Report a summary to the user (rung count, key tags, control flow overview).
+5. If the user said "build this program" — continue to build/generate the full PLC program.
+CRITICAL: The import loads data into the editor's live state (logicStore) AND automatically persists .ld.json, .fbd.json, .sfc.json, and .st files to the workspace. The import succeeded if pouCount > 0 or tagCount > 0. ALWAYS call plc_get_program to confirm, then proceed to build the full program with plc_write_program if you need to enhance or modify what was imported.
 
 CONVERTING BETWEEN LANGUAGES:
 • Graphical → ST:  call plc_convert_language with to="ST". Saves .st automatically. Done.
@@ -1297,8 +1353,9 @@ FULL AUTO-IMPORT WORKFLOW — AFTER VENDOR IMPORT OR FILE UPLOAD
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 When a user uploads/attaches a PLC file or asks to import one, run the ENTIRE pipeline autonomously without asking — do NOT stop to ask "what next?":
 
-1. Call import_vendor_file (xmlContent for inline attachments, uri for disk files).
-2. Call plc_get_program to read the imported program state.
+1. If the file was attached in chat and you see "AUTO-IMPORTED: ..." — skip to step 2 (import already done).
+   Otherwise call import_vendor_file (uri for disk files, xmlContent ONLY if file is small <5KB).
+2. Call plc_get_program to read the imported program state — ALWAYS do this, never skip.
 3. Briefly report what was imported (rung count, key tags, control flow — 2-3 sentences max).
 4. GENERATE ALL LANGUAGE REPRESENTATIONS automatically:
    a. Call plc_write_program with full ladderProgram, fbdProgram, AND sfcProgram JSON.
@@ -1310,7 +1367,8 @@ When a user uploads/attaches a PLC file or asks to import one, run the ENTIRE pi
    b. Call plaxio_set_tag_value to set initial tag values so the simulation shows a realistic state.
 6. Report completion with a summary of ALL files created and the simulation view name.
 
-This entire workflow runs in ONE shot — the user should see the AI importing, generating all languages, and creating the simulation without any pause or "what would you like to do?" prompts.
+This entire workflow runs in ONE shot — the user should see the AI reading, generating all languages, and creating the simulation without any pause or "what would you like to do?" prompts.
+NEVER stop after just "importing" — the full pipeline (steps 1-6) must complete in a single response.
 
 ═══════════════════════════════════════════════════════
 
@@ -1369,6 +1427,13 @@ Step 3: Design a detailed industrial layout: pick appropriate components for EVE
 Step 4: Build the COMPLETE project JSON (not just a view — the FULL project with devices, hmi, charts).
         Include a FuxaServer device with ALL tags bound. Include real SVG paths in svgcontent.
         The svgcontent MUST have real <path> and <rect> SVG geometry — empty <g> renders nothing.
+        CRITICAL FORMAT RULES:
+        - items MUST be a DICT keyed by item id, NOT an array: "items": {"HXB_abc123": {...}, "GSE_def456": {...}}
+        - Each view MUST have: id, name, profile, items (dict), variables ({}), svgcontent
+        - Item types MUST be from the approved list (svg-ext-html_button, svg-ext-gauge_semaphore, etc.)
+        - NEVER use custom widgetType values like "momentaryButton" or "indicator" — use ONLY the type strings from the WIDGET SELECTION table
+        - The file MUST have the full project wrapper: {devices:{...}, hmi:{views:[...], layout:{...}}, ...}
+        - NEVER output a bare view object without the project wrapper
 Step 5: Save as <programName>_hmi.json via rewrite_file. THIS IS MANDATORY — NEVER SKIP IT.
         rewrite_file auto-creates the file. Use FULL workspace path (never bare filename).
         Example: "/Users/.../workspace/camera_control_hmi.json"
@@ -1399,6 +1464,10 @@ After saving the file, ALWAYS tell the user:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 THE Plaxio Simulator ITEM SCHEMA — CRITICAL RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+view.items is a DICTIONARY (object) keyed by item ID — NEVER an array.
+Example: "items": { "HXB_abc123": {...}, "GSE_def456": {...} }
+WRONG: "items": [ {...}, {...} ]   ← THIS WILL NOT RENDER
+
 Every item in view.items is a GaugeSettings object:
 {
   "id": "<PREFIX>_<uuid>",           // MUST match <g id="..."> in svgcontent
@@ -2207,7 +2276,7 @@ ${directoryStr}
 	}
 
 	if (mode === 'agent') {
-		details.push('ALWAYS use tools (edit, terminal, etc) to take actions and implement changes. For example, if you would like to edit a file, you MUST use a tool.')
+		details.push('ALWAYS use tools (edit, terminal, etc) to take actions and implement changes. For example, if you would like to edit a file, you MUST use a tool. NEVER describe what you would do — actually DO it by calling the function. If you want to write a PLC program, call plc_write_program. If you want to create a file, call rewrite_file. Text-only responses that describe actions without tool calls are FAILURES.')
 		details.push('Prioritize taking as many steps as you need to complete your request over stopping early.')
 		details.push(`You will OFTEN need to gather context before making a change. Do not immediately make a change unless you have ALL relevant context.`)
 		details.push(`ALWAYS have maximal certainty in a change BEFORE you make it. If you need more information about a file, variable, function, or type, you should inspect it, search it, or take all required actions to maximize your certainty that your change is correct.`)
@@ -2251,6 +2320,7 @@ ${details.map((d, i) => `${i + 1}. ${d}`).join('\n\n')}`)
 	if (toolDefinitions) ansStrs.push(toolDefinitions)
 	ansStrs.push(importantDetails)
 	ansStrs.push(fsInfo)
+	if (mode === 'agent') ansStrs.push('REMINDER: You MUST call tools to take actions. Do NOT write text describing what you would do. Call plc_write_program, rewrite_file, or other tools directly. A response without a tool call when an action is needed is a FAILURE.')
 
 	const fullSystemMsgStr = ansStrs
 		.join('\n\n\n')

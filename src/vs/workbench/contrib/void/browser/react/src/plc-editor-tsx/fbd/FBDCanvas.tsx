@@ -742,8 +742,8 @@ function storeNodeToFlow(node: FBDNode): Node {
 
   // Generic block — compute pixel dimensions using actual node pins (supports variadic)
   const defAdapted = {
-    inputs:  node.inputs.map(p  => ({ name: p.name, type: p.dataType })),
-    outputs: node.outputs.map(p => ({ name: p.name, type: p.dataType })),
+    inputs:  (node.inputs  ?? []).map(p => ({ name: p.name, type: p.dataType })),
+    outputs: (node.outputs ?? []).map(p => ({ name: p.name, type: p.dataType })),
   };
   const w = computeBlockW(defAdapted.inputs, defAdapted.outputs, type);
   const h = computeBlockH(defAdapted.inputs, defAdapted.outputs);
@@ -756,8 +756,8 @@ function storeNodeToFlow(node: FBDNode): Node {
       blockType:    type,
       instanceName: node.instanceName ?? '',
       nodeId:       node.id,
-      inputs:  node.inputs.map(p  => ({ id: p.id, name: p.name, negated: p.negated })),
-      outputs: node.outputs.map(p => ({ id: p.id, name: p.name, negated: p.negated })),
+      inputs:  (node.inputs  ?? []).map(p => ({ id: p.id, name: p.name, negated: p.negated })),
+      outputs: (node.outputs ?? []).map(p => ({ id: p.id, name: p.name, negated: p.negated })),
       w, h,
       _monitorMode: blockState.monitorMode,
       _pinValues:   blockPinVals,
@@ -766,7 +766,7 @@ function storeNodeToFlow(node: FBDNode): Node {
 }
 
 function storeWiresToFlow(wires: FBDWire[], nodes: FBDNode[]): Edge[] {
-  return wires.map(w => {
+  return (wires ?? []).filter(w => w?.from?.nodeId && w?.to?.nodeId).map(w => {
     const srcNode = nodes.find(n => n.id === w.from.nodeId);
     const tgtNode = nodes.find(n => n.id === w.to.nodeId);
 
@@ -980,10 +980,10 @@ export const FBDCanvas: React.FC = () => {
   const tagDatabase = useLogicStoreSelector(s => s.tagDatabase);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    () => fbdProgram.nodes.map(storeNodeToFlow)
+    () => (fbdProgram?.nodes ?? []).map(storeNodeToFlow)
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    () => storeWiresToFlow(fbdProgram.wires, fbdProgram.nodes)
+    () => storeWiresToFlow(fbdProgram?.wires ?? [], fbdProgram?.nodes ?? [])
   );
 
   const [forceMenu,       setForceMenu]       = useState<FBDForceMenu | null>(null);

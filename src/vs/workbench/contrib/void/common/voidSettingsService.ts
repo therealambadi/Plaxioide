@@ -260,6 +260,8 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 		this._resolver = resolver
 
 		this.readAndInitializeState()
+
+		// AI auth handled via bundled service account key — no token sync needed.
 	}
 
 
@@ -356,6 +358,7 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 		this.state.settingsOfProvider.googleVertex.project = 'videogen-496506';
 		this.state.settingsOfProvider.googleVertex.region = 'us-central1';
 		this.state.settingsOfProvider.googleVertex._didFillInProviderSettings = true;
+		// AI auth is handled via bundled service account key — no token injection needed here.
 
 
 		this._resolver();

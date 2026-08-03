@@ -202,7 +202,8 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 			plaxioBalanceListeners.forEach(l => l(b))
 		})
 	)
-
+	// Trigger a fresh fetch on every settings open to ensure credits are current
+	plaxioGateService.fetchCredits().catch(() => {})
 
 	return disposables
 }
@@ -476,8 +477,15 @@ export const usePlaxioAuthState = () => {
 export const usePlaxioBalance = () => {
 	const [s, ss] = useState<AICreditsState | null>(plaxioBalanceState)
 	useEffect(() => {
-		ss(plaxioBalanceState)
+		if (plaxioBalanceState !== null) ss(plaxioBalanceState)
 		plaxioBalanceListeners.add(ss)
+		// Fallback: if still null after registering listener, trigger a fresh fetch
+		if (plaxioBalanceState === null) {
+			const gs = reactAccessor_?.IPlaxioGateService
+			if (gs?.fetchCredits) {
+				gs.fetchCredits().catch(() => {})
+			}
+		}
 		return () => { plaxioBalanceListeners.delete(ss) }
 	}, [ss])
 	return s

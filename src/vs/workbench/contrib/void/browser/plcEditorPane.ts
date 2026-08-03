@@ -250,6 +250,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 	style.textContent = `
 		.command-center .command-center-center .action-label .search-label { display: none !important; }
 		.command-center .command-center-center .action-label .codicon { display: none !important; }
+		.command-center .command-center-center .action-label .search-icon { display: none !important; }
 		.command-center .command-center-center .action-label::after {
 			content: "Plaxio";
 			font-size: 13px;

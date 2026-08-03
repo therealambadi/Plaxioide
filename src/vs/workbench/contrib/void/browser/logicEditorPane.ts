@@ -72,15 +72,10 @@ export class LogicEditorPane extends EditorPane {
 			const accessor = this._makeAccessor();
 			this._mountResult = mountPlcEditor(root, accessor);
 
-			// Auto-save: only the pane that last loaded a file into the shared store should save.
-			// Other panes must stay silent — the store is a singleton and they would overwrite
-			// unrelated files with the currently-active program's data.
-			this._storeUnsubscribe = (logicStore as any).subscribe(() => {
-				if (!this._currentInput) return;
-				if (_activeAutoSavePaneId !== this._paneId) return; // not the active pane
-				if (this._autoSaveTimer !== undefined) clearTimeout(this._autoSaveTimer);
-				this._autoSaveTimer = setTimeout(() => this._autoSaveToFile(this._currentInput!), 500);
-			});
+			// Auto-save DISABLED: the logicStore is a singleton shared across all open files.
+			// Auto-saving causes cross-file corruption (file A gets overwritten with file B's data
+			// when the store changes). Files are saved by plc_write_program tool and explicit Cmd+S.
+			this._storeUnsubscribe = undefined;
 
 			this._register(toDisposable(() => {
 				this._mountResult?.dispose();
@@ -245,6 +240,10 @@ export class LogicEditorPane extends EditorPane {
 				try { localStorage.setItem(this._localStorageKey(input), serialized); } catch { /* storage full */ }
 				return;
 			}
+
+			// Don't recreate a file that was deleted externally
+			const exists = await this.fileService.exists(input.resource);
+			if (!exists) return;
 
 			await this.fileService.writeFile(input.resource, VSBuffer.fromString(serialized));
 		} catch (e: any) {

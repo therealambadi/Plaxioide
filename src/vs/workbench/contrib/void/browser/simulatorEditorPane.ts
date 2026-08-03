@@ -213,6 +213,35 @@ export class SimulatorEditorPane extends EditorPane {
 			this._loadFuxa();
 			return;
 		}
+		// If single-view file (no hmi wrapper), wrap it into a full FUXA project structure
+		if (!parsedProject.hmi && parsedProject.name) {
+			const view = parsedProject;
+			// Generate a stable view ID
+			if (!view.id) view.id = 'view_' + Math.random().toString(36).slice(2, 12);
+			// Convert items from array to dict (FUXA requires dict keyed by item ID)
+			if (Array.isArray(view.items)) {
+				const itemsDict: any = {};
+				for (const item of view.items) {
+					if (!item) continue;
+					const itemId = item.id || ('item_' + Math.random().toString(36).slice(2, 10));
+					item.id = itemId;
+					if (!item.property) item.property = {};
+					itemsDict[itemId] = item;
+				}
+				view.items = itemsDict;
+			}
+			// Ensure required fields
+			if (!view.variables) view.variables = {};
+			if (!view.profile) view.profile = {};
+			if (!view.profile.bkcolor) view.profile.bkcolor = '#ffffff';
+			parsedProject = {
+				hmi: {
+					views: [view],
+					layout: { navigation: { mode: 'void', items: [], logo: false, title: '' } },
+				},
+				devices: {},
+			};
+		}
 		// Ensure hmi.layout.navigation exists — FUXA Angular crashes with TypeError if missing
 		if (parsedProject.hmi) {
 			if (!parsedProject.hmi.layout) parsedProject.hmi.layout = {}
@@ -226,20 +255,27 @@ export class SimulatorEditorPane extends EditorPane {
 					}
 				}
 			}
-			// Normalize view items — strip nulls, add property:{} — FUXA crashes on null items
+			// Normalize view items — convert array→dict, strip nulls, add property:{}
 			if (Array.isArray(parsedProject.hmi.views)) {
 				for (const view of parsedProject.hmi.views) {
+					if (!view.variables) view.variables = {};
 					if (Array.isArray(view.items)) {
-						view.items = view.items.filter((item: any) => item !== null && item !== undefined)
+						const itemsDict: any = {};
 						for (const item of view.items) {
-							if (typeof item === 'object' && !item.property) item.property = {}
+							if (!item) continue;
+							const itemId = item.id || ('item_' + Math.random().toString(36).slice(2, 10));
+							item.id = itemId;
+							if (!item.property) item.property = {};
+							itemsDict[itemId] = item;
 						}
+						view.items = itemsDict;
 					} else if (view.items && typeof view.items === 'object') {
 						for (const key of Object.keys(view.items)) {
 							if (!view.items[key]) { delete view.items[key]; continue }
 							if (!view.items[key].property) view.items[key].property = {}
 						}
 					}
+					if (!view.id) view.id = 'view_' + Math.random().toString(36).slice(2, 12);
 				}
 			}
 		}
