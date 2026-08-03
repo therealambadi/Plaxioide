@@ -67,10 +67,15 @@ jobs:
         run: |
           $py = (Get-Command python).Source
           Write-Host "Python 3.11: $py"
-          # Set env vars for this job (appended to GITHUB_ENV so subsequent steps inherit them)
+          # Persist env vars for ALL subsequent steps via GITHUB_ENV.
+          # COMSPEC is critical: postinstall.js calls spawnSync with shell:true which
+          # resolves to process.env.ComSpec. Without it Node can't find cmd.exe.
           "PYTHON=$py" | Out-File -Append $env:GITHUB_ENV
           "GYP_MSVS_VERSION=2022" | Out-File -Append $env:GITHUB_ENV
           "npm_config_python=$py" | Out-File -Append $env:GITHUB_ENV
+          "COMSPEC=C:\Windows\System32\cmd.exe" | Out-File -Append $env:GITHUB_ENV
+          # Also add System32 to PATH so cmd.exe is always resolvable
+          "C:\Windows\System32;C:\Windows" | Out-File -Append $env:GITHUB_PATH
           # Log VS installation for debugging
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           if (Test-Path $vswhere) {
@@ -78,15 +83,11 @@ jobs:
           }
 
       # ── Install dependencies ──────────────────────────────────────────────
-      # postinstall.js spawns npm.cmd per extension with shell:true → resolves to cmd.exe.
-      # cmd.exe can't be found because C:\Windows\System32 is not in the spawned PATH.
-      # Fix: add System32 to PATH, set COMSPEC, then run npm ci from cmd.exe directly.
+      # postinstall.js uses cp.spawnSync with shell:true per extension dir.
+      # COMSPEC is set above via GITHUB_ENV so it propagates through npm → node → spawnSync.
       - name: Install npm dependencies
-        shell: cmd
-        run: |
-          set "PATH=C:\Windows\System32;C:\Windows;%PATH%"
-          set "COMSPEC=C:\Windows\System32\cmd.exe"
-          npm ci
+        shell: powershell
+        run: npm ci
 
       # ── Build React bundle ────────────────────────────────────────────────
       - name: Build React bundle
