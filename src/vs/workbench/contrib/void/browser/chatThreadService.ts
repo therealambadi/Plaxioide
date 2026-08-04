@@ -1283,16 +1283,19 @@ We only need to do it for files that were edited since `from`, ie files between 
 			m.scrollToBottom()
 		})
 
-		// Credit check: use cache for instant decision, refresh in background
+		// Credit check: must pass before running agent
 		const cached = this._plaxioGateService.cachedCredits;
-		if (cached && cached.remaining <= 0) {
-			// Definitively out of credits — block
-			await this._plaxioGateService.checkAICredit();
-			this._addUserCheckpoint({ threadId })
-			return;
+		if (cached === null || cached.remaining <= 0) {
+			// Not signed in or out of credits — must verify with network (blocks)
+			const allowed = await this._plaxioGateService.checkAICredit();
+			if (!allowed) {
+				this._addUserCheckpoint({ threadId })
+				return;
+			}
+		} else {
+			// Cache says credits remain — refresh in background, allow immediately
+			this._plaxioGateService.checkAICredit();
 		}
-		// Otherwise start immediately — credit check runs in background
-		this._plaxioGateService.checkAICredit();
 
 		this._setThreadState(threadId, { currCheckpointIdx: null })
 

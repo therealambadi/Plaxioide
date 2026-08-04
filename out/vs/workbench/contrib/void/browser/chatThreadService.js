@@ -929,12 +929,15 @@ ${getErrorMessage(error)}`
       m.scrollToBottom();
     });
     const cached = this._plaxioGateService.cachedCredits;
-    if (cached && cached.remaining <= 0) {
-      await this._plaxioGateService.checkAICredit();
-      this._addUserCheckpoint({ threadId });
-      return;
+    if (cached === null || cached.remaining <= 0) {
+      const allowed = await this._plaxioGateService.checkAICredit();
+      if (!allowed) {
+        this._addUserCheckpoint({ threadId });
+        return;
+      }
+    } else {
+      this._plaxioGateService.checkAICredit();
     }
-    this._plaxioGateService.checkAICredit();
     this._setThreadState(threadId, { currCheckpointIdx: null });
     this._wrapRunAgentToNotify(
       this._runChatAgent({ threadId, ...this._currentModelSelectionProps() }),
