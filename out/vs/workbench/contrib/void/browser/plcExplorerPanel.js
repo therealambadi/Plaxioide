@@ -144,9 +144,7 @@ let PlcSidebarPanelContribution = class extends Disposable {
     this._chevronInjected = false;
     this._closeViewletsMenu = void 0;
 
-    setTimeout(() => this._tryInjectChevron(), 300);
-    setTimeout(() => this._tryInjectChevron(), 800);
-    setTimeout(() => this._tryInjectChevron(), 1500);
+    this._startChevronObserver();
 
     // Listen for export/simulator open messages from React (global singleton guard)
     if (!window.__plcMsgListenerRegistered) {
@@ -162,6 +160,16 @@ let PlcSidebarPanelContribution = class extends Disposable {
       };
       window.addEventListener('message', onMessage);
     }
+  }
+
+  _startChevronObserver() {
+    this._tryInjectChevron();
+    const observer = new MutationObserver(() => {
+      if (this._chevronInjected) { observer.disconnect(); return; }
+      this._tryInjectChevron();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => observer.disconnect(), 15000);
   }
 
   _tryInjectChevron() {

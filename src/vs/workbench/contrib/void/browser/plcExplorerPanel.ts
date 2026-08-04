@@ -152,9 +152,7 @@ class PlcSidebarPanelContribution extends Disposable implements IWorkbenchContri
 		@ICommandService private readonly _commandService: ICommandService,
 	) {
 		super();
-		setTimeout(() => this._tryInjectChevron(), 300);
-		setTimeout(() => this._tryInjectChevron(), 800);
-		setTimeout(() => this._tryInjectChevron(), 1500);
+		this._startChevronObserver();
 
 		// Listen for export/simulator open messages from React
 		const onMessage = (e: any) => {
@@ -166,6 +164,19 @@ class PlcSidebarPanelContribution extends Disposable implements IWorkbenchContri
 		};
 		window.addEventListener('message', onMessage);
 		this._register(toDisposable(() => window.removeEventListener('message', onMessage)));
+	}
+
+	private _startChevronObserver(): void {
+		// Try immediately, then watch DOM for the sidebar to appear
+		this._tryInjectChevron();
+		const observer = new MutationObserver(() => {
+			if (this._chevronInjected) { observer.disconnect(); return; }
+			this._tryInjectChevron();
+		});
+		observer.observe(document.body, { childList: true, subtree: true });
+		// Disconnect after 15s regardless
+		setTimeout(() => observer.disconnect(), 15000);
+		this._register(toDisposable(() => observer.disconnect()));
 	}
 
 	private _tryInjectChevron(): void {
