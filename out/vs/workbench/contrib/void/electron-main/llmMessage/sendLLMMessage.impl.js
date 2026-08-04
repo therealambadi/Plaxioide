@@ -506,7 +506,7 @@ const geminiTools = (chatMode, mcpTools) => {
 let _plaxioGenAI = null;
 const _getPlaxioGenAI = (project, location) => {
   if (!_plaxioGenAI) {
-    const saKeyPath = new URL("../../../../../plaxio-sa-key.json", import.meta.url).pathname;
+    const saKeyPath = new URL("../../../../../../../plaxio-sa-key.json", import.meta.url).pathname;
     process.env.GOOGLE_APPLICATION_CREDENTIALS = saKeyPath;
     _plaxioGenAI = new GoogleGenAI({ vertexai: true, project, location });
   }

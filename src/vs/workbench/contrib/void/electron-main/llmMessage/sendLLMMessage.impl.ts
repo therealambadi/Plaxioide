@@ -26,7 +26,7 @@ import { generateUuid } from '../../../../../base/common/uuid.js';
 let _plaxioGenAI: GoogleGenAI | null = null;
 const _getPlaxioGenAI = (project: string, location: string): GoogleGenAI => {
 	if (!_plaxioGenAI) {
-		const saKeyPath = new URL('../../../../../plaxio-sa-key.json', import.meta.url).pathname;
+		const saKeyPath = new URL('../../../../../../../plaxio-sa-key.json', import.meta.url).pathname;
 		process.env.GOOGLE_APPLICATION_CREDENTIALS = saKeyPath;
 		_plaxioGenAI = new GoogleGenAI({ vertexai: true, project, location });
 	}
