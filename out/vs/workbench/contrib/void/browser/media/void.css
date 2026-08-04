@@ -337,6 +337,10 @@
 }
 
 /* ─── Viewlets chevron: no press/focus glitch ──────────────────────────────── */
+.monaco-workbench .part.sidebar > .title > .global-actions {
+	display: none !important;
+}
+
 .monaco-workbench .plc-viewlets-chevron {
 	border: 1px solid transparent;
 	box-sizing: border-box;

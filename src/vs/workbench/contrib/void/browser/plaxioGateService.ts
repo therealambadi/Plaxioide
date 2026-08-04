@@ -168,12 +168,6 @@ export class PlaxioGateService extends Disposable implements IPlaxioGateService 
 			// If refresh endpoint is down (404) the token is expired but user IS signed in.
 			// Fail-open: allow the action. Only block if user explicitly has no stored credentials.
 			if (data.reason === 'UNAUTHORIZED' || res.status === 401) {
-				// Check if we still have a refresh token — if so, user is signed in but token refresh is failing
-				const hasRefreshToken = !!this.authService.getAnyToken();
-				if (hasRefreshToken) {
-					// Fail-open: refresh endpoint might be down, don't punish the user
-					return true;
-				}
 				this._cachedCredits = null;
 				this._onDidChangeCredits.fire(null);
 				this._notifySignInRequired();
@@ -201,7 +195,9 @@ export class PlaxioGateService extends Disposable implements IPlaxioGateService 
 			this._onDidChangeCredits.fire(this._cachedCredits);
 			return true;
 		} catch {
-			return true; // Network error — fail-open
+			// Network error — fail-closed: require sign-in
+			this._notifySignInRequired();
+			return false;
 		}
 	}
 

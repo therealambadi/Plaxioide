@@ -213,6 +213,11 @@
 	font-size: 12px !important;
 }
 
+/* ─── Hide magnifying glass / global-actions toolbar in sidebar title bar ─── */
+.monaco-workbench .part.sidebar > .title > .global-actions {
+	display: none !important;
+}
+
 /* ─── Activity Bar — top mode (sidebar title row) ──────────────────────────── */
 
 /* Title row height — match Cursor's compact header */

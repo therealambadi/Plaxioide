@@ -74,8 +74,9 @@ let PlaxioGateService = class extends Disposable {
       const data = await res.json();
 
       if (data.reason === "UNAUTHORIZED" || res.status === 401) {
-        const hasToken = !!this.authService.getAnyToken();
-        if (hasToken) return true;
+        this._cachedCredits = null;
+        this._onDidChangeCredits.fire(null);
+        this._notifySignInRequired();
         return false;
       }
 
@@ -98,7 +99,8 @@ let PlaxioGateService = class extends Disposable {
       this._onDidChangeCredits.fire(this._cachedCredits);
       return true;
     } catch {
-      return true;
+      this._notifySignInRequired();
+      return false;
     }
   }
 
