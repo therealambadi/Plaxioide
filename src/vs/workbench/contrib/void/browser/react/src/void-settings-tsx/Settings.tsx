@@ -1035,15 +1035,26 @@ const AccountSection = ({ nativeHostService }: { nativeHostService: any }) => {
 	const balance = usePlaxioBalance()
 	const accessor = useAccessor()
 	const plaxioAuthService = accessor.get('IPlaxioAuthService')
+	const [creditsLoadFailed, setCreditsLoadFailed] = useState(false)
+	const [retryCount, setRetryCount] = useState(0)
+
+	const doFetch = () => {
+		setCreditsLoadFailed(false)
+		const gateService = accessor.get('IPlaxioGateService') as any
+		if (gateService?.fetchCredits) {
+			const timer = setTimeout(() => setCreditsLoadFailed(true), 8000)
+			gateService.fetchCredits().then((r: any) => {
+				clearTimeout(timer)
+				if (!r) setCreditsLoadFailed(true)
+			}).catch(() => { clearTimeout(timer); setCreditsLoadFailed(true) })
+		}
+	}
 
 	// Refresh credits whenever this section is rendered (settings page opened)
-	useEffect(() => {
-		const gateService = accessor.get('IPlaxioGateService') as any
-		if (gateService?.fetchCredits) gateService.fetchCredits()
-	}, [])
+	useEffect(() => { doFetch() }, [retryCount])
 
 	if (authState?.isSignedIn) {
-		const isLoading = balance === null
+		const isLoading = balance === null && !creditsLoadFailed
 		const remaining = balance?.remaining ?? 0
 		const total = balance?.total ?? 50
 		const used = balance?.used ?? 0
@@ -1074,6 +1085,14 @@ const AccountSection = ({ nativeHostService }: { nativeHostService: any }) => {
 					<div className='flex items-center gap-4 p-3 rounded-md bg-void-bg-2'>
 						{isLoading ? (
 							<span className='text-void-fg-3 text-xs italic'>Loading credits…</span>
+						) : creditsLoadFailed ? (
+							<div className='flex items-center gap-3'>
+								<span className='text-void-fg-3 text-xs'>Could not load credits.</span>
+								<button
+									className='text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer bg-transparent border-none p-0'
+									onClick={() => setRetryCount(c => c + 1)}
+								>Retry</button>
+							</div>
 						) : (
 							<>
 								<div className='flex flex-col'>

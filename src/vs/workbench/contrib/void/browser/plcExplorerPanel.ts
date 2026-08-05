@@ -181,7 +181,7 @@ class PlcSidebarPanelContribution extends Disposable implements IWorkbenchContri
 
 	private _tryInjectChevron(): void {
 		if (this._chevronInjected) return;
-		const actionsContainer = document.querySelector('.part.sidebar .header-or-footer .composite-bar-container .composite-bar .monaco-action-bar .actions-container');
+		const actionsContainer = document.querySelector('.part.sidebar .header-or-footer .composite-bar-container .composite-bar .monaco-action-bar .actions-container, .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar > .actions-container');
 		if (!actionsContainer) return;
 
 		const btn = document.createElement('div');
@@ -201,7 +201,7 @@ class PlcSidebarPanelContribution extends Disposable implements IWorkbenchContri
 		if (this._viewletsMenuClosedAt && Date.now() - this._viewletsMenuClosedAt < 200) return;
 
 		const sidebar = document.querySelector('.part.sidebar');
-		const strip = document.querySelector('.part.sidebar .header-or-footer');
+		const strip = document.querySelector('.part.sidebar .header-or-footer') || document.querySelector('.part.sidebar > .title');
 		const sidebarRect = (sidebar ?? anchor).getBoundingClientRect();
 		const stripRect = (strip ?? anchor).getBoundingClientRect();
 

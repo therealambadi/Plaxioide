@@ -26525,12 +26525,27 @@ var AccountSection = ({ nativeHostService }) => {
   const balance = usePlaxioBalance();
   const accessor = useAccessor();
   const plaxioAuthService = accessor.get("IPlaxioAuthService");
-  (0, import_react15.useEffect)(() => {
+  const [creditsLoadFailed, setCreditsLoadFailed] = (0, import_react15.useState)(false);
+  const [retryCount, setRetryCount] = (0, import_react15.useState)(0);
+  const doFetch = () => {
+    setCreditsLoadFailed(false);
     const gateService = accessor.get("IPlaxioGateService");
-    if (gateService?.fetchCredits) gateService.fetchCredits();
-  }, []);
+    if (gateService?.fetchCredits) {
+      const timer = setTimeout(() => setCreditsLoadFailed(true), 8e3);
+      gateService.fetchCredits().then((r) => {
+        clearTimeout(timer);
+        if (!r) setCreditsLoadFailed(true);
+      }).catch(() => {
+        clearTimeout(timer);
+        setCreditsLoadFailed(true);
+      });
+    }
+  };
+  (0, import_react15.useEffect)(() => {
+    doFetch();
+  }, [retryCount]);
   if (authState?.isSignedIn) {
-    const isLoading = balance === null;
+    const isLoading = balance === null && !creditsLoadFailed;
     const remaining = balance?.remaining ?? 0;
     const total = balance?.total ?? 50;
     const used = balance?.used ?? 0;
@@ -26550,7 +26565,17 @@ var AccountSection = ({ nativeHostService }) => {
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "void-w-full void-h-[1px] void-bg-void-bg-2 void-my-2" }),
       /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "void-flex void-flex-col void-gap-2", children: [
         /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("h4", { className: "void-text-base void-text-void-fg-1", children: "AI Credits" }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "void-flex void-items-center void-gap-4 void-p-3 void-rounded-md void-bg-void-bg-2", children: isLoading ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "void-text-void-fg-3 void-text-xs void-italic", children: "Loading credits\u2026" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: "void-flex void-items-center void-gap-4 void-p-3 void-rounded-md void-bg-void-bg-2", children: isLoading ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "void-text-void-fg-3 void-text-xs void-italic", children: "Loading credits\u2026" }) : creditsLoadFailed ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "void-flex void-items-center void-gap-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "void-text-void-fg-3 void-text-xs", children: "Could not load credits." }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+            "button",
+            {
+              className: "void-text-xs void-text-blue-400 hover:void-text-blue-300 void-underline void-cursor-pointer void-bg-transparent void-border-none void-p-0",
+              onClick: () => setRetryCount((c) => c + 1),
+              children: "Retry"
+            }
+          )
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "void-flex void-flex-col", children: [
             /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "void-text-void-fg-3 void-text-xs", children: "Remaining" }),
             /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: "void-text-void-fg-1 void-text-sm void-font-medium", children: [
