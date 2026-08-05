@@ -141,7 +141,7 @@ let PlcSidebarPanelContribution = class extends Disposable {
     this._layoutService = _layoutService;
     this._instantiationService = _instantiationService;
     this._commandService = _commandService;
-    this._chevronInjected = false;
+    this._chevronBtn = void 0;
     this._closeViewletsMenu = void 0;
 
     this._startChevronObserver();
@@ -165,16 +165,21 @@ let PlcSidebarPanelContribution = class extends Disposable {
   _startChevronObserver() {
     this._tryInjectChevron();
     const observer = new MutationObserver(() => {
-      if (this._chevronInjected) { observer.disconnect(); return; }
-      this._tryInjectChevron();
+      if (this._chevronBtn && !document.body.contains(this._chevronBtn)) {
+        this._chevronBtn = void 0;
+      }
+      if (!this._chevronBtn) this._tryInjectChevron();
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    setTimeout(() => observer.disconnect(), 15000);
   }
 
   _tryInjectChevron() {
-    if (this._chevronInjected) return;
-    const actionsContainer = document.querySelector(".part.sidebar .header-or-footer .composite-bar-container .composite-bar .monaco-action-bar .actions-container, .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar > .actions-container");
+    if (this._chevronBtn) return;
+    const actionsContainer = document.querySelector(
+      ".part.sidebar .header-or-footer .composite-bar-container .composite-bar .monaco-action-bar .actions-container," +
+      ".part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar > .actions-container," +
+      ".part.sidebar .composite-bar-container .composite-bar .monaco-action-bar .actions-container"
+    );
     if (!actionsContainer) return;
 
     const btn = document.createElement("div");
@@ -186,8 +191,8 @@ let PlcSidebarPanelContribution = class extends Disposable {
     btn.addEventListener("mouseleave", () => { btn.style.background = "transparent"; btn.style.color = "var(--vscode-activityBarTop-inactiveForeground,var(--vscode-activityBar-inactiveForeground,#6e6e6e))"; });
     btn.addEventListener("click", (e) => { e.stopPropagation(); this._toggleViewletsMenu(btn); });
     actionsContainer.appendChild(btn);
-    this._chevronInjected = true;
-    console.log("[PlcPanel] viewlets chevron injected into top activity bar");
+    this._chevronBtn = btn;
+    console.log("[PlcPanel] viewlets chevron injected");
   }
 
   _toggleViewletsMenu(anchor) {

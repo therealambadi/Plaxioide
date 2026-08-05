@@ -141,7 +141,7 @@ viewsRegistry.registerViews([
 class PlcSidebarPanelContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.plcSidebarPanel';
 
-	private _chevronInjected = false;
+	private _chevronBtn: HTMLElement | undefined;
 	private _closeViewletsMenu: (() => void) | undefined;
 	private _viewletsMenuClosedAt: number | undefined;
 
@@ -167,24 +167,29 @@ class PlcSidebarPanelContribution extends Disposable implements IWorkbenchContri
 	}
 
 	private _startChevronObserver(): void {
-		// Try immediately, then watch DOM for the sidebar to appear
 		this._tryInjectChevron();
 		const observer = new MutationObserver(() => {
-			if (this._chevronInjected) { observer.disconnect(); return; }
-			this._tryInjectChevron();
+			// Re-inject if button was removed from DOM (e.g. sidebar view switched)
+			if (this._chevronBtn && !document.body.contains(this._chevronBtn)) {
+				this._chevronBtn = undefined;
+			}
+			if (!this._chevronBtn) this._tryInjectChevron();
 		});
 		observer.observe(document.body, { childList: true, subtree: true });
-		// Disconnect after 15s regardless
-		setTimeout(() => observer.disconnect(), 15000);
 		this._register(toDisposable(() => observer.disconnect()));
 	}
 
 	private _tryInjectChevron(): void {
-		if (this._chevronInjected) return;
-		const actionsContainer = document.querySelector('.part.sidebar .header-or-footer .composite-bar-container .composite-bar .monaco-action-bar .actions-container, .part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar > .actions-container');
+		if (this._chevronBtn) return;
+		// Try both: activityBar=top (header-or-footer) and activityBar=default (title)
+		const actionsContainer = document.querySelector(
+			'.part.sidebar .header-or-footer .composite-bar-container .composite-bar .monaco-action-bar .actions-container,' +
+			'.part.sidebar > .title > .composite-bar-container > .composite-bar > .monaco-action-bar > .actions-container,' +
+			'.part.sidebar .composite-bar-container .composite-bar .monaco-action-bar .actions-container'
+		);
 		if (!actionsContainer) return;
 
-		const btn = document.createElement('div');
+		const btn = document.createElement('div') as any;
 		btn.className = 'codicon codicon-chevron-down plc-viewlets-chevron';
 		btn.title = 'Views';
 		btn.setAttribute('role', 'button');
@@ -193,7 +198,8 @@ class PlcSidebarPanelContribution extends Disposable implements IWorkbenchContri
 		btn.addEventListener('mouseleave', () => { btn.style.background = 'transparent'; btn.style.color = 'var(--vscode-activityBarTop-inactiveForeground,var(--vscode-activityBar-inactiveForeground,#6e6e6e))'; });
 		btn.addEventListener('click', (e: any) => { e.stopPropagation(); this._toggleViewletsMenu(btn); });
 		actionsContainer.appendChild(btn);
-		this._chevronInjected = true;
+		this._chevronBtn = btn;
+		console.log('[PlcPanel] viewlets chevron injected');
 	}
 
 	private _toggleViewletsMenu(anchor: any): void {

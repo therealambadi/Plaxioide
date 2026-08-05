@@ -248,20 +248,22 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 (function initPlaxioTitleLogo() {
 	const style = document.createElement('style');
 	style.textContent = `
-		.command-center .command-center-center .action-label .search-label { display: none !important; }
-		.command-center .command-center-center .action-label .codicon { display: none !important; }
-		.command-center .command-center-center .action-label .search-icon { display: none !important; }
+		.command-center .command-center-center .action-label * { display: none !important; }
+		.command-center .command-center-center .action-label::before { display: none !important; }
 		.command-center .command-center-center .action-label::after {
 			content: "Plaxio";
+			display: inline !important;
 			font-size: 13px;
 			font-weight: 600;
 			letter-spacing: 0.04em;
 			opacity: 0.85;
 		}
 		.command-center .command-center-center .action-label:hover::after { opacity: 1; }
-		.command-center .command-center-center { border: none !important; background: transparent !important; }
+		.command-center .command-center-center { border: none !important; background: transparent !important; min-width: 80px !important; }
 		.command-center { border: none !important; background: transparent !important; box-shadow: none !important; }
 		.command-center .left, .command-center .right { display: none !important; }
+		/* Hide title-bar back/forward nav arrows — keep sidebar toggle */
+		.titlebar-nav-container .monaco-action-bar { display: none !important; }
 	`;
 	if (document.head) document.head.appendChild(style);
 	else document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style), { once: true });

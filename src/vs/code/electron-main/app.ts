@@ -582,7 +582,7 @@ export class CodeApplication extends Disposable {
 				logService.info(`[FUXA] Starting server (attempt ${attempt})...`);
 				const child = spawn(process.execPath, [fuxaMain, '--userDir', userDir], {
 					cwd: fuxaServerPath,
-					env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', uiHost: '127.0.0.1' },
+					env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', uiHost: '127.0.0.1', LSUIElement: '1' },
 					stdio: ['ignore', 'pipe', 'pipe'],
 				});
 				this._fuxaChild = child;

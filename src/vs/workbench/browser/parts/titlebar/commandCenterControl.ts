@@ -142,36 +142,16 @@ class CommandCenterCenterViewItem extends BaseActionViewItem {
 							super.render(container);
 							container.classList.toggle('command-center-quick-pick');
 							container.role = 'button';
-							const action = this.action;
+							(container as any).style.cssText = 'display:flex;align-items:center;justify-content:center;padding:0 12px;cursor:pointer;';
 
-							// icon (search)
-							const searchIcon = document.createElement('span');
-							searchIcon.ariaHidden = 'true';
-							searchIcon.className = action.class ?? '';
-							searchIcon.classList.add('search-icon');
-
-							// label: just workspace name and optional decorations
-							const label = this._getLabel();
-							const labelElement = document.createElement('span');
-							labelElement.classList.add('search-label');
-							labelElement.innerText = label;
-							reset(container, searchIcon, labelElement);
-
-							const hover = this._store.add(that._hoverService.setupManagedHover(that._hoverDelegate, container, this.getTooltip()));
-
-							// update label & tooltip when window title changes
-							this._store.add(that._windowTitle.onDidChange(() => {
-								hover.update(this.getTooltip());
-								labelElement.innerText = this._getLabel();
-							}));
-
-							// update label & tooltip when tabs visibility changes
-							this._store.add(that._editorGroupService.onDidChangeEditorPartOptions(({ newPartOptions, oldPartOptions }) => {
-								if (newPartOptions.showTabs !== oldPartOptions.showTabs) {
-									hover.update(this.getTooltip());
-									labelElement.innerText = this._getLabel();
-								}
-							}));
+							// Show "Plaxio" logo text instead of search icon + window title.
+							// Clicking still runs the quick-open action via the base class click handler.
+							const logoEl = document.createElement('span');
+							logoEl.textContent = 'Plaxio';
+							(logoEl as any).style.cssText = 'font-size:13px;font-weight:600;letter-spacing:0.04em;opacity:0.85;pointer-events:none;';
+							container.addEventListener('mouseenter', () => { (logoEl as any).style.opacity = '1'; });
+							container.addEventListener('mouseleave', () => { (logoEl as any).style.opacity = '0.85'; });
+							reset(container, logoEl);
 						}
 
 						protected override getTooltip() {
