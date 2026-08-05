@@ -1,0 +1,51 @@
+Good — so the Mac app works perfectly and is packaged for distribution. That means the source code is correct. The problem is purely with how we're building/packaging the Windows version.
+
+The Mac app was built using the proper VS Code build toolchain (gulp, webpack/esbuild) which produces:
+
+A properly bundled main.js (1MB+)
+A properly bundled workbench.desktop.main.js (20MB+)
+A minimal production package.json
+Correct node_modules.asar
+All matching checksums in product.json
+For Windows, we need the same thing but cross-compiled for win32-x64. The proper way to do this:
+
+Can you run the VS Code build on the Mac targeting Windows (win32-x64)?
+
+The command would be something like:
+
+
+gulp vscode-win32-x64-min
+This produces a VSCode-win32-x64 folder with everything properly bundled for Windows. That folder is what goes into the Inno Setup installer.
+
+If the Mac build is already working and packaged, the same source can produce a Windows build with one command. Then you'd just transfer the VSCode-win32-x64 folder to this Windows machine, and I'll package it into an installer with Inno Setup.
+
+The reason the current approach fails: we have a Mac-built VSCode-win32-x64 folder but it's been corrupted by various file copies from git (wrong package.json, wrong checksums, individual source files mixed with bundled files). We need a clean VSCode-win32-x64 build from the Mac.
+
+Can you produce a fresh gulp vscode-win32-x64-min build on the Mac and transfer it here?
+
+bro i think we need tp clone and build teh installer and then i need to install to get the latest windows app
+The problem is the git repo doesn't have the actual bundled files needed for Windows. Here's what I found:
+
+Git out/vs/workbench/workbench.desktop.main.js = 19 KB (source map, not the real bundle)
+Working app needs workbench.desktop.main.js = ~20 MB (compiled/bundled)
+Git out/main.js = 68 KB (source file)
+Working app needs main.js = ~1 MB (bundled)
+The Mac app works because it was built with the full build toolchain (gulp vscode-darwin-arm64-min or similar) which produces the proper bundles. The git only has individual source files — not the compiled bundles.
+
+What you need to do on the Mac:
+
+Run the cross-compilation build targeting Windows:
+
+
+cd /path/to/volt
+gulp vscode-win32-x64-min
+This will produce a folder like VSCode-win32-x64/ (or similar path in .build/) with:
+
+Bundled out/main.js (~1MB)
+Bundled out/vs/workbench/workbench.desktop.main.js (~20MB)
+Bundled out/vs/workbench/workbench.desktop.main.css
+Proper package.json
+product.json with correct checksums
+node_modules.asar
+The Plaxio.exe binary (Electron)
+Transfer that entire folder to this Windows machine (zip it, upload to Drive/GitHub releases, etc.), and I'll package it into an installer with Inno Setup + rcedit for the icon. That's all that's needed — the Inno Setup part takes 30 seconds once we have the clean build folder.
