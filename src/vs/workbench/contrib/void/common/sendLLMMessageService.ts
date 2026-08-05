@@ -15,6 +15,7 @@ import { Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IVoidSettingsService } from './voidSettingsService.js';
 import { IMCPService } from './mcpService.js';
+import { IPlaxioAuthService } from '../browser/plaxioAuthService.js';
 
 // calls channel to implement features
 export const ILLMMessageService = createDecorator<ILLMMessageService>('llmMessageService');
@@ -64,6 +65,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		@IVoidSettingsService private readonly voidSettingsService: IVoidSettingsService,
 		// @INotificationService private readonly notificationService: INotificationService,
 		@IMCPService private readonly mcpService: IMCPService,
+		@IPlaxioAuthService private readonly plaxioAuthService: IPlaxioAuthService,
 	) {
 		super()
 
@@ -135,6 +137,7 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			settingsOfProvider,
 			modelSelection,
 			mcpTools,
+			plaxioAccessToken: this.plaxioAuthService.state.accessToken ?? null,
 		} satisfies MainSendLLMMessageParams);
 
 		return requestId

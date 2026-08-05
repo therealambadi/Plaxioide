@@ -502,153 +502,93 @@ const geminiTools = (chatMode, mcpTools) => {
   const tools = { functionDeclarations: functionDecls };
   return [tools];
 };
-// Singleton GoogleGenAI — auth token cached inside SDK after first call
-let _plaxioGenAI = null;
-const _getPlaxioGenAI = (project, location) => {
-  if (!_plaxioGenAI) {
-    const saKeyPath = new URL("../../../../../../../plaxio-sa-key.json", import.meta.url).pathname;
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = saKeyPath;
-    _plaxioGenAI = new GoogleGenAI({ vertexai: true, project, location });
-  }
-  return _plaxioGenAI;
-};
+const PLAXIO_AI_ENDPOINT = 'https://www.plaxio.tech/api/ai';
 
-// Context cache: maps hash of system prompt → {name, expiresAt}
-const _plaxioContextCaches = new Map();
-const _plaxioContextCacheModel = "gemini-2.5-flash-001";
-let _plaxioCacheDisabled = false;
-const _simplehash = (s) => {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) { h = (Math.imul(31, h) + s.charCodeAt(i)) | 0; }
-  return (h >>> 0).toString(16);
-};
-const _getOrCreateContextCache = async (genAI, systemPrompt) => {
-  if (_plaxioCacheDisabled) return null;
-  const key = _simplehash(systemPrompt);
-  const existing = _plaxioContextCaches.get(key);
-  if (existing && existing.expiresAt > Date.now() + 60_000) return existing.name;
-  try {
-    const _cachePromise = genAI.caches.create({
-      model: _plaxioContextCacheModel,
-      config: { systemInstruction: systemPrompt, ttl: "3600s", displayName: "plaxio-plc-system-prompt" },
-    });
-    const _timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000));
-    const cache = await Promise.race([_cachePromise, _timeout]);
-    _plaxioContextCaches.set(key, { name: cache.name, expiresAt: Date.now() + 3_600_000 });
-    return cache.name;
-  } catch (e) {
-    _plaxioCacheDisabled = true;
-    console.warn("[Plaxio] Context cache unavailable, using inline prompt:", e?.message);
-    return null;
-  }
-};
 const sendGeminiChat = async ({
   messages,
   separateSystemMessage,
   onText,
   onFinalMessage,
   onError,
-  settingsOfProvider,
   overridesOfModel,
   modelName: modelName_,
   _setAborter,
   providerName,
   modelSelectionOptions,
   chatMode,
-  mcpTools
+  mcpTools,
+  plaxioAccessToken,
 }) => {
   if (providerName !== "gemini" && providerName !== "googleVertex") throw new Error(`Sending Gemini chat, but provider was ${providerName}`);
-  const thisConfig = settingsOfProvider[providerName];
-  const {
-    modelName,
-    specialToolFormat
-    // reasoningCapabilities,
-  } = getModelCapabilities(providerName, modelName_, overridesOfModel);
-  const reasoningInfo = getSendableReasoningInfo("Chat", providerName, modelName_, modelSelectionOptions, overridesOfModel);
-  const potentialTools = geminiTools(chatMode, mcpTools);
-  const toolConfig = potentialTools && specialToolFormat === "gemini-style" ? potentialTools : void 0;
-  const vertexConfig = settingsOfProvider["googleVertex"];
-  const genAI = _getPlaxioGenAI(vertexConfig.project || "videogen-496506", vertexConfig.region || "us-central1");
-  if (!specialToolFormat) {
-    const { newOnText, newOnFinalMessage } = extractXMLToolsWrapper(onText, onFinalMessage, chatMode, mcpTools);
-    onText = newOnText;
-    onFinalMessage = newOnFinalMessage;
+  const accessToken = plaxioAccessToken ?? null;
+  if (!accessToken) {
+    onError({ message: "Sign in to Plaxio to use AI features.", fullError: null });
+    return;
   }
-  let fullReasoningSoFar = "";
+  const { modelName } = getModelCapabilities(providerName, modelName_, overridesOfModel);
   let fullTextSoFar = "";
-  let toolName = "";
-  let toolParamsStr = "";
-  let toolId = "";
-  const allGeminiParts = [];
+  let aborted = false;
   try {
-    let _cacheName = null;
-    const _useCache = separateSystemMessage && separateSystemMessage.length > 20_000;
-    if (_useCache) {
-      _cacheName = await _getOrCreateContextCache(genAI, separateSystemMessage);
+    const controller = new AbortController();
+    _setAborter(() => { aborted = true; controller.abort(); });
+    const response = await fetch(PLAXIO_AI_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        access_token: accessToken,
+        model: modelName,
+        messages,
+        systemPrompt: separateSystemMessage,
+        temperature: 1,
+        maxOutputTokens: 8192,
+      }),
+      signal: controller.signal,
+    });
+    if (response.status === 401) {
+      onError({ message: "Sign in to Plaxio to use AI features.", fullError: null });
+      return;
     }
-    let stream;
-    let _retryDelay = 10000;
-    for (let _attempt = 0; _attempt < 4; _attempt++) {
-      try {
-        const _config = _cacheName
-          ? { cachedContent: _cacheName, tools: toolConfig, maxOutputTokens: 8192 }
-          : { systemInstruction: separateSystemMessage, tools: toolConfig, maxOutputTokens: 8192 };
-        stream = await genAI.models.generateContentStream({
-          model: _cacheName ? _plaxioContextCacheModel : modelName,
-          config: _config,
-          contents: messages,
-        });
-        break;
-      } catch (_err) {
-        if (_err?.status === 429 && _attempt < 3) {
-          console.warn(`[Plaxio] Rate limited, retrying in ${_retryDelay/1000}s (attempt ${_attempt+1}/4)`);
-          await new Promise(r => setTimeout(r, _retryDelay));
-          _retryDelay = Math.min(_retryDelay * 2, 60000);
-        } else { throw _err; }
+    if (response.status === 402) {
+      onError({ message: "You have used all your AI credits. Check your account at plaxio.tech.", fullError: null });
+      return;
+    }
+    if (!response.ok || !response.body) {
+      onError({ message: `AI service error (${response.status}). Please try again.`, fullError: null });
+      return;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const payload = line.slice(6).trim();
+        if (payload === "[DONE]") {
+          onFinalMessage({ fullText: fullTextSoFar, fullReasoning: "", anthropicReasoning: null });
+          return;
+        }
+        try {
+          const parsed = JSON.parse(payload);
+          if (parsed.error) {
+            onError({ message: parsed.error, fullError: null });
+            return;
+          }
+          if (parsed.text) {
+            fullTextSoFar += parsed.text;
+            onText({ fullText: fullTextSoFar, fullReasoning: "" });
+          }
+        } catch { /* ignore malformed line */ }
       }
     }
-    _setAborter(() => { stream.return(fullTextSoFar); });
-    for await (const chunk of stream) {
-      const parts = chunk.candidates?.[0]?.content?.parts;
-      if (parts) allGeminiParts.push(...parts);
-      const newText = chunk.text ?? "";
-      fullTextSoFar += newText;
-      const functionCalls = chunk.functionCalls;
-      if (functionCalls && functionCalls.length > 0) {
-        const functionCall = functionCalls[0];
-        toolName = functionCall.name ?? "";
-        toolParamsStr = JSON.stringify(functionCall.args ?? {});
-        toolId = functionCall.id ?? "";
-      }
-      onText({
-        fullText: fullTextSoFar,
-        fullReasoning: fullReasoningSoFar,
-        toolCall: !toolName ? void 0 : { name: toolName, rawParams: {}, isDone: false, doneParams: [], id: toolId }
-      });
-    }
-    if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
-      onError({ message: "Gemini returned an empty response. This usually means the request was too large or was blocked by the safety filter. Try breaking your request into smaller parts or rephrasing it.", fullError: null });
-    } else {
-      if (!toolId) toolId = generateUuid();
-      const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId);
-      const toolCallObj = toolCall ? { toolCall } : {};
-      onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, _geminiParts: allGeminiParts, ...toolCallObj });
-    }
+    if (!aborted) onFinalMessage({ fullText: fullTextSoFar, fullReasoning: "", anthropicReasoning: null });
   } catch (error) {
-    const message = error?.message;
-    if (typeof message === "string") {
-      if (error.message?.includes("Could not load the default credentials") || error.message?.includes("Application Default Credentials")) {
-        onError({ message: "AI is not available. Please sign in to Plaxio to use AI features.", fullError: error });
-      } else if (error.message?.includes("API key")) {
-        onError({ message: invalidApiKeyMessage(providerName), fullError: error });
-      } else if (error?.message?.includes("429")) {
-        onError({ message: "Rate limit reached. " + error, fullError: error });
-      } else {
-        onError({ message: error + "", fullError: error });
-      }
-    } else {
-      onError({ message: error + "", fullError: error });
-    }
+    if (aborted) return;
+    onError({ message: error?.message ?? String(error), fullError: error instanceof Error ? error : null });
   }
 };
 const sendLLMMessageToProviderImplementation = {

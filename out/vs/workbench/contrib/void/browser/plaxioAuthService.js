@@ -45,6 +45,7 @@ let PlaxioAuthService = class extends Disposable {
     const userEmail = storageService.get(STORAGE_KEY_USER_EMAIL, StorageScope.PROFILE) ?? null;
 
     this._state = { isSignedIn: !!accessToken, userEmail, accessToken };
+    if (typeof window !== "undefined") window.__plaxioAccessToken = accessToken;
     this._register(urlService.registerHandler(this));
 
     if (accessToken) {
@@ -85,6 +86,7 @@ let PlaxioAuthService = class extends Disposable {
 
         if (res.status === 401 || res.status === 403) {
           this._state = { isSignedIn: false, userEmail: null, accessToken: null };
+          if (typeof window !== "undefined") window.__plaxioAccessToken = null;
           this._onDidChangeState.fire(this._state);
           return null;
         }
@@ -107,6 +109,7 @@ let PlaxioAuthService = class extends Disposable {
 
         this._persist(access_token, new_refresh ?? refreshToken, userEmail);
         this._state = { isSignedIn: true, userEmail, accessToken: access_token };
+        if (typeof window !== "undefined") window.__plaxioAccessToken = access_token;
         this._onDidChangeState.fire(this._state);
 
         const secsLeft = jwtSecondsRemaining(access_token);

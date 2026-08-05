@@ -14,7 +14,8 @@ const sendLLMMessage = async ({
   overridesOfModel,
   chatMode,
   separateSystemMessage,
-  mcpTools
+  mcpTools,
+  plaxioAccessToken
 }, metricsService) => {
   const { providerName, modelName } = modelSelection;
   const captureLLMEvent = (eventId, extras) => {
@@ -81,7 +82,7 @@ const sendLLMMessage = async ({
     }
     const { sendFIM, sendChat } = implementation;
     if (messagesType === "chatMessages") {
-      await sendChat({ messages: messages_, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName, _setAborter, providerName, separateSystemMessage, chatMode, mcpTools });
+      await sendChat({ messages: messages_, onText, onFinalMessage, onError, settingsOfProvider, modelSelectionOptions, overridesOfModel, modelName, _setAborter, providerName, separateSystemMessage, chatMode, mcpTools, plaxioAccessToken });
       return;
     }
     if (messagesType === "FIMMessage") {

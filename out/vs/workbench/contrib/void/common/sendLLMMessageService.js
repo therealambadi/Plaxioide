@@ -118,7 +118,8 @@ let LLMMessageService = class extends Disposable {
       requestId,
       settingsOfProvider,
       modelSelection,
-      mcpTools
+      mcpTools,
+      plaxioAccessToken: (typeof window !== 'undefined' && window.__plaxioAccessToken) || null,
     });
     return requestId;
   }
@@ -140,7 +141,7 @@ let LLMMessageService = class extends Disposable {
 LLMMessageService = __decorateClass([
   __decorateParam(0, IMainProcessService),
   __decorateParam(1, IVoidSettingsService),
-  __decorateParam(2, IMCPService)
+  __decorateParam(2, IMCPService),
 ], LLMMessageService);
 registerSingleton(ILLMMessageService, LLMMessageService, InstantiationType.Eager);
 export {

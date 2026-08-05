@@ -135,13 +135,14 @@ export type SendLLMMessageParams = {
 
 	settingsOfProvider: SettingsOfProvider;
 	mcpTools: InternalToolInfo[] | undefined;
+	plaxioAccessToken?: string | null;
 } & SendLLMType
 
 
 
 // can't send functions across a proxy, use listeners instead
 export type BlockedMainLLMMessageParams = 'onText' | 'onFinalMessage' | 'onError' | 'abortRef'
-export type MainSendLLMMessageParams = Omit<SendLLMMessageParams, BlockedMainLLMMessageParams> & { requestId: string } & SendLLMType
+export type MainSendLLMMessageParams = Omit<SendLLMMessageParams, BlockedMainLLMMessageParams> & { requestId: string; plaxioAccessToken?: string | null } & SendLLMType
 
 export type MainLLMMessageAbortParams = { requestId: string }
 
