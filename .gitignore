@@ -6,7 +6,7 @@ node_modules/
 .build/
 .vscode/extensions/**/out/
 extensions/**/dist/
-/out*/
+# /out*/ — removed so compiled out/ is tracked for Windows builds
 /extensions/**/out/
 build/node_modules
 coverage/

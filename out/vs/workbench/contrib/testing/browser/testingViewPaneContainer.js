@@ -1,0 +1,57 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __decorateClass = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc(target, key) : target;
+  for (var i = decorators.length - 1, decorator; i >= 0; i--)
+    if (decorator = decorators[i])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp(target, key, result);
+  return result;
+};
+var __decorateParam = (index, decorator) => (target, key) => decorator(target, key, index);
+import { localize } from "../../../../nls.js";
+import { IConfigurationService } from "../../../../platform/configuration/common/configuration.js";
+import { IContextMenuService } from "../../../../platform/contextview/browser/contextView.js";
+import { IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
+import { IStorageService } from "../../../../platform/storage/common/storage.js";
+import { ITelemetryService } from "../../../../platform/telemetry/common/telemetry.js";
+import { IThemeService } from "../../../../platform/theme/common/themeService.js";
+import { IWorkspaceContextService } from "../../../../platform/workspace/common/workspace.js";
+import { ViewPaneContainer } from "../../../browser/parts/views/viewPaneContainer.js";
+import { IViewDescriptorService } from "../../../common/views.js";
+import { Testing } from "../common/constants.js";
+import { IExtensionService } from "../../../services/extensions/common/extensions.js";
+import { IWorkbenchLayoutService } from "../../../services/layout/browser/layoutService.js";
+import { ILogService } from "../../../../platform/log/common/log.js";
+let TestingViewPaneContainer = class extends ViewPaneContainer {
+  constructor(layoutService, telemetryService, instantiationService, contextMenuService, themeService, storageService, configurationService, extensionService, contextService, viewDescriptorService, logService) {
+    super(Testing.ViewletId, { mergeViewWithContainerWhenSingleView: true }, instantiationService, configurationService, layoutService, contextMenuService, telemetryService, extensionService, themeService, storageService, contextService, viewDescriptorService, logService);
+  }
+  create(parent) {
+    super.create(parent);
+    parent.classList.add("testing-view-pane");
+  }
+  getOptimalWidth() {
+    return 400;
+  }
+  getTitle() {
+    return localize("testing", "Testing");
+  }
+};
+TestingViewPaneContainer = __decorateClass([
+  __decorateParam(0, IWorkbenchLayoutService),
+  __decorateParam(1, ITelemetryService),
+  __decorateParam(2, IInstantiationService),
+  __decorateParam(3, IContextMenuService),
+  __decorateParam(4, IThemeService),
+  __decorateParam(5, IStorageService),
+  __decorateParam(6, IConfigurationService),
+  __decorateParam(7, IExtensionService),
+  __decorateParam(8, IWorkspaceContextService),
+  __decorateParam(9, IViewDescriptorService),
+  __decorateParam(10, ILogService)
+], TestingViewPaneContainer);
+export {
+  TestingViewPaneContainer
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvY29udHJpYi90ZXN0aW5nL2Jyb3dzZXIvdGVzdGluZ1ZpZXdQYW5lQ29udGFpbmVyLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyIvKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxuICogIENvcHlyaWdodCAoYykgTWljcm9zb2Z0IENvcnBvcmF0aW9uLiBBbGwgcmlnaHRzIHJlc2VydmVkLlxuICogIExpY2Vuc2VkIHVuZGVyIHRoZSBNSVQgTGljZW5zZS4gU2VlIExpY2Vuc2UudHh0IGluIHRoZSBwcm9qZWN0IHJvb3QgZm9yIGxpY2Vuc2UgaW5mb3JtYXRpb24uXG4gKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tKi9cblxuaW1wb3J0IHsgbG9jYWxpemUgfSBmcm9tICcuLi8uLi8uLi8uLi9ubHMuanMnO1xuaW1wb3J0IHsgSUNvbmZpZ3VyYXRpb25TZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vY29uZmlndXJhdGlvbi9jb21tb24vY29uZmlndXJhdGlvbi5qcyc7XG5pbXBvcnQgeyBJQ29udGV4dE1lbnVTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vY29udGV4dHZpZXcvYnJvd3Nlci9jb250ZXh0Vmlldy5qcyc7XG5pbXBvcnQgeyBJSW5zdGFudGlhdGlvblNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS9pbnN0YW50aWF0aW9uL2NvbW1vbi9pbnN0YW50aWF0aW9uLmpzJztcbmltcG9ydCB7IElTdG9yYWdlU2VydmljZSB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL3N0b3JhZ2UvY29tbW9uL3N0b3JhZ2UuanMnO1xuaW1wb3J0IHsgSVRlbGVtZXRyeVNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS90ZWxlbWV0cnkvY29tbW9uL3RlbGVtZXRyeS5qcyc7XG5pbXBvcnQgeyBJVGhlbWVTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vdGhlbWUvY29tbW9uL3RoZW1lU2VydmljZS5qcyc7XG5pbXBvcnQgeyBJV29ya3NwYWNlQ29udGV4dFNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS93b3Jrc3BhY2UvY29tbW9uL3dvcmtzcGFjZS5qcyc7XG5pbXBvcnQgeyBWaWV3UGFuZUNvbnRhaW5lciB9IGZyb20gJy4uLy4uLy4uL2Jyb3dzZXIvcGFydHMvdmlld3Mvdmlld1BhbmVDb250YWluZXIuanMnO1xuaW1wb3J0IHsgSVZpZXdEZXNjcmlwdG9yU2VydmljZSB9IGZyb20gJy4uLy4uLy4uL2NvbW1vbi92aWV3cy5qcyc7XG5pbXBvcnQgeyBUZXN0aW5nIH0gZnJvbSAnLi4vY29tbW9uL2NvbnN0YW50cy5qcyc7XG5pbXBvcnQgeyBJRXh0ZW5zaW9uU2VydmljZSB9IGZyb20gJy4uLy4uLy4uL3NlcnZpY2VzL2V4dGVuc2lvbnMvY29tbW9uL2V4dGVuc2lvbnMuanMnO1xuaW1wb3J0IHsgSVdvcmtiZW5jaExheW91dFNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi9zZXJ2aWNlcy9sYXlvdXQvYnJvd3Nlci9sYXlvdXRTZXJ2aWNlLmpzJztcbmltcG9ydCB7IElMb2dTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vbG9nL2NvbW1vbi9sb2cuanMnO1xuXG5leHBvcnQgY2xhc3MgVGVzdGluZ1ZpZXdQYW5lQ29udGFpbmVyIGV4dGVuZHMgVmlld1BhbmVDb250YWluZXIge1xuXG5cdGNvbnN0cnVjdG9yKFxuXHRcdEBJV29ya2JlbmNoTGF5b3V0U2VydmljZSBsYXlvdXRTZXJ2aWNlOiBJV29ya2JlbmNoTGF5b3V0U2VydmljZSxcblx0XHRASVRlbGVtZXRyeVNlcnZpY2UgdGVsZW1ldHJ5U2VydmljZTogSVRlbGVtZXRyeVNlcnZpY2UsXG5cdFx0QElJbnN0YW50aWF0aW9uU2VydmljZSBpbnN0YW50aWF0aW9uU2VydmljZTogSUluc3RhbnRpYXRpb25TZXJ2aWNlLFxuXHRcdEBJQ29udGV4dE1lbnVTZXJ2aWNlIGNvbnRleHRNZW51U2VydmljZTogSUNvbnRleHRNZW51U2VydmljZSxcblx0XHRASVRoZW1lU2VydmljZSB0aGVtZVNlcnZpY2U6IElUaGVtZVNlcnZpY2UsXG5cdFx0QElTdG9yYWdlU2VydmljZSBzdG9yYWdlU2VydmljZTogSVN0b3JhZ2VTZXJ2aWNlLFxuXHRcdEBJQ29uZmlndXJhdGlvblNlcnZpY2UgY29uZmlndXJhdGlvblNlcnZpY2U6IElDb25maWd1cmF0aW9uU2VydmljZSxcblx0XHRASUV4dGVuc2lvblNlcnZpY2UgZXh0ZW5zaW9uU2VydmljZTogSUV4dGVuc2lvblNlcnZpY2UsXG5cdFx0QElXb3Jrc3BhY2VDb250ZXh0U2VydmljZSBjb250ZXh0U2VydmljZTogSVdvcmtzcGFjZUNvbnRleHRTZXJ2aWNlLFxuXHRcdEBJVmlld0Rlc2NyaXB0b3JTZXJ2aWNlIHZpZXdEZXNjcmlwdG9yU2VydmljZTogSVZpZXdEZXNjcmlwdG9yU2VydmljZSxcblx0XHRASUxvZ1NlcnZpY2UgbG9nU2VydmljZTogSUxvZ1NlcnZpY2UsXG5cdCkge1xuXHRcdHN1cGVyKFRlc3RpbmcuVmlld2xldElkLCB7IG1lcmdlVmlld1dpdGhDb250YWluZXJXaGVuU2luZ2xlVmlldzogdHJ1ZSB9LCBpbnN0YW50aWF0aW9uU2VydmljZSwgY29uZmlndXJhdGlvblNlcnZpY2UsIGxheW91dFNlcnZpY2UsIGNvbnRleHRNZW51U2VydmljZSwgdGVsZW1ldHJ5U2VydmljZSwgZXh0ZW5zaW9uU2VydmljZSwgdGhlbWVTZXJ2aWNlLCBzdG9yYWdlU2VydmljZSwgY29udGV4dFNlcnZpY2UsIHZpZXdEZXNjcmlwdG9yU2VydmljZSwgbG9nU2VydmljZSk7XG5cdH1cblxuXHRvdmVycmlkZSBjcmVhdGUocGFyZW50OiBIVE1MRWxlbWVudCk6IHZvaWQge1xuXHRcdHN1cGVyLmNyZWF0ZShwYXJlbnQpO1xuXHRcdHBhcmVudC5jbGFzc0xpc3QuYWRkKCd0ZXN0aW5nLXZpZXctcGFuZScpO1xuXHR9XG5cblx0b3ZlcnJpZGUgZ2V0T3B0aW1hbFdpZHRoKCk6IG51bWJlciB7XG5cdFx0cmV0dXJuIDQwMDtcblx0fVxuXG5cdG92ZXJyaWRlIGdldFRpdGxlKCk6IHN0cmluZyB7XG5cdFx0cmV0dXJuIGxvY2FsaXplKCd0ZXN0aW5nJywgXCJUZXN0aW5nXCIpO1xuXHR9XG59XG4iXSwKICAibWFwcGluZ3MiOiAiOzs7Ozs7Ozs7OztBQUtBLFNBQVMsZ0JBQWdCO0FBQ3pCLFNBQVMsNkJBQTZCO0FBQ3RDLFNBQVMsMkJBQTJCO0FBQ3BDLFNBQVMsNkJBQTZCO0FBQ3RDLFNBQVMsdUJBQXVCO0FBQ2hDLFNBQVMseUJBQXlCO0FBQ2xDLFNBQVMscUJBQXFCO0FBQzlCLFNBQVMsZ0NBQWdDO0FBQ3pDLFNBQVMseUJBQXlCO0FBQ2xDLFNBQVMsOEJBQThCO0FBQ3ZDLFNBQVMsZUFBZTtBQUN4QixTQUFTLHlCQUF5QjtBQUNsQyxTQUFTLCtCQUErQjtBQUN4QyxTQUFTLG1CQUFtQjtBQUVyQixJQUFNLDJCQUFOLGNBQXVDLGtCQUFrQjtBQUFBLEVBRS9ELFlBQzBCLGVBQ04sa0JBQ0ksc0JBQ0Ysb0JBQ04sY0FDRSxnQkFDTSxzQkFDSixrQkFDTyxnQkFDRix1QkFDWCxZQUNaO0FBQ0QsVUFBTSxRQUFRLFdBQVcsRUFBRSxzQ0FBc0MsS0FBSyxHQUFHLHNCQUFzQixzQkFBc0IsZUFBZSxvQkFBb0Isa0JBQWtCLGtCQUFrQixjQUFjLGdCQUFnQixnQkFBZ0IsdUJBQXVCLFVBQVU7QUFBQSxFQUM1UTtBQUFBLEVBRVMsT0FBTyxRQUEyQjtBQUMxQyxVQUFNLE9BQU8sTUFBTTtBQUNuQixXQUFPLFVBQVUsSUFBSSxtQkFBbUI7QUFBQSxFQUN6QztBQUFBLEVBRVMsa0JBQTBCO0FBQ2xDLFdBQU87QUFBQSxFQUNSO0FBQUEsRUFFUyxXQUFtQjtBQUMzQixXQUFPLFNBQVMsV0FBVyxTQUFTO0FBQUEsRUFDckM7QUFDRDtBQTlCYSwyQkFBTjtBQUFBLEVBR0o7QUFBQSxFQUNBO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFBQSxFQUNBO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFBQSxFQUNBO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFBQSxFQUNBO0FBQUEsR0FiVTsiLAogICJuYW1lcyI6IFtdCn0K

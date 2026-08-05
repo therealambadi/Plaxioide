@@ -1,0 +1,74 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __decorateClass = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc(target, key) : target;
+  for (var i = decorators.length - 1, decorator; i >= 0; i--)
+    if (decorator = decorators[i])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp(target, key, result);
+  return result;
+};
+var __decorateParam = (index, decorator) => (target, key) => decorator(target, key, index);
+import * as nls from "../../../../nls.js";
+import { IWorkbenchEnvironmentService } from "../../environment/common/environmentService.js";
+import { IRemoteAgentService } from "../common/remoteAgentService.js";
+import { IRemoteAuthorityResolverService, RemoteAuthorityResolverError } from "../../../../platform/remote/common/remoteAuthorityResolver.js";
+import { AbstractRemoteAgentService } from "../common/abstractRemoteAgentService.js";
+import { IProductService } from "../../../../platform/product/common/productService.js";
+import { ISignService } from "../../../../platform/sign/common/sign.js";
+import { ILogService } from "../../../../platform/log/common/log.js";
+import { Severity } from "../../../../platform/notification/common/notification.js";
+import { IDialogService } from "../../../../platform/dialogs/common/dialogs.js";
+import { WorkbenchPhase, registerWorkbenchContribution2 } from "../../../common/contributions.js";
+import { IHostService } from "../../host/browser/host.js";
+import { IUserDataProfileService } from "../../userDataProfile/common/userDataProfile.js";
+import { IRemoteSocketFactoryService } from "../../../../platform/remote/common/remoteSocketFactoryService.js";
+let RemoteAgentService = class extends AbstractRemoteAgentService {
+  constructor(remoteSocketFactoryService, userDataProfileService, environmentService, productService, remoteAuthorityResolverService, signService, logService) {
+    super(remoteSocketFactoryService, userDataProfileService, environmentService, productService, remoteAuthorityResolverService, signService, logService);
+  }
+};
+RemoteAgentService = __decorateClass([
+  __decorateParam(0, IRemoteSocketFactoryService),
+  __decorateParam(1, IUserDataProfileService),
+  __decorateParam(2, IWorkbenchEnvironmentService),
+  __decorateParam(3, IProductService),
+  __decorateParam(4, IRemoteAuthorityResolverService),
+  __decorateParam(5, ISignService),
+  __decorateParam(6, ILogService)
+], RemoteAgentService);
+let RemoteConnectionFailureNotificationContribution = class {
+  constructor(remoteAgentService, _dialogService, _hostService) {
+    this._dialogService = _dialogService;
+    this._hostService = _hostService;
+    remoteAgentService.getRawEnvironment().then(void 0, (err) => {
+      if (!RemoteAuthorityResolverError.isHandled(err)) {
+        this._presentConnectionError(err);
+      }
+    });
+  }
+  async _presentConnectionError(err) {
+    await this._dialogService.prompt({
+      type: Severity.Error,
+      message: nls.localize("connectionError", "An unexpected error occurred that requires a reload of this page."),
+      detail: nls.localize("connectionErrorDetail", "The workbench failed to connect to the server (Error: {0})", err ? err.message : ""),
+      buttons: [
+        {
+          label: nls.localize({ key: "reload", comment: ["&& denotes a mnemonic"] }, "&&Reload"),
+          run: () => this._hostService.reload()
+        }
+      ]
+    });
+  }
+};
+RemoteConnectionFailureNotificationContribution.ID = "workbench.contrib.browserRemoteConnectionFailureNotification";
+RemoteConnectionFailureNotificationContribution = __decorateClass([
+  __decorateParam(0, IRemoteAgentService),
+  __decorateParam(1, IDialogService),
+  __decorateParam(2, IHostService)
+], RemoteConnectionFailureNotificationContribution);
+registerWorkbenchContribution2(RemoteConnectionFailureNotificationContribution.ID, RemoteConnectionFailureNotificationContribution, WorkbenchPhase.BlockRestore);
+export {
+  RemoteAgentService
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvc2VydmljZXMvcmVtb3RlL2Jyb3dzZXIvcmVtb3RlQWdlbnRTZXJ2aWNlLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyIvKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxuICogIENvcHlyaWdodCAoYykgTWljcm9zb2Z0IENvcnBvcmF0aW9uLiBBbGwgcmlnaHRzIHJlc2VydmVkLlxuICogIExpY2Vuc2VkIHVuZGVyIHRoZSBNSVQgTGljZW5zZS4gU2VlIExpY2Vuc2UudHh0IGluIHRoZSBwcm9qZWN0IHJvb3QgZm9yIGxpY2Vuc2UgaW5mb3JtYXRpb24uXG4gKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tKi9cblxuaW1wb3J0ICogYXMgbmxzIGZyb20gJy4uLy4uLy4uLy4uL25scy5qcyc7XG5pbXBvcnQgeyBJV29ya2JlbmNoRW52aXJvbm1lbnRTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vZW52aXJvbm1lbnQvY29tbW9uL2Vudmlyb25tZW50U2VydmljZS5qcyc7XG5pbXBvcnQgeyBJUmVtb3RlQWdlbnRTZXJ2aWNlIH0gZnJvbSAnLi4vY29tbW9uL3JlbW90ZUFnZW50U2VydmljZS5qcyc7XG5pbXBvcnQgeyBJUmVtb3RlQXV0aG9yaXR5UmVzb2x2ZXJTZXJ2aWNlLCBSZW1vdGVBdXRob3JpdHlSZXNvbHZlckVycm9yIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vcmVtb3RlL2NvbW1vbi9yZW1vdGVBdXRob3JpdHlSZXNvbHZlci5qcyc7XG5pbXBvcnQgeyBBYnN0cmFjdFJlbW90ZUFnZW50U2VydmljZSB9IGZyb20gJy4uL2NvbW1vbi9hYnN0cmFjdFJlbW90ZUFnZW50U2VydmljZS5qcyc7XG5pbXBvcnQgeyBJUHJvZHVjdFNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS9wcm9kdWN0L2NvbW1vbi9wcm9kdWN0U2VydmljZS5qcyc7XG5pbXBvcnQgeyBJU2lnblNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS9zaWduL2NvbW1vbi9zaWduLmpzJztcbmltcG9ydCB7IElMb2dTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vbG9nL2NvbW1vbi9sb2cuanMnO1xuaW1wb3J0IHsgU2V2ZXJpdHkgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS9ub3RpZmljYXRpb24vY29tbW9uL25vdGlmaWNhdGlvbi5qcyc7XG5pbXBvcnQgeyBJRGlhbG9nU2VydmljZSB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL2RpYWxvZ3MvY29tbW9uL2RpYWxvZ3MuanMnO1xuaW1wb3J0IHsgSVdvcmtiZW5jaENvbnRyaWJ1dGlvbiwgV29ya2JlbmNoUGhhc2UsIHJlZ2lzdGVyV29ya2JlbmNoQ29udHJpYnV0aW9uMiB9IGZyb20gJy4uLy4uLy4uL2NvbW1vbi9jb250cmlidXRpb25zLmpzJztcbmltcG9ydCB7IElIb3N0U2VydmljZSB9IGZyb20gJy4uLy4uL2hvc3QvYnJvd3Nlci9ob3N0LmpzJztcbmltcG9ydCB7IElVc2VyRGF0YVByb2ZpbGVTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vdXNlckRhdGFQcm9maWxlL2NvbW1vbi91c2VyRGF0YVByb2ZpbGUuanMnO1xuaW1wb3J0IHsgSVJlbW90ZVNvY2tldEZhY3RvcnlTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vcmVtb3RlL2NvbW1vbi9yZW1vdGVTb2NrZXRGYWN0b3J5U2VydmljZS5qcyc7XG5cbmV4cG9ydCBjbGFzcyBSZW1vdGVBZ2VudFNlcnZpY2UgZXh0ZW5kcyBBYnN0cmFjdFJlbW90ZUFnZW50U2VydmljZSBpbXBsZW1lbnRzIElSZW1vdGVBZ2VudFNlcnZpY2Uge1xuXG5cdGNvbnN0cnVjdG9yKFxuXHRcdEBJUmVtb3RlU29ja2V0RmFjdG9yeVNlcnZpY2UgcmVtb3RlU29ja2V0RmFjdG9yeVNlcnZpY2U6IElSZW1vdGVTb2NrZXRGYWN0b3J5U2VydmljZSxcblx0XHRASVVzZXJEYXRhUHJvZmlsZVNlcnZpY2UgdXNlckRhdGFQcm9maWxlU2VydmljZTogSVVzZXJEYXRhUHJvZmlsZVNlcnZpY2UsXG5cdFx0QElXb3JrYmVuY2hFbnZpcm9ubWVudFNlcnZpY2UgZW52aXJvbm1lbnRTZXJ2aWNlOiBJV29ya2JlbmNoRW52aXJvbm1lbnRTZXJ2aWNlLFxuXHRcdEBJUHJvZHVjdFNlcnZpY2UgcHJvZHVjdFNlcnZpY2U6IElQcm9kdWN0U2VydmljZSxcblx0XHRASVJlbW90ZUF1dGhvcml0eVJlc29sdmVyU2VydmljZSByZW1vdGVBdXRob3JpdHlSZXNvbHZlclNlcnZpY2U6IElSZW1vdGVBdXRob3JpdHlSZXNvbHZlclNlcnZpY2UsXG5cdFx0QElTaWduU2VydmljZSBzaWduU2VydmljZTogSVNpZ25TZXJ2aWNlLFxuXHRcdEBJTG9nU2VydmljZSBsb2dTZXJ2aWNlOiBJTG9nU2VydmljZVxuXHQpIHtcblx0XHRzdXBlcihyZW1vdGVTb2NrZXRGYWN0b3J5U2VydmljZSwgdXNlckRhdGFQcm9maWxlU2VydmljZSwgZW52aXJvbm1lbnRTZXJ2aWNlLCBwcm9kdWN0U2VydmljZSwgcmVtb3RlQXV0aG9yaXR5UmVzb2x2ZXJTZXJ2aWNlLCBzaWduU2VydmljZSwgbG9nU2VydmljZSk7XG5cdH1cbn1cblxuY2xhc3MgUmVtb3RlQ29ubmVjdGlvbkZhaWx1cmVOb3RpZmljYXRpb25Db250cmlidXRpb24gaW1wbGVtZW50cyBJV29ya2JlbmNoQ29udHJpYnV0aW9uIHtcblxuXHRzdGF0aWMgcmVhZG9ubHkgSUQgPSAnd29ya2JlbmNoLmNvbnRyaWIuYnJvd3NlclJlbW90ZUNvbm5lY3Rpb25GYWlsdXJlTm90aWZpY2F0aW9uJztcblxuXHRjb25zdHJ1Y3Rvcihcblx0XHRASVJlbW90ZUFnZW50U2VydmljZSByZW1vdGVBZ2VudFNlcnZpY2U6IElSZW1vdGVBZ2VudFNlcnZpY2UsXG5cdFx0QElEaWFsb2dTZXJ2aWNlIHByaXZhdGUgcmVhZG9ubHkgX2RpYWxvZ1NlcnZpY2U6IElEaWFsb2dTZXJ2aWNlLFxuXHRcdEBJSG9zdFNlcnZpY2UgcHJpdmF0ZSByZWFkb25seSBfaG9zdFNlcnZpY2U6IElIb3N0U2VydmljZSxcblx0KSB7XG5cdFx0Ly8gTGV0J3MgY292ZXIgdGhlIGNhc2Ugd2hlcmUgY29ubmVjdGluZyB0byBmZXRjaCB0aGUgcmVtb3RlIGV4dGVuc2lvbiBpbmZvIGZhaWxzXG5cdFx0cmVtb3RlQWdlbnRTZXJ2aWNlLmdldFJhd0Vudmlyb25tZW50KClcblx0XHRcdC50aGVuKHVuZGVmaW5lZCwgKGVycikgPT4ge1xuXHRcdFx0XHRpZiAoIVJlbW90ZUF1dGhvcml0eVJlc29sdmVyRXJyb3IuaXNIYW5kbGVkKGVycikpIHtcblx0XHRcdFx0XHR0aGlzLl9wcmVzZW50Q29ubmVjdGlvbkVycm9yKGVycik7XG5cdFx0XHRcdH1cblx0XHRcdH0pO1xuXHR9XG5cblx0cHJpdmF0ZSBhc3luYyBfcHJlc2VudENvbm5lY3Rpb25FcnJvcihlcnI6IGFueSk6IFByb21pc2U8dm9pZD4ge1xuXHRcdGF3YWl0IHRoaXMuX2RpYWxvZ1NlcnZpY2UucHJvbXB0KHtcblx0XHRcdHR5cGU6IFNldmVyaXR5LkVycm9yLFxuXHRcdFx0bWVzc2FnZTogbmxzLmxvY2FsaXplKCdjb25uZWN0aW9uRXJyb3InLCBcIkFuIHVuZXhwZWN0ZWQgZXJyb3Igb2NjdXJyZWQgdGhhdCByZXF1aXJlcyBhIHJlbG9hZCBvZiB0aGlzIHBhZ2UuXCIpLFxuXHRcdFx0ZGV0YWlsOiBubHMubG9jYWxpemUoJ2Nvbm5lY3Rpb25FcnJvckRldGFpbCcsIFwiVGhlIHdvcmtiZW5jaCBmYWlsZWQgdG8gY29ubmVjdCB0byB0aGUgc2VydmVyIChFcnJvcjogezB9KVwiLCBlcnIgPyBlcnIubWVzc2FnZSA6ICcnKSxcblx0XHRcdGJ1dHRvbnM6IFtcblx0XHRcdFx0e1xuXHRcdFx0XHRcdGxhYmVsOiBubHMubG9jYWxpemUoeyBrZXk6ICdyZWxvYWQnLCBjb21tZW50OiBbJyYmIGRlbm90ZXMgYSBtbmVtb25pYyddIH0sIFwiJiZSZWxvYWRcIiksXG5cdFx0XHRcdFx0cnVuOiAoKSA9PiB0aGlzLl9ob3N0U2VydmljZS5yZWxvYWQoKVxuXHRcdFx0XHR9XG5cdFx0XHRdXG5cdFx0fSk7XG5cdH1cblxufVxuXG5yZWdpc3RlcldvcmtiZW5jaENvbnRyaWJ1dGlvbjIoUmVtb3RlQ29ubmVjdGlvbkZhaWx1cmVOb3RpZmljYXRpb25Db250cmlidXRpb24uSUQsIFJlbW90ZUNvbm5lY3Rpb25GYWlsdXJlTm90aWZpY2F0aW9uQ29udHJpYnV0aW9uLCBXb3JrYmVuY2hQaGFzZS5CbG9ja1Jlc3RvcmUpO1xuIl0sCiAgIm1hcHBpbmdzIjogIjs7Ozs7Ozs7Ozs7QUFLQSxZQUFZLFNBQVM7QUFDckIsU0FBUyxvQ0FBb0M7QUFDN0MsU0FBUywyQkFBMkI7QUFDcEMsU0FBUyxpQ0FBaUMsb0NBQW9DO0FBQzlFLFNBQVMsa0NBQWtDO0FBQzNDLFNBQVMsdUJBQXVCO0FBQ2hDLFNBQVMsb0JBQW9CO0FBQzdCLFNBQVMsbUJBQW1CO0FBQzVCLFNBQVMsZ0JBQWdCO0FBQ3pCLFNBQVMsc0JBQXNCO0FBQy9CLFNBQWlDLGdCQUFnQixzQ0FBc0M7QUFDdkYsU0FBUyxvQkFBb0I7QUFDN0IsU0FBUywrQkFBK0I7QUFDeEMsU0FBUyxtQ0FBbUM7QUFFckMsSUFBTSxxQkFBTixjQUFpQywyQkFBMEQ7QUFBQSxFQUVqRyxZQUM4Qiw0QkFDSix3QkFDSyxvQkFDYixnQkFDZ0IsZ0NBQ25CLGFBQ0QsWUFDWjtBQUNELFVBQU0sNEJBQTRCLHdCQUF3QixvQkFBb0IsZ0JBQWdCLGdDQUFnQyxhQUFhLFVBQVU7QUFBQSxFQUN0SjtBQUNEO0FBYmEscUJBQU47QUFBQSxFQUdKO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFBQSxFQUNBO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFBQSxFQUNBO0FBQUEsR0FUVTtBQWViLElBQU0sa0RBQU4sTUFBd0Y7QUFBQSxFQUl2RixZQUNzQixvQkFDWSxnQkFDRixjQUM5QjtBQUZnQztBQUNGO0FBRy9CLHVCQUFtQixrQkFBa0IsRUFDbkMsS0FBSyxRQUFXLENBQUMsUUFBUTtBQUN6QixVQUFJLENBQUMsNkJBQTZCLFVBQVUsR0FBRyxHQUFHO0FBQ2pELGFBQUssd0JBQXdCLEdBQUc7QUFBQSxNQUNqQztBQUFBLElBQ0QsQ0FBQztBQUFBLEVBQ0g7QUFBQSxFQUVBLE1BQWMsd0JBQXdCLEtBQXlCO0FBQzlELFVBQU0sS0FBSyxlQUFlLE9BQU87QUFBQSxNQUNoQyxNQUFNLFNBQVM7QUFBQSxNQUNmLFNBQVMsSUFBSSxTQUFTLG1CQUFtQixtRUFBbUU7QUFBQSxNQUM1RyxRQUFRLElBQUksU0FBUyx5QkFBeUIsOERBQThELE1BQU0sSUFBSSxVQUFVLEVBQUU7QUFBQSxNQUNsSSxTQUFTO0FBQUEsUUFDUjtBQUFBLFVBQ0MsT0FBTyxJQUFJLFNBQVMsRUFBRSxLQUFLLFVBQVUsU0FBUyxDQUFDLHVCQUF1QixFQUFFLEdBQUcsVUFBVTtBQUFBLFVBQ3JGLEtBQUssTUFBTSxLQUFLLGFBQWEsT0FBTztBQUFBLFFBQ3JDO0FBQUEsTUFDRDtBQUFBLElBQ0QsQ0FBQztBQUFBLEVBQ0Y7QUFFRDtBQWhDTSxnREFFVyxLQUFLO0FBRmhCLGtEQUFOO0FBQUEsRUFLRztBQUFBLEVBQ0E7QUFBQSxFQUNBO0FBQUEsR0FQRztBQWtDTiwrQkFBK0IsZ0RBQWdELElBQUksaURBQWlELGVBQWUsWUFBWTsiLAogICJuYW1lcyI6IFtdCn0K

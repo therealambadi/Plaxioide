@@ -1,0 +1,61 @@
+import { addDisposableListener } from "./dom.js";
+import { Disposable } from "../common/lifecycle.js";
+import { Mimes } from "../common/mime.js";
+class DelayedDragHandler extends Disposable {
+  constructor(container, callback) {
+    super();
+    this._register(addDisposableListener(container, "dragover", (e) => {
+      e.preventDefault();
+      if (!this.timeout) {
+        this.timeout = setTimeout(() => {
+          callback();
+          this.timeout = null;
+        }, 800);
+      }
+    }));
+    ["dragleave", "drop", "dragend"].forEach((type) => {
+      this._register(addDisposableListener(container, type, () => {
+        this.clearDragTimeout();
+      }));
+    });
+  }
+  clearDragTimeout() {
+    if (this.timeout) {
+      clearTimeout(this.timeout);
+      this.timeout = null;
+    }
+  }
+  dispose() {
+    super.dispose();
+    this.clearDragTimeout();
+  }
+}
+const DataTransfers = {
+  /**
+   * Application specific resource transfer type
+   */
+  RESOURCES: "ResourceURLs",
+  /**
+   * Browser specific transfer type to download
+   */
+  DOWNLOAD_URL: "DownloadURL",
+  /**
+   * Browser specific transfer type for files
+   */
+  FILES: "Files",
+  /**
+   * Typically transfer type for copy/paste transfers.
+   */
+  TEXT: Mimes.text,
+  /**
+   * Internal type used to pass around text/uri-list data.
+   *
+   * This is needed to work around https://bugs.chromium.org/p/chromium/issues/detail?id=239745.
+   */
+  INTERNAL_URI_LIST: "application/vnd.code.uri-list"
+};
+export {
+  DataTransfers,
+  DelayedDragHandler
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy9iYXNlL2Jyb3dzZXIvZG5kLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyIvKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxuICogIENvcHlyaWdodCAoYykgTWljcm9zb2Z0IENvcnBvcmF0aW9uLiBBbGwgcmlnaHRzIHJlc2VydmVkLlxuICogIExpY2Vuc2VkIHVuZGVyIHRoZSBNSVQgTGljZW5zZS4gU2VlIExpY2Vuc2UudHh0IGluIHRoZSBwcm9qZWN0IHJvb3QgZm9yIGxpY2Vuc2UgaW5mb3JtYXRpb24uXG4gKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tKi9cblxuaW1wb3J0IHsgYWRkRGlzcG9zYWJsZUxpc3RlbmVyIH0gZnJvbSAnLi9kb20uanMnO1xuaW1wb3J0IHsgRGlzcG9zYWJsZSB9IGZyb20gJy4uL2NvbW1vbi9saWZlY3ljbGUuanMnO1xuaW1wb3J0IHsgTWltZXMgfSBmcm9tICcuLi9jb21tb24vbWltZS5qcyc7XG5cbi8qKlxuICogQSBoZWxwZXIgdGhhdCB3aWxsIGV4ZWN1dGUgYSBwcm92aWRlZCBmdW5jdGlvbiB3aGVuIHRoZSBwcm92aWRlZCBIVE1MRWxlbWVudCByZWNlaXZlc1xuICogIGRyYWdvdmVyIGV2ZW50IGZvciA4MDBtcy4gSWYgdGhlIGRyYWcgaXMgYWJvcnRlZCBiZWZvcmUsIHRoZSBjYWxsYmFjayB3aWxsIG5vdCBiZSB0cmlnZ2VyZWQuXG4gKi9cbmV4cG9ydCBjbGFzcyBEZWxheWVkRHJhZ0hhbmRsZXIgZXh0ZW5kcyBEaXNwb3NhYmxlIHtcblx0cHJpdmF0ZSB0aW1lb3V0OiBhbnk7XG5cblx0Y29uc3RydWN0b3IoY29udGFpbmVyOiBIVE1MRWxlbWVudCwgY2FsbGJhY2s6ICgpID0+IHZvaWQpIHtcblx0XHRzdXBlcigpO1xuXG5cdFx0dGhpcy5fcmVnaXN0ZXIoYWRkRGlzcG9zYWJsZUxpc3RlbmVyKGNvbnRhaW5lciwgJ2RyYWdvdmVyJywgZSA9PiB7XG5cdFx0XHRlLnByZXZlbnREZWZhdWx0KCk7IC8vIG5lZWRlZCBzbyB0aGF0IHRoZSBkcm9wIGV2ZW50IGZpcmVzIChodHRwczovL3N0YWNrb3ZlcmZsb3cuY29tL3F1ZXN0aW9ucy8yMTMzOTkyNC9kcm9wLWV2ZW50LW5vdC1maXJpbmctaW4tY2hyb21lKVxuXG5cdFx0XHRpZiAoIXRoaXMudGltZW91dCkge1xuXHRcdFx0XHR0aGlzLnRpbWVvdXQgPSBzZXRUaW1lb3V0KCgpID0+IHtcblx0XHRcdFx0XHRjYWxsYmFjaygpO1xuXG5cdFx0XHRcdFx0dGhpcy50aW1lb3V0ID0gbnVsbDtcblx0XHRcdFx0fSwgODAwKTtcblx0XHRcdH1cblx0XHR9KSk7XG5cblx0XHRbJ2RyYWdsZWF2ZScsICdkcm9wJywgJ2RyYWdlbmQnXS5mb3JFYWNoKHR5cGUgPT4ge1xuXHRcdFx0dGhpcy5fcmVnaXN0ZXIoYWRkRGlzcG9zYWJsZUxpc3RlbmVyKGNvbnRhaW5lciwgdHlwZSwgKCkgPT4ge1xuXHRcdFx0XHR0aGlzLmNsZWFyRHJhZ1RpbWVvdXQoKTtcblx0XHRcdH0pKTtcblx0XHR9KTtcblx0fVxuXG5cdHByaXZhdGUgY2xlYXJEcmFnVGltZW91dCgpOiB2b2lkIHtcblx0XHRpZiAodGhpcy50aW1lb3V0KSB7XG5cdFx0XHRjbGVhclRpbWVvdXQodGhpcy50aW1lb3V0KTtcblx0XHRcdHRoaXMudGltZW91dCA9IG51bGw7XG5cdFx0fVxuXHR9XG5cblx0b3ZlcnJpZGUgZGlzcG9zZSgpOiB2b2lkIHtcblx0XHRzdXBlci5kaXNwb3NlKCk7XG5cblx0XHR0aGlzLmNsZWFyRHJhZ1RpbWVvdXQoKTtcblx0fVxufVxuXG4vLyBDb21tb24gZGF0YSB0cmFuc2ZlcnNcbmV4cG9ydCBjb25zdCBEYXRhVHJhbnNmZXJzID0ge1xuXG5cdC8qKlxuXHQgKiBBcHBsaWNhdGlvbiBzcGVjaWZpYyByZXNvdXJjZSB0cmFuc2ZlciB0eXBlXG5cdCAqL1xuXHRSRVNPVVJDRVM6ICdSZXNvdXJjZVVSTHMnLFxuXG5cdC8qKlxuXHQgKiBCcm93c2VyIHNwZWNpZmljIHRyYW5zZmVyIHR5cGUgdG8gZG93bmxvYWRcblx0ICovXG5cdERPV05MT0FEX1VSTDogJ0Rvd25sb2FkVVJMJyxcblxuXHQvKipcblx0ICogQnJvd3NlciBzcGVjaWZpYyB0cmFuc2ZlciB0eXBlIGZvciBmaWxlc1xuXHQgKi9cblx0RklMRVM6ICdGaWxlcycsXG5cblx0LyoqXG5cdCAqIFR5cGljYWxseSB0cmFuc2ZlciB0eXBlIGZvciBjb3B5L3Bhc3RlIHRyYW5zZmVycy5cblx0ICovXG5cdFRFWFQ6IE1pbWVzLnRleHQsXG5cblx0LyoqXG5cdCAqIEludGVybmFsIHR5cGUgdXNlZCB0byBwYXNzIGFyb3VuZCB0ZXh0L3VyaS1saXN0IGRhdGEuXG5cdCAqXG5cdCAqIFRoaXMgaXMgbmVlZGVkIHRvIHdvcmsgYXJvdW5kIGh0dHBzOi8vYnVncy5jaHJvbWl1bS5vcmcvcC9jaHJvbWl1bS9pc3N1ZXMvZGV0YWlsP2lkPTIzOTc0NS5cblx0ICovXG5cdElOVEVSTkFMX1VSSV9MSVNUOiAnYXBwbGljYXRpb24vdm5kLmNvZGUudXJpLWxpc3QnLFxufTtcblxuZXhwb3J0IGludGVyZmFjZSBJRHJhZ0FuZERyb3BEYXRhIHtcblx0dXBkYXRlKGRhdGFUcmFuc2ZlcjogRGF0YVRyYW5zZmVyKTogdm9pZDtcblx0Z2V0RGF0YSgpOiB1bmtub3duO1xufVxuIl0sCiAgIm1hcHBpbmdzIjogIkFBS0EsU0FBUyw2QkFBNkI7QUFDdEMsU0FBUyxrQkFBa0I7QUFDM0IsU0FBUyxhQUFhO0FBTWYsTUFBTSwyQkFBMkIsV0FBVztBQUFBLEVBR2xELFlBQVksV0FBd0IsVUFBc0I7QUFDekQsVUFBTTtBQUVOLFNBQUssVUFBVSxzQkFBc0IsV0FBVyxZQUFZLE9BQUs7QUFDaEUsUUFBRSxlQUFlO0FBRWpCLFVBQUksQ0FBQyxLQUFLLFNBQVM7QUFDbEIsYUFBSyxVQUFVLFdBQVcsTUFBTTtBQUMvQixtQkFBUztBQUVULGVBQUssVUFBVTtBQUFBLFFBQ2hCLEdBQUcsR0FBRztBQUFBLE1BQ1A7QUFBQSxJQUNELENBQUMsQ0FBQztBQUVGLEtBQUMsYUFBYSxRQUFRLFNBQVMsRUFBRSxRQUFRLFVBQVE7QUFDaEQsV0FBSyxVQUFVLHNCQUFzQixXQUFXLE1BQU0sTUFBTTtBQUMzRCxhQUFLLGlCQUFpQjtBQUFBLE1BQ3ZCLENBQUMsQ0FBQztBQUFBLElBQ0gsQ0FBQztBQUFBLEVBQ0Y7QUFBQSxFQUVRLG1CQUF5QjtBQUNoQyxRQUFJLEtBQUssU0FBUztBQUNqQixtQkFBYSxLQUFLLE9BQU87QUFDekIsV0FBSyxVQUFVO0FBQUEsSUFDaEI7QUFBQSxFQUNEO0FBQUEsRUFFUyxVQUFnQjtBQUN4QixVQUFNLFFBQVE7QUFFZCxTQUFLLGlCQUFpQjtBQUFBLEVBQ3ZCO0FBQ0Q7QUFHTyxNQUFNLGdCQUFnQjtBQUFBO0FBQUE7QUFBQTtBQUFBLEVBSzVCLFdBQVc7QUFBQTtBQUFBO0FBQUE7QUFBQSxFQUtYLGNBQWM7QUFBQTtBQUFBO0FBQUE7QUFBQSxFQUtkLE9BQU87QUFBQTtBQUFBO0FBQUE7QUFBQSxFQUtQLE1BQU0sTUFBTTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQSxFQU9aLG1CQUFtQjtBQUNwQjsiLAogICJuYW1lcyI6IFtdCn0K

@@ -1,0 +1,34 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __decorateClass = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc(target, key) : target;
+  for (var i = decorators.length - 1, decorator; i >= 0; i--)
+    if (decorator = decorators[i])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp(target, key, result);
+  return result;
+};
+var __decorateParam = (index, decorator) => (target, key) => decorator(target, key, index);
+import { Disposable } from "../../../../../base/common/lifecycle.js";
+import { IInstantiationService } from "../../../../../platform/instantiation/common/instantiation.js";
+import { ILanguageModelToolsService } from "../../common/languageModelToolsService.js";
+import { EditTool, EditToolData } from "./editFileTool.js";
+let BuiltinToolsContribution = class extends Disposable {
+  constructor(toolsService, instantiationService) {
+    super();
+    const editTool = instantiationService.createInstance(EditTool);
+    this._register(toolsService.registerToolData(EditToolData));
+    this._register(toolsService.registerToolImplementation(EditToolData.id, editTool));
+  }
+};
+BuiltinToolsContribution.ID = "chat.builtinTools";
+BuiltinToolsContribution = __decorateClass([
+  __decorateParam(0, ILanguageModelToolsService),
+  __decorateParam(1, IInstantiationService)
+], BuiltinToolsContribution);
+const InternalFetchWebPageToolId = "vscode_fetchWebPage_internal";
+export {
+  BuiltinToolsContribution,
+  InternalFetchWebPageToolId
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvY29udHJpYi9jaGF0L2NvbW1vbi90b29scy90b29scy50cyJdLAogICJzb3VyY2VzQ29udGVudCI6IFsiLyotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS1cbiAqICBDb3B5cmlnaHQgKGMpIE1pY3Jvc29mdCBDb3Jwb3JhdGlvbi4gQWxsIHJpZ2h0cyByZXNlcnZlZC5cbiAqICBMaWNlbnNlZCB1bmRlciB0aGUgTUlUIExpY2Vuc2UuIFNlZSBMaWNlbnNlLnR4dCBpbiB0aGUgcHJvamVjdCByb290IGZvciBsaWNlbnNlIGluZm9ybWF0aW9uLlxuICotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLSovXG5cbmltcG9ydCB7IERpc3Bvc2FibGUgfSBmcm9tICcuLi8uLi8uLi8uLi8uLi9iYXNlL2NvbW1vbi9saWZlY3ljbGUuanMnO1xuaW1wb3J0IHsgSUluc3RhbnRpYXRpb25TZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vLi4vcGxhdGZvcm0vaW5zdGFudGlhdGlvbi9jb21tb24vaW5zdGFudGlhdGlvbi5qcyc7XG5pbXBvcnQgeyBJV29ya2JlbmNoQ29udHJpYnV0aW9uIH0gZnJvbSAnLi4vLi4vLi4vLi4vY29tbW9uL2NvbnRyaWJ1dGlvbnMuanMnO1xuaW1wb3J0IHsgSUxhbmd1YWdlTW9kZWxUb29sc1NlcnZpY2UgfSBmcm9tICcuLi8uLi9jb21tb24vbGFuZ3VhZ2VNb2RlbFRvb2xzU2VydmljZS5qcyc7XG5pbXBvcnQgeyBFZGl0VG9vbCwgRWRpdFRvb2xEYXRhIH0gZnJvbSAnLi9lZGl0RmlsZVRvb2wuanMnO1xuXG5leHBvcnQgY2xhc3MgQnVpbHRpblRvb2xzQ29udHJpYnV0aW9uIGV4dGVuZHMgRGlzcG9zYWJsZSBpbXBsZW1lbnRzIElXb3JrYmVuY2hDb250cmlidXRpb24ge1xuXG5cdHN0YXRpYyByZWFkb25seSBJRCA9ICdjaGF0LmJ1aWx0aW5Ub29scyc7XG5cblx0Y29uc3RydWN0b3IoXG5cdFx0QElMYW5ndWFnZU1vZGVsVG9vbHNTZXJ2aWNlIHRvb2xzU2VydmljZTogSUxhbmd1YWdlTW9kZWxUb29sc1NlcnZpY2UsXG5cdFx0QElJbnN0YW50aWF0aW9uU2VydmljZSBpbnN0YW50aWF0aW9uU2VydmljZTogSUluc3RhbnRpYXRpb25TZXJ2aWNlLFxuXHQpIHtcblx0XHRzdXBlcigpO1xuXG5cdFx0Y29uc3QgZWRpdFRvb2wgPSBpbnN0YW50aWF0aW9uU2VydmljZS5jcmVhdGVJbnN0YW5jZShFZGl0VG9vbCk7XG5cdFx0dGhpcy5fcmVnaXN0ZXIodG9vbHNTZXJ2aWNlLnJlZ2lzdGVyVG9vbERhdGEoRWRpdFRvb2xEYXRhKSk7XG5cdFx0dGhpcy5fcmVnaXN0ZXIodG9vbHNTZXJ2aWNlLnJlZ2lzdGVyVG9vbEltcGxlbWVudGF0aW9uKEVkaXRUb29sRGF0YS5pZCwgZWRpdFRvb2wpKTtcblx0fVxufVxuXG5leHBvcnQgaW50ZXJmYWNlIElUb29sSW5wdXRQcm9jZXNzb3Ige1xuXHRwcm9jZXNzSW5wdXQoaW5wdXQ6IGFueSk6IGFueTtcbn1cblxuZXhwb3J0IGNvbnN0IEludGVybmFsRmV0Y2hXZWJQYWdlVG9vbElkID0gJ3ZzY29kZV9mZXRjaFdlYlBhZ2VfaW50ZXJuYWwnO1xuIl0sCiAgIm1hcHBpbmdzIjogIjs7Ozs7Ozs7Ozs7QUFLQSxTQUFTLGtCQUFrQjtBQUMzQixTQUFTLDZCQUE2QjtBQUV0QyxTQUFTLGtDQUFrQztBQUMzQyxTQUFTLFVBQVUsb0JBQW9CO0FBRWhDLElBQU0sMkJBQU4sY0FBdUMsV0FBNkM7QUFBQSxFQUkxRixZQUM2QixjQUNMLHNCQUN0QjtBQUNELFVBQU07QUFFTixVQUFNLFdBQVcscUJBQXFCLGVBQWUsUUFBUTtBQUM3RCxTQUFLLFVBQVUsYUFBYSxpQkFBaUIsWUFBWSxDQUFDO0FBQzFELFNBQUssVUFBVSxhQUFhLDJCQUEyQixhQUFhLElBQUksUUFBUSxDQUFDO0FBQUEsRUFDbEY7QUFDRDtBQWRhLHlCQUVJLEtBQUs7QUFGVCwyQkFBTjtBQUFBLEVBS0o7QUFBQSxFQUNBO0FBQUEsR0FOVTtBQW9CTixNQUFNLDZCQUE2QjsiLAogICJuYW1lcyI6IFtdCn0K

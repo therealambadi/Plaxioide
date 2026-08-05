@@ -1,0 +1,191 @@
+import * as platform from "../../../../../base/common/platform.js";
+import { IWorkbenchEnvironmentService } from "../../../../services/environment/common/environmentService.js";
+function content(accessor) {
+  const isServerless = platform.isWeb && !accessor.get(IWorkbenchEnvironmentService).remoteAuthority;
+  return `
+## Interactive Editor Playground
+The core editor in VS Code is packed with features.  This page highlights a number of them and lets you interactively try them out through the use of a number of embedded editors.  For full details on the editor features for VS Code and more head over to our [documentation](https://code.visualstudio.com/docs).
+
+* [Multi-cursor Editing](#multi-cursor-editing) - block selection, select all occurrences, add additional cursors and more.
+* [IntelliSense](#intellisense) - get code assistance and parameter suggestions for your code and external modules.
+* [Line Actions](#line-actions) - quickly move lines around to re-order your code.${!isServerless ? `
+* [Rename Refactoring](#rename-refactoring) - quickly rename symbols across your code base.` : ""}
+* [Formatting](#formatting) - keep your code looking great with inbuilt document & selection formatting.
+* [Code Folding](#code-folding) - focus on the most relevant parts of your code by folding other areas.
+* [Errors and Warnings](#errors-and-warnings) - see errors and warnings as you type.
+* [Snippets](#snippets) - spend less time typing with snippets.
+* [Emmet](#emmet) - integrated Emmet support takes HTML and CSS editing to the next level.
+* [JavaScript Type Checking](#javascript-type-checking) - perform type checking on your JavaScript file using TypeScript with zero configuration.
+
+
+
+### Multi-Cursor Editing
+Using multiple cursors allows you to edit multiple parts of the document at once, greatly improving your productivity.  Try the following actions in the code block below:
+1. Box Selection - press <span class="mac-only windows-only">any combination of kb(cursorColumnSelectDown), kb(cursorColumnSelectRight), kb(cursorColumnSelectUp), kb(cursorColumnSelectLeft) to select a block of text. You can also press</span> <span class="shortcut mac-only">|\u21E7\u2325|</span><span class="shortcut windows-only linux-only">|Shift+Alt|</span> while selecting text with the mouse or drag-select using the middle mouse button.
+2. Add a cursor - press kb(editor.action.insertCursorAbove) to add a new cursor above, or kb(editor.action.insertCursorBelow) to add a new cursor below. You can also use your mouse with <span class="shortcut"><span class="multi-cursor-modifier"></span>+Click</span> to add a cursor anywhere.
+3. Create cursors on all occurrences of a string - select one instance of a string e.g. |background-color| and press kb(editor.action.selectHighlights).  Now you can replace all instances by simply typing.
+
+That is the tip of the iceberg for multi-cursor editing. Have a look at the selection menu and our handy [keyboard reference guide](command:workbench.action.keybindingsReference) for additional actions.
+
+|||css
+#p1 {background-color: #ff0000;}                /* red in HEX format */
+#p2 {background-color: hsl(120, 100%, 50%);}    /* green in HSL format */
+#p3 {background-color: rgba(0, 4, 255, 0.733);} /* blue with alpha channel in RGBA format */
+|||
+
+> **CSS Tip:** You may have noticed in the example above we also provide color swatches inline for CSS, additionally if you hover over an element such as |#p1| we will show how this is represented in HTML.  These swatches also act as color pickers that allow you to easily change a color value.  A simple example of some language-specific editor features.
+
+### IntelliSense
+
+Visual Studio Code comes with the powerful IntelliSense for JavaScript and TypeScript pre-installed. In the below example, position the text cursor right after the dot and press kb(editor.action.triggerSuggest) to invoke IntelliSense.  Notice how the suggestions come from the Canvas API.
+
+|||js
+const canvas = document.querySelector('canvas');
+const context = canvas.getContext('2d');
+
+context.strokeStyle = 'blue';
+context.
+|||
+
+>**Tip:** While we ship JavaScript and TypeScript support out of the box other languages can be upgraded with better IntelliSense through one of the many [extensions](command:workbench.extensions.action.showPopularExtensions).
+
+
+### Line Actions
+Since it's very common to work with the entire text in a line we provide a set of useful shortcuts to help with this.
+1. <span class="mac-only windows-only">Copy a line and insert it above or below the current position with kb(editor.action.copyLinesDownAction) or kb(editor.action.copyLinesUpAction) respectively.</span><span class="linux-only">Copy the entire current line when no text is selected with kb(editor.action.clipboardCopyAction).</span>
+2. Move an entire line or selection of lines up or down with kb(editor.action.moveLinesUpAction) and kb(editor.action.moveLinesDownAction) respectively.
+3. Delete the entire line with kb(editor.action.deleteLines).
+
+|||json
+{
+	"name": "John",
+	"age": 31,
+	"city": "New York"
+}
+|||
+
+>**Tip:** Another very common task is to comment out a block of code - you can toggle commenting by pressing kb(editor.action.commentLine).
+
+
+${!isServerless ? `
+### Rename Refactoring
+It's easy to rename a symbol such as a function name or variable name.  Hit kb(editor.action.rename) while in the symbol |Book| to rename all instances - this will occur across all files in a project. You also have |Rename Symbol| in the right-click context menu.
+
+|||js
+// Reference the function
+new Book("War of the Worlds", "H G Wells");
+new Book("The Martian", "Andy Weir");
+
+/**
+ * Represents a book.
+ *
+ * @param {string} title Title of the book
+ * @param {string} author Who wrote the book
+ */
+function Book(title, author) {
+	this.title = title;
+	this.author = author;
+}
+|||
+
+> **JSDoc Tip:** VS Code's IntelliSense uses JSDoc comments to provide richer suggestions. The types and documentation from JSDoc comments show up when you hover over a reference to |Book| or in IntelliSense when you create a new instance of |Book|.
+
+` : ""}
+### Formatting
+Keeping your code looking great is hard without a good formatter.  Luckily it's easy to format content, either for the entire document with kb(editor.action.formatDocument) or for the current selection with kb(editor.action.formatSelection).  Both of these options are also available through the right-click context menu.
+
+|||js
+const cars = ["\u{1F697}", "\u{1F699}", "\u{1F695}"];
+
+for (const car of cars){
+	// Drive the car
+	console.log(|This is the car \${car}|);
+}
+|||
+
+>**Tip:** Additional formatters are available in the [extension gallery](command:workbench.extensions.action.showPopularExtensions).  Formatting support can also be configured via [settings](command:workbench.action.openGlobalSettings) e.g. enabling |editor.formatOnSave|.
+
+
+### Code Folding
+In a large file it can often be useful to collapse sections of code to increase readability.  To do this, you can simply press kb(editor.fold) to fold or press kb(editor.unfold) to unfold the ranges at the current cursor position.  Folding can also be done with the down and right angle bracket icons in the left gutter.  To fold all sections use kb(editor.foldAll) or to unfold all use kb(editor.unfoldAll).
+
+|||html
+<div>
+	<header>
+		<ul>
+			<li><a href=""></a></li>
+			<li><a href=""></a></li>
+		</ul>
+	</header>
+	<footer>
+		<p></p>
+	</footer>
+</div>
+|||
+
+>**Tip:** Folding is based on indentation and as a result can apply to all languages.  Simply indent your code to create a foldable section you can fold a certain number of levels with shortcuts like kb(editor.foldLevel1) through to kb(editor.foldLevel5).
+
+### Errors and Warnings
+Errors and warnings are highlighted as you edit your code with squiggles.  In the sample below you can see a number of syntax errors.  By pressing kb(editor.action.marker.nextInFiles) you can navigate across them in sequence and see the detailed error message.  As you correct them the squiggles and scrollbar indicators will update.
+
+|||js
+// This code has a few syntax errors
+Console.log(add(1, 1.5));
+
+
+function Add(a, b)
+	return a + b;
+}
+|||
+
+
+###  Snippets
+You can greatly accelerate your editing through the use of snippets.  Simply start typing |try| and select |trycatch| from the suggestion list and press kb(insertSnippet) to create a |try|->|catch| block.  Your cursor will be placed on the text |error| for easy editing.  If more than one parameter exists then press kb(jumpToNextSnippetPlaceholder) to jump to it.
+
+|||js
+
+|||
+
+>**Tip:** The [extension gallery](command:workbench.extensions.action.showPopularExtensions) includes snippets for almost every framework and language imaginable.  You can also create your own [user-defined snippets](command:workbench.action.openSnippets).
+
+
+### Emmet
+Emmet takes the snippets idea to a whole new level: you can type CSS-like expressions that can be dynamically parsed, and produce output depending on what you type in the abbreviation. Try it by selecting |Emmet: Expand Abbreviation| from the |Edit| menu with the cursor at the end of a valid Emmet abbreviation or snippet and the expansion will occur.
+
+|||html
+ul>li.item$*5
+|||
+
+>**Tip:** The [Emmet cheat sheet](https://docs.emmet.io/cheat-sheet/) is a great source of Emmet syntax suggestions. To expand Emmet abbreviations and snippets using the |tab| key use the |emmet.triggerExpansionOnTab| [setting](command:workbench.action.openGlobalSettings). Check out the docs on [Emmet in VS Code](https://code.visualstudio.com/docs/editor/emmet) to learn more.
+
+
+
+### JavaScript Type Checking
+Sometimes type checking your JavaScript code can help you spot mistakes you might have not caught otherwise. You can run the TypeScript type checker against your existing JavaScript code by simply adding a |// @ts-check| comment to the top of your file.
+
+|||js
+// @ts-nocheck
+
+let easy = true;
+easy = 42;
+|||
+
+>**Tip:** You can also enable the checks workspace or application wide by adding |"js/ts.implicitProjectConfig.checkJs": true| to your workspace or user settings and explicitly ignoring files or lines using |// @ts-nocheck| and |// @ts-expect-error|. Check out the docs on [JavaScript in VS Code](https://code.visualstudio.com/docs/languages/javascript) to learn more.
+
+
+## Thanks!
+Well if you have got this far then you will have touched on some of the editing features in Visual Studio Code.  But don't stop now :)  We have lots of additional [documentation](https://code.visualstudio.com/docs), [introductory videos](https://code.visualstudio.com/docs/getstarted/introvideos) and [tips and tricks](https://go.microsoft.com/fwlink/?linkid=852118) for the product that will help you learn how to use it.  And while you are here, here are a few additional things you can try:
+- Open the Integrated Terminal by pressing kb(workbench.action.terminal.toggleTerminal), then see what's possible by [reviewing the terminal documentation](https://code.visualstudio.com/docs/editor/integrated-terminal)
+- Work with version control by pressing kb(workbench.view.scm). Understand how to stage, commit, change branches, and view diffs and more by reviewing the [version control documentation](https://code.visualstudio.com/docs/editor/versioncontrol)
+- Browse thousands of extensions in our integrated gallery by pressing kb(workbench.view.extensions). The [documentation](https://code.visualstudio.com/docs/editor/extension-gallery) will show you how to see the most popular extensions, disable installed ones and more.
+
+That's all for now,
+
+Happy Coding! \u{1F389}
+
+`.replace(/\|/g, "`");
+}
+export {
+  content as default
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvY29udHJpYi93ZWxjb21lV2Fsa3Rocm91Z2gvYnJvd3Nlci9lZGl0b3IvdnNfY29kZV9lZGl0b3Jfd2Fsa3Rocm91Z2gudHMiXSwKICAic291cmNlc0NvbnRlbnQiOiBbIi8qLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXG4gKiAgQ29weXJpZ2h0IChjKSBNaWNyb3NvZnQgQ29ycG9yYXRpb24uIEFsbCByaWdodHMgcmVzZXJ2ZWQuXG4gKiAgTGljZW5zZWQgdW5kZXIgdGhlIE1JVCBMaWNlbnNlLiBTZWUgTGljZW5zZS50eHQgaW4gdGhlIHByb2plY3Qgcm9vdCBmb3IgbGljZW5zZSBpbmZvcm1hdGlvbi5cbiAqLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0qL1xuXG5pbXBvcnQgKiBhcyBwbGF0Zm9ybSBmcm9tICcuLi8uLi8uLi8uLi8uLi9iYXNlL2NvbW1vbi9wbGF0Zm9ybS5qcyc7XG5pbXBvcnQgeyBTZXJ2aWNlc0FjY2Vzc29yIH0gZnJvbSAnLi4vLi4vLi4vLi4vLi4vcGxhdGZvcm0vaW5zdGFudGlhdGlvbi9jb21tb24vaW5zdGFudGlhdGlvbi5qcyc7XG5pbXBvcnQgeyBJV29ya2JlbmNoRW52aXJvbm1lbnRTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vc2VydmljZXMvZW52aXJvbm1lbnQvY29tbW9uL2Vudmlyb25tZW50U2VydmljZS5qcyc7XG5cbmV4cG9ydCBkZWZhdWx0IGZ1bmN0aW9uIGNvbnRlbnQoYWNjZXNzb3I6IFNlcnZpY2VzQWNjZXNzb3IpIHtcblx0Y29uc3QgaXNTZXJ2ZXJsZXNzID0gcGxhdGZvcm0uaXNXZWIgJiYgIWFjY2Vzc29yLmdldChJV29ya2JlbmNoRW52aXJvbm1lbnRTZXJ2aWNlKS5yZW1vdGVBdXRob3JpdHk7XG5cdHJldHVybiBgXG4jIyBJbnRlcmFjdGl2ZSBFZGl0b3IgUGxheWdyb3VuZFxuVGhlIGNvcmUgZWRpdG9yIGluIFZTIENvZGUgaXMgcGFja2VkIHdpdGggZmVhdHVyZXMuICBUaGlzIHBhZ2UgaGlnaGxpZ2h0cyBhIG51bWJlciBvZiB0aGVtIGFuZCBsZXRzIHlvdSBpbnRlcmFjdGl2ZWx5IHRyeSB0aGVtIG91dCB0aHJvdWdoIHRoZSB1c2Ugb2YgYSBudW1iZXIgb2YgZW1iZWRkZWQgZWRpdG9ycy4gIEZvciBmdWxsIGRldGFpbHMgb24gdGhlIGVkaXRvciBmZWF0dXJlcyBmb3IgVlMgQ29kZSBhbmQgbW9yZSBoZWFkIG92ZXIgdG8gb3VyIFtkb2N1bWVudGF0aW9uXShodHRwczovL2NvZGUudmlzdWFsc3R1ZGlvLmNvbS9kb2NzKS5cblxuKiBbTXVsdGktY3Vyc29yIEVkaXRpbmddKCNtdWx0aS1jdXJzb3ItZWRpdGluZykgLSBibG9jayBzZWxlY3Rpb24sIHNlbGVjdCBhbGwgb2NjdXJyZW5jZXMsIGFkZCBhZGRpdGlvbmFsIGN1cnNvcnMgYW5kIG1vcmUuXG4qIFtJbnRlbGxpU2Vuc2VdKCNpbnRlbGxpc2Vuc2UpIC0gZ2V0IGNvZGUgYXNzaXN0YW5jZSBhbmQgcGFyYW1ldGVyIHN1Z2dlc3Rpb25zIGZvciB5b3VyIGNvZGUgYW5kIGV4dGVybmFsIG1vZHVsZXMuXG4qIFtMaW5lIEFjdGlvbnNdKCNsaW5lLWFjdGlvbnMpIC0gcXVpY2tseSBtb3ZlIGxpbmVzIGFyb3VuZCB0byByZS1vcmRlciB5b3VyIGNvZGUuJHshaXNTZXJ2ZXJsZXNzID8gYFxuKiBbUmVuYW1lIFJlZmFjdG9yaW5nXSgjcmVuYW1lLXJlZmFjdG9yaW5nKSAtIHF1aWNrbHkgcmVuYW1lIHN5bWJvbHMgYWNyb3NzIHlvdXIgY29kZSBiYXNlLmAgOiAnJ31cbiogW0Zvcm1hdHRpbmddKCNmb3JtYXR0aW5nKSAtIGtlZXAgeW91ciBjb2RlIGxvb2tpbmcgZ3JlYXQgd2l0aCBpbmJ1aWx0IGRvY3VtZW50ICYgc2VsZWN0aW9uIGZvcm1hdHRpbmcuXG4qIFtDb2RlIEZvbGRpbmddKCNjb2RlLWZvbGRpbmcpIC0gZm9jdXMgb24gdGhlIG1vc3QgcmVsZXZhbnQgcGFydHMgb2YgeW91ciBjb2RlIGJ5IGZvbGRpbmcgb3RoZXIgYXJlYXMuXG4qIFtFcnJvcnMgYW5kIFdhcm5pbmdzXSgjZXJyb3JzLWFuZC13YXJuaW5ncykgLSBzZWUgZXJyb3JzIGFuZCB3YXJuaW5ncyBhcyB5b3UgdHlwZS5cbiogW1NuaXBwZXRzXSgjc25pcHBldHMpIC0gc3BlbmQgbGVzcyB0aW1lIHR5cGluZyB3aXRoIHNuaXBwZXRzLlxuKiBbRW1tZXRdKCNlbW1ldCkgLSBpbnRlZ3JhdGVkIEVtbWV0IHN1cHBvcnQgdGFrZXMgSFRNTCBhbmQgQ1NTIGVkaXRpbmcgdG8gdGhlIG5leHQgbGV2ZWwuXG4qIFtKYXZhU2NyaXB0IFR5cGUgQ2hlY2tpbmddKCNqYXZhc2NyaXB0LXR5cGUtY2hlY2tpbmcpIC0gcGVyZm9ybSB0eXBlIGNoZWNraW5nIG9uIHlvdXIgSmF2YVNjcmlwdCBmaWxlIHVzaW5nIFR5cGVTY3JpcHQgd2l0aCB6ZXJvIGNvbmZpZ3VyYXRpb24uXG5cblxuXG4jIyMgTXVsdGktQ3Vyc29yIEVkaXRpbmdcblVzaW5nIG11bHRpcGxlIGN1cnNvcnMgYWxsb3dzIHlvdSB0byBlZGl0IG11bHRpcGxlIHBhcnRzIG9mIHRoZSBkb2N1bWVudCBhdCBvbmNlLCBncmVhdGx5IGltcHJvdmluZyB5b3VyIHByb2R1Y3Rpdml0eS4gIFRyeSB0aGUgZm9sbG93aW5nIGFjdGlvbnMgaW4gdGhlIGNvZGUgYmxvY2sgYmVsb3c6XG4xLiBCb3ggU2VsZWN0aW9uIC0gcHJlc3MgPHNwYW4gY2xhc3M9XCJtYWMtb25seSB3aW5kb3dzLW9ubHlcIj5hbnkgY29tYmluYXRpb24gb2Yga2IoY3Vyc29yQ29sdW1uU2VsZWN0RG93biksIGtiKGN1cnNvckNvbHVtblNlbGVjdFJpZ2h0KSwga2IoY3Vyc29yQ29sdW1uU2VsZWN0VXApLCBrYihjdXJzb3JDb2x1bW5TZWxlY3RMZWZ0KSB0byBzZWxlY3QgYSBibG9jayBvZiB0ZXh0LiBZb3UgY2FuIGFsc28gcHJlc3M8L3NwYW4+IDxzcGFuIGNsYXNzPVwic2hvcnRjdXQgbWFjLW9ubHlcIj58XHUyMUU3XHUyMzI1fDwvc3Bhbj48c3BhbiBjbGFzcz1cInNob3J0Y3V0IHdpbmRvd3Mtb25seSBsaW51eC1vbmx5XCI+fFNoaWZ0K0FsdHw8L3NwYW4+IHdoaWxlIHNlbGVjdGluZyB0ZXh0IHdpdGggdGhlIG1vdXNlIG9yIGRyYWctc2VsZWN0IHVzaW5nIHRoZSBtaWRkbGUgbW91c2UgYnV0dG9uLlxuMi4gQWRkIGEgY3Vyc29yIC0gcHJlc3Mga2IoZWRpdG9yLmFjdGlvbi5pbnNlcnRDdXJzb3JBYm92ZSkgdG8gYWRkIGEgbmV3IGN1cnNvciBhYm92ZSwgb3Iga2IoZWRpdG9yLmFjdGlvbi5pbnNlcnRDdXJzb3JCZWxvdykgdG8gYWRkIGEgbmV3IGN1cnNvciBiZWxvdy4gWW91IGNhbiBhbHNvIHVzZSB5b3VyIG1vdXNlIHdpdGggPHNwYW4gY2xhc3M9XCJzaG9ydGN1dFwiPjxzcGFuIGNsYXNzPVwibXVsdGktY3Vyc29yLW1vZGlmaWVyXCI+PC9zcGFuPitDbGljazwvc3Bhbj4gdG8gYWRkIGEgY3Vyc29yIGFueXdoZXJlLlxuMy4gQ3JlYXRlIGN1cnNvcnMgb24gYWxsIG9jY3VycmVuY2VzIG9mIGEgc3RyaW5nIC0gc2VsZWN0IG9uZSBpbnN0YW5jZSBvZiBhIHN0cmluZyBlLmcuIHxiYWNrZ3JvdW5kLWNvbG9yfCBhbmQgcHJlc3Mga2IoZWRpdG9yLmFjdGlvbi5zZWxlY3RIaWdobGlnaHRzKS4gIE5vdyB5b3UgY2FuIHJlcGxhY2UgYWxsIGluc3RhbmNlcyBieSBzaW1wbHkgdHlwaW5nLlxuXG5UaGF0IGlzIHRoZSB0aXAgb2YgdGhlIGljZWJlcmcgZm9yIG11bHRpLWN1cnNvciBlZGl0aW5nLiBIYXZlIGEgbG9vayBhdCB0aGUgc2VsZWN0aW9uIG1lbnUgYW5kIG91ciBoYW5keSBba2V5Ym9hcmQgcmVmZXJlbmNlIGd1aWRlXShjb21tYW5kOndvcmtiZW5jaC5hY3Rpb24ua2V5YmluZGluZ3NSZWZlcmVuY2UpIGZvciBhZGRpdGlvbmFsIGFjdGlvbnMuXG5cbnx8fGNzc1xuI3AxIHtiYWNrZ3JvdW5kLWNvbG9yOiAjZmYwMDAwO30gICAgICAgICAgICAgICAgLyogcmVkIGluIEhFWCBmb3JtYXQgKi9cbiNwMiB7YmFja2dyb3VuZC1jb2xvcjogaHNsKDEyMCwgMTAwJSwgNTAlKTt9ICAgIC8qIGdyZWVuIGluIEhTTCBmb3JtYXQgKi9cbiNwMyB7YmFja2dyb3VuZC1jb2xvcjogcmdiYSgwLCA0LCAyNTUsIDAuNzMzKTt9IC8qIGJsdWUgd2l0aCBhbHBoYSBjaGFubmVsIGluIFJHQkEgZm9ybWF0ICovXG58fHxcblxuPiAqKkNTUyBUaXA6KiogWW91IG1heSBoYXZlIG5vdGljZWQgaW4gdGhlIGV4YW1wbGUgYWJvdmUgd2UgYWxzbyBwcm92aWRlIGNvbG9yIHN3YXRjaGVzIGlubGluZSBmb3IgQ1NTLCBhZGRpdGlvbmFsbHkgaWYgeW91IGhvdmVyIG92ZXIgYW4gZWxlbWVudCBzdWNoIGFzIHwjcDF8IHdlIHdpbGwgc2hvdyBob3cgdGhpcyBpcyByZXByZXNlbnRlZCBpbiBIVE1MLiAgVGhlc2Ugc3dhdGNoZXMgYWxzbyBhY3QgYXMgY29sb3IgcGlja2VycyB0aGF0IGFsbG93IHlvdSB0byBlYXNpbHkgY2hhbmdlIGEgY29sb3IgdmFsdWUuICBBIHNpbXBsZSBleGFtcGxlIG9mIHNvbWUgbGFuZ3VhZ2Utc3BlY2lmaWMgZWRpdG9yIGZlYXR1cmVzLlxuXG4jIyMgSW50ZWxsaVNlbnNlXG5cblZpc3VhbCBTdHVkaW8gQ29kZSBjb21lcyB3aXRoIHRoZSBwb3dlcmZ1bCBJbnRlbGxpU2Vuc2UgZm9yIEphdmFTY3JpcHQgYW5kIFR5cGVTY3JpcHQgcHJlLWluc3RhbGxlZC4gSW4gdGhlIGJlbG93IGV4YW1wbGUsIHBvc2l0aW9uIHRoZSB0ZXh0IGN1cnNvciByaWdodCBhZnRlciB0aGUgZG90IGFuZCBwcmVzcyBrYihlZGl0b3IuYWN0aW9uLnRyaWdnZXJTdWdnZXN0KSB0byBpbnZva2UgSW50ZWxsaVNlbnNlLiAgTm90aWNlIGhvdyB0aGUgc3VnZ2VzdGlvbnMgY29tZSBmcm9tIHRoZSBDYW52YXMgQVBJLlxuXG58fHxqc1xuY29uc3QgY2FudmFzID0gZG9jdW1lbnQucXVlcnlTZWxlY3RvcignY2FudmFzJyk7XG5jb25zdCBjb250ZXh0ID0gY2FudmFzLmdldENvbnRleHQoJzJkJyk7XG5cbmNvbnRleHQuc3Ryb2tlU3R5bGUgPSAnYmx1ZSc7XG5jb250ZXh0LlxufHx8XG5cbj4qKlRpcDoqKiBXaGlsZSB3ZSBzaGlwIEphdmFTY3JpcHQgYW5kIFR5cGVTY3JpcHQgc3VwcG9ydCBvdXQgb2YgdGhlIGJveCBvdGhlciBsYW5ndWFnZXMgY2FuIGJlIHVwZ3JhZGVkIHdpdGggYmV0dGVyIEludGVsbGlTZW5zZSB0aHJvdWdoIG9uZSBvZiB0aGUgbWFueSBbZXh0ZW5zaW9uc10oY29tbWFuZDp3b3JrYmVuY2guZXh0ZW5zaW9ucy5hY3Rpb24uc2hvd1BvcHVsYXJFeHRlbnNpb25zKS5cblxuXG4jIyMgTGluZSBBY3Rpb25zXG5TaW5jZSBpdCdzIHZlcnkgY29tbW9uIHRvIHdvcmsgd2l0aCB0aGUgZW50aXJlIHRleHQgaW4gYSBsaW5lIHdlIHByb3ZpZGUgYSBzZXQgb2YgdXNlZnVsIHNob3J0Y3V0cyB0byBoZWxwIHdpdGggdGhpcy5cbjEuIDxzcGFuIGNsYXNzPVwibWFjLW9ubHkgd2luZG93cy1vbmx5XCI+Q29weSBhIGxpbmUgYW5kIGluc2VydCBpdCBhYm92ZSBvciBiZWxvdyB0aGUgY3VycmVudCBwb3NpdGlvbiB3aXRoIGtiKGVkaXRvci5hY3Rpb24uY29weUxpbmVzRG93bkFjdGlvbikgb3Iga2IoZWRpdG9yLmFjdGlvbi5jb3B5TGluZXNVcEFjdGlvbikgcmVzcGVjdGl2ZWx5Ljwvc3Bhbj48c3BhbiBjbGFzcz1cImxpbnV4LW9ubHlcIj5Db3B5IHRoZSBlbnRpcmUgY3VycmVudCBsaW5lIHdoZW4gbm8gdGV4dCBpcyBzZWxlY3RlZCB3aXRoIGtiKGVkaXRvci5hY3Rpb24uY2xpcGJvYXJkQ29weUFjdGlvbikuPC9zcGFuPlxuMi4gTW92ZSBhbiBlbnRpcmUgbGluZSBvciBzZWxlY3Rpb24gb2YgbGluZXMgdXAgb3IgZG93biB3aXRoIGtiKGVkaXRvci5hY3Rpb24ubW92ZUxpbmVzVXBBY3Rpb24pIGFuZCBrYihlZGl0b3IuYWN0aW9uLm1vdmVMaW5lc0Rvd25BY3Rpb24pIHJlc3BlY3RpdmVseS5cbjMuIERlbGV0ZSB0aGUgZW50aXJlIGxpbmUgd2l0aCBrYihlZGl0b3IuYWN0aW9uLmRlbGV0ZUxpbmVzKS5cblxufHx8anNvblxue1xuXHRcIm5hbWVcIjogXCJKb2huXCIsXG5cdFwiYWdlXCI6IDMxLFxuXHRcImNpdHlcIjogXCJOZXcgWW9ya1wiXG59XG58fHxcblxuPioqVGlwOioqIEFub3RoZXIgdmVyeSBjb21tb24gdGFzayBpcyB0byBjb21tZW50IG91dCBhIGJsb2NrIG9mIGNvZGUgLSB5b3UgY2FuIHRvZ2dsZSBjb21tZW50aW5nIGJ5IHByZXNzaW5nIGtiKGVkaXRvci5hY3Rpb24uY29tbWVudExpbmUpLlxuXG5cbiR7IWlzU2VydmVybGVzcyA/IGBcbiMjIyBSZW5hbWUgUmVmYWN0b3Jpbmdcbkl0J3MgZWFzeSB0byByZW5hbWUgYSBzeW1ib2wgc3VjaCBhcyBhIGZ1bmN0aW9uIG5hbWUgb3IgdmFyaWFibGUgbmFtZS4gIEhpdCBrYihlZGl0b3IuYWN0aW9uLnJlbmFtZSkgd2hpbGUgaW4gdGhlIHN5bWJvbCB8Qm9va3wgdG8gcmVuYW1lIGFsbCBpbnN0YW5jZXMgLSB0aGlzIHdpbGwgb2NjdXIgYWNyb3NzIGFsbCBmaWxlcyBpbiBhIHByb2plY3QuIFlvdSBhbHNvIGhhdmUgfFJlbmFtZSBTeW1ib2x8IGluIHRoZSByaWdodC1jbGljayBjb250ZXh0IG1lbnUuXG5cbnx8fGpzXG4vLyBSZWZlcmVuY2UgdGhlIGZ1bmN0aW9uXG5uZXcgQm9vayhcIldhciBvZiB0aGUgV29ybGRzXCIsIFwiSCBHIFdlbGxzXCIpO1xubmV3IEJvb2soXCJUaGUgTWFydGlhblwiLCBcIkFuZHkgV2VpclwiKTtcblxuLyoqXG4gKiBSZXByZXNlbnRzIGEgYm9vay5cbiAqXG4gKiBAcGFyYW0ge3N0cmluZ30gdGl0bGUgVGl0bGUgb2YgdGhlIGJvb2tcbiAqIEBwYXJhbSB7c3RyaW5nfSBhdXRob3IgV2hvIHdyb3RlIHRoZSBib29rXG4gKi9cbmZ1bmN0aW9uIEJvb2sodGl0bGUsIGF1dGhvcikge1xuXHR0aGlzLnRpdGxlID0gdGl0bGU7XG5cdHRoaXMuYXV0aG9yID0gYXV0aG9yO1xufVxufHx8XG5cbj4gKipKU0RvYyBUaXA6KiogVlMgQ29kZSdzIEludGVsbGlTZW5zZSB1c2VzIEpTRG9jIGNvbW1lbnRzIHRvIHByb3ZpZGUgcmljaGVyIHN1Z2dlc3Rpb25zLiBUaGUgdHlwZXMgYW5kIGRvY3VtZW50YXRpb24gZnJvbSBKU0RvYyBjb21tZW50cyBzaG93IHVwIHdoZW4geW91IGhvdmVyIG92ZXIgYSByZWZlcmVuY2UgdG8gfEJvb2t8IG9yIGluIEludGVsbGlTZW5zZSB3aGVuIHlvdSBjcmVhdGUgYSBuZXcgaW5zdGFuY2Ugb2YgfEJvb2t8LlxuXG5gIDogJyd9XG4jIyMgRm9ybWF0dGluZ1xuS2VlcGluZyB5b3VyIGNvZGUgbG9va2luZyBncmVhdCBpcyBoYXJkIHdpdGhvdXQgYSBnb29kIGZvcm1hdHRlci4gIEx1Y2tpbHkgaXQncyBlYXN5IHRvIGZvcm1hdCBjb250ZW50LCBlaXRoZXIgZm9yIHRoZSBlbnRpcmUgZG9jdW1lbnQgd2l0aCBrYihlZGl0b3IuYWN0aW9uLmZvcm1hdERvY3VtZW50KSBvciBmb3IgdGhlIGN1cnJlbnQgc2VsZWN0aW9uIHdpdGgga2IoZWRpdG9yLmFjdGlvbi5mb3JtYXRTZWxlY3Rpb24pLiAgQm90aCBvZiB0aGVzZSBvcHRpb25zIGFyZSBhbHNvIGF2YWlsYWJsZSB0aHJvdWdoIHRoZSByaWdodC1jbGljayBjb250ZXh0IG1lbnUuXG5cbnx8fGpzXG5jb25zdCBjYXJzID0gW1wiXHVEODNEXHVERTk3XCIsIFwiXHVEODNEXHVERTk5XCIsIFwiXHVEODNEXHVERTk1XCJdO1xuXG5mb3IgKGNvbnN0IGNhciBvZiBjYXJzKXtcblx0Ly8gRHJpdmUgdGhlIGNhclxuXHRjb25zb2xlLmxvZyh8VGhpcyBpcyB0aGUgY2FyIFxcJHtjYXJ9fCk7XG59XG58fHxcblxuPioqVGlwOioqIEFkZGl0aW9uYWwgZm9ybWF0dGVycyBhcmUgYXZhaWxhYmxlIGluIHRoZSBbZXh0ZW5zaW9uIGdhbGxlcnldKGNvbW1hbmQ6d29ya2JlbmNoLmV4dGVuc2lvbnMuYWN0aW9uLnNob3dQb3B1bGFyRXh0ZW5zaW9ucykuICBGb3JtYXR0aW5nIHN1cHBvcnQgY2FuIGFsc28gYmUgY29uZmlndXJlZCB2aWEgW3NldHRpbmdzXShjb21tYW5kOndvcmtiZW5jaC5hY3Rpb24ub3Blbkdsb2JhbFNldHRpbmdzKSBlLmcuIGVuYWJsaW5nIHxlZGl0b3IuZm9ybWF0T25TYXZlfC5cblxuXG4jIyMgQ29kZSBGb2xkaW5nXG5JbiBhIGxhcmdlIGZpbGUgaXQgY2FuIG9mdGVuIGJlIHVzZWZ1bCB0byBjb2xsYXBzZSBzZWN0aW9ucyBvZiBjb2RlIHRvIGluY3JlYXNlIHJlYWRhYmlsaXR5LiAgVG8gZG8gdGhpcywgeW91IGNhbiBzaW1wbHkgcHJlc3Mga2IoZWRpdG9yLmZvbGQpIHRvIGZvbGQgb3IgcHJlc3Mga2IoZWRpdG9yLnVuZm9sZCkgdG8gdW5mb2xkIHRoZSByYW5nZXMgYXQgdGhlIGN1cnJlbnQgY3Vyc29yIHBvc2l0aW9uLiAgRm9sZGluZyBjYW4gYWxzbyBiZSBkb25lIHdpdGggdGhlIGRvd24gYW5kIHJpZ2h0IGFuZ2xlIGJyYWNrZXQgaWNvbnMgaW4gdGhlIGxlZnQgZ3V0dGVyLiAgVG8gZm9sZCBhbGwgc2VjdGlvbnMgdXNlIGtiKGVkaXRvci5mb2xkQWxsKSBvciB0byB1bmZvbGQgYWxsIHVzZSBrYihlZGl0b3IudW5mb2xkQWxsKS5cblxufHx8aHRtbFxuPGRpdj5cblx0PGhlYWRlcj5cblx0XHQ8dWw+XG5cdFx0XHQ8bGk+PGEgaHJlZj1cIlwiPjwvYT48L2xpPlxuXHRcdFx0PGxpPjxhIGhyZWY9XCJcIj48L2E+PC9saT5cblx0XHQ8L3VsPlxuXHQ8L2hlYWRlcj5cblx0PGZvb3Rlcj5cblx0XHQ8cD48L3A+XG5cdDwvZm9vdGVyPlxuPC9kaXY+XG58fHxcblxuPioqVGlwOioqIEZvbGRpbmcgaXMgYmFzZWQgb24gaW5kZW50YXRpb24gYW5kIGFzIGEgcmVzdWx0IGNhbiBhcHBseSB0byBhbGwgbGFuZ3VhZ2VzLiAgU2ltcGx5IGluZGVudCB5b3VyIGNvZGUgdG8gY3JlYXRlIGEgZm9sZGFibGUgc2VjdGlvbiB5b3UgY2FuIGZvbGQgYSBjZXJ0YWluIG51bWJlciBvZiBsZXZlbHMgd2l0aCBzaG9ydGN1dHMgbGlrZSBrYihlZGl0b3IuZm9sZExldmVsMSkgdGhyb3VnaCB0byBrYihlZGl0b3IuZm9sZExldmVsNSkuXG5cbiMjIyBFcnJvcnMgYW5kIFdhcm5pbmdzXG5FcnJvcnMgYW5kIHdhcm5pbmdzIGFyZSBoaWdobGlnaHRlZCBhcyB5b3UgZWRpdCB5b3VyIGNvZGUgd2l0aCBzcXVpZ2dsZXMuICBJbiB0aGUgc2FtcGxlIGJlbG93IHlvdSBjYW4gc2VlIGEgbnVtYmVyIG9mIHN5bnRheCBlcnJvcnMuICBCeSBwcmVzc2luZyBrYihlZGl0b3IuYWN0aW9uLm1hcmtlci5uZXh0SW5GaWxlcykgeW91IGNhbiBuYXZpZ2F0ZSBhY3Jvc3MgdGhlbSBpbiBzZXF1ZW5jZSBhbmQgc2VlIHRoZSBkZXRhaWxlZCBlcnJvciBtZXNzYWdlLiAgQXMgeW91IGNvcnJlY3QgdGhlbSB0aGUgc3F1aWdnbGVzIGFuZCBzY3JvbGxiYXIgaW5kaWNhdG9ycyB3aWxsIHVwZGF0ZS5cblxufHx8anNcbi8vIFRoaXMgY29kZSBoYXMgYSBmZXcgc3ludGF4IGVycm9yc1xuQ29uc29sZS5sb2coYWRkKDEsIDEuNSkpO1xuXG5cbmZ1bmN0aW9uIEFkZChhLCBiKVxuXHRyZXR1cm4gYSArIGI7XG59XG58fHxcblxuXG4jIyMgIFNuaXBwZXRzXG5Zb3UgY2FuIGdyZWF0bHkgYWNjZWxlcmF0ZSB5b3VyIGVkaXRpbmcgdGhyb3VnaCB0aGUgdXNlIG9mIHNuaXBwZXRzLiAgU2ltcGx5IHN0YXJ0IHR5cGluZyB8dHJ5fCBhbmQgc2VsZWN0IHx0cnljYXRjaHwgZnJvbSB0aGUgc3VnZ2VzdGlvbiBsaXN0IGFuZCBwcmVzcyBrYihpbnNlcnRTbmlwcGV0KSB0byBjcmVhdGUgYSB8dHJ5fC0+fGNhdGNofCBibG9jay4gIFlvdXIgY3Vyc29yIHdpbGwgYmUgcGxhY2VkIG9uIHRoZSB0ZXh0IHxlcnJvcnwgZm9yIGVhc3kgZWRpdGluZy4gIElmIG1vcmUgdGhhbiBvbmUgcGFyYW1ldGVyIGV4aXN0cyB0aGVuIHByZXNzIGtiKGp1bXBUb05leHRTbmlwcGV0UGxhY2Vob2xkZXIpIHRvIGp1bXAgdG8gaXQuXG5cbnx8fGpzXG5cbnx8fFxuXG4+KipUaXA6KiogVGhlIFtleHRlbnNpb24gZ2FsbGVyeV0oY29tbWFuZDp3b3JrYmVuY2guZXh0ZW5zaW9ucy5hY3Rpb24uc2hvd1BvcHVsYXJFeHRlbnNpb25zKSBpbmNsdWRlcyBzbmlwcGV0cyBmb3IgYWxtb3N0IGV2ZXJ5IGZyYW1ld29yayBhbmQgbGFuZ3VhZ2UgaW1hZ2luYWJsZS4gIFlvdSBjYW4gYWxzbyBjcmVhdGUgeW91ciBvd24gW3VzZXItZGVmaW5lZCBzbmlwcGV0c10oY29tbWFuZDp3b3JrYmVuY2guYWN0aW9uLm9wZW5TbmlwcGV0cykuXG5cblxuIyMjIEVtbWV0XG5FbW1ldCB0YWtlcyB0aGUgc25pcHBldHMgaWRlYSB0byBhIHdob2xlIG5ldyBsZXZlbDogeW91IGNhbiB0eXBlIENTUy1saWtlIGV4cHJlc3Npb25zIHRoYXQgY2FuIGJlIGR5bmFtaWNhbGx5IHBhcnNlZCwgYW5kIHByb2R1Y2Ugb3V0cHV0IGRlcGVuZGluZyBvbiB3aGF0IHlvdSB0eXBlIGluIHRoZSBhYmJyZXZpYXRpb24uIFRyeSBpdCBieSBzZWxlY3RpbmcgfEVtbWV0OiBFeHBhbmQgQWJicmV2aWF0aW9ufCBmcm9tIHRoZSB8RWRpdHwgbWVudSB3aXRoIHRoZSBjdXJzb3IgYXQgdGhlIGVuZCBvZiBhIHZhbGlkIEVtbWV0IGFiYnJldmlhdGlvbiBvciBzbmlwcGV0IGFuZCB0aGUgZXhwYW5zaW9uIHdpbGwgb2NjdXIuXG5cbnx8fGh0bWxcbnVsPmxpLml0ZW0kKjVcbnx8fFxuXG4+KipUaXA6KiogVGhlIFtFbW1ldCBjaGVhdCBzaGVldF0oaHR0cHM6Ly9kb2NzLmVtbWV0LmlvL2NoZWF0LXNoZWV0LykgaXMgYSBncmVhdCBzb3VyY2Ugb2YgRW1tZXQgc3ludGF4IHN1Z2dlc3Rpb25zLiBUbyBleHBhbmQgRW1tZXQgYWJicmV2aWF0aW9ucyBhbmQgc25pcHBldHMgdXNpbmcgdGhlIHx0YWJ8IGtleSB1c2UgdGhlIHxlbW1ldC50cmlnZ2VyRXhwYW5zaW9uT25UYWJ8IFtzZXR0aW5nXShjb21tYW5kOndvcmtiZW5jaC5hY3Rpb24ub3Blbkdsb2JhbFNldHRpbmdzKS4gQ2hlY2sgb3V0IHRoZSBkb2NzIG9uIFtFbW1ldCBpbiBWUyBDb2RlXShodHRwczovL2NvZGUudmlzdWFsc3R1ZGlvLmNvbS9kb2NzL2VkaXRvci9lbW1ldCkgdG8gbGVhcm4gbW9yZS5cblxuXG5cbiMjIyBKYXZhU2NyaXB0IFR5cGUgQ2hlY2tpbmdcblNvbWV0aW1lcyB0eXBlIGNoZWNraW5nIHlvdXIgSmF2YVNjcmlwdCBjb2RlIGNhbiBoZWxwIHlvdSBzcG90IG1pc3Rha2VzIHlvdSBtaWdodCBoYXZlIG5vdCBjYXVnaHQgb3RoZXJ3aXNlLiBZb3UgY2FuIHJ1biB0aGUgVHlwZVNjcmlwdCB0eXBlIGNoZWNrZXIgYWdhaW5zdCB5b3VyIGV4aXN0aW5nIEphdmFTY3JpcHQgY29kZSBieSBzaW1wbHkgYWRkaW5nIGEgfC8vIEB0cy1jaGVja3wgY29tbWVudCB0byB0aGUgdG9wIG9mIHlvdXIgZmlsZS5cblxufHx8anNcbi8vIEB0cy1ub2NoZWNrXG5cbmxldCBlYXN5ID0gdHJ1ZTtcbmVhc3kgPSA0Mjtcbnx8fFxuXG4+KipUaXA6KiogWW91IGNhbiBhbHNvIGVuYWJsZSB0aGUgY2hlY2tzIHdvcmtzcGFjZSBvciBhcHBsaWNhdGlvbiB3aWRlIGJ5IGFkZGluZyB8XCJqcy90cy5pbXBsaWNpdFByb2plY3RDb25maWcuY2hlY2tKc1wiOiB0cnVlfCB0byB5b3VyIHdvcmtzcGFjZSBvciB1c2VyIHNldHRpbmdzIGFuZCBleHBsaWNpdGx5IGlnbm9yaW5nIGZpbGVzIG9yIGxpbmVzIHVzaW5nIHwvLyBAdHMtbm9jaGVja3wgYW5kIHwvLyBAdHMtZXhwZWN0LWVycm9yfC4gQ2hlY2sgb3V0IHRoZSBkb2NzIG9uIFtKYXZhU2NyaXB0IGluIFZTIENvZGVdKGh0dHBzOi8vY29kZS52aXN1YWxzdHVkaW8uY29tL2RvY3MvbGFuZ3VhZ2VzL2phdmFzY3JpcHQpIHRvIGxlYXJuIG1vcmUuXG5cblxuIyMgVGhhbmtzIVxuV2VsbCBpZiB5b3UgaGF2ZSBnb3QgdGhpcyBmYXIgdGhlbiB5b3Ugd2lsbCBoYXZlIHRvdWNoZWQgb24gc29tZSBvZiB0aGUgZWRpdGluZyBmZWF0dXJlcyBpbiBWaXN1YWwgU3R1ZGlvIENvZGUuICBCdXQgZG9uJ3Qgc3RvcCBub3cgOikgIFdlIGhhdmUgbG90cyBvZiBhZGRpdGlvbmFsIFtkb2N1bWVudGF0aW9uXShodHRwczovL2NvZGUudmlzdWFsc3R1ZGlvLmNvbS9kb2NzKSwgW2ludHJvZHVjdG9yeSB2aWRlb3NdKGh0dHBzOi8vY29kZS52aXN1YWxzdHVkaW8uY29tL2RvY3MvZ2V0c3RhcnRlZC9pbnRyb3ZpZGVvcykgYW5kIFt0aXBzIGFuZCB0cmlja3NdKGh0dHBzOi8vZ28ubWljcm9zb2Z0LmNvbS9md2xpbmsvP2xpbmtpZD04NTIxMTgpIGZvciB0aGUgcHJvZHVjdCB0aGF0IHdpbGwgaGVscCB5b3UgbGVhcm4gaG93IHRvIHVzZSBpdC4gIEFuZCB3aGlsZSB5b3UgYXJlIGhlcmUsIGhlcmUgYXJlIGEgZmV3IGFkZGl0aW9uYWwgdGhpbmdzIHlvdSBjYW4gdHJ5OlxuLSBPcGVuIHRoZSBJbnRlZ3JhdGVkIFRlcm1pbmFsIGJ5IHByZXNzaW5nIGtiKHdvcmtiZW5jaC5hY3Rpb24udGVybWluYWwudG9nZ2xlVGVybWluYWwpLCB0aGVuIHNlZSB3aGF0J3MgcG9zc2libGUgYnkgW3Jldmlld2luZyB0aGUgdGVybWluYWwgZG9jdW1lbnRhdGlvbl0oaHR0cHM6Ly9jb2RlLnZpc3VhbHN0dWRpby5jb20vZG9jcy9lZGl0b3IvaW50ZWdyYXRlZC10ZXJtaW5hbClcbi0gV29yayB3aXRoIHZlcnNpb24gY29udHJvbCBieSBwcmVzc2luZyBrYih3b3JrYmVuY2gudmlldy5zY20pLiBVbmRlcnN0YW5kIGhvdyB0byBzdGFnZSwgY29tbWl0LCBjaGFuZ2UgYnJhbmNoZXMsIGFuZCB2aWV3IGRpZmZzIGFuZCBtb3JlIGJ5IHJldmlld2luZyB0aGUgW3ZlcnNpb24gY29udHJvbCBkb2N1bWVudGF0aW9uXShodHRwczovL2NvZGUudmlzdWFsc3R1ZGlvLmNvbS9kb2NzL2VkaXRvci92ZXJzaW9uY29udHJvbClcbi0gQnJvd3NlIHRob3VzYW5kcyBvZiBleHRlbnNpb25zIGluIG91ciBpbnRlZ3JhdGVkIGdhbGxlcnkgYnkgcHJlc3Npbmcga2Iod29ya2JlbmNoLnZpZXcuZXh0ZW5zaW9ucykuIFRoZSBbZG9jdW1lbnRhdGlvbl0oaHR0cHM6Ly9jb2RlLnZpc3VhbHN0dWRpby5jb20vZG9jcy9lZGl0b3IvZXh0ZW5zaW9uLWdhbGxlcnkpIHdpbGwgc2hvdyB5b3UgaG93IHRvIHNlZSB0aGUgbW9zdCBwb3B1bGFyIGV4dGVuc2lvbnMsIGRpc2FibGUgaW5zdGFsbGVkIG9uZXMgYW5kIG1vcmUuXG5cblRoYXQncyBhbGwgZm9yIG5vdyxcblxuSGFwcHkgQ29kaW5nISBcdUQ4M0NcdURGODlcblxuYC5yZXBsYWNlKC9cXHwvZywgJ2AnKTtcbn1cbiJdLAogICJtYXBwaW5ncyI6ICJBQUtBLFlBQVksY0FBYztBQUUxQixTQUFTLG9DQUFvQztBQUU5QixTQUFSLFFBQXlCLFVBQTRCO0FBQzNELFFBQU0sZUFBZSxTQUFTLFNBQVMsQ0FBQyxTQUFTLElBQUksNEJBQTRCLEVBQUU7QUFDbkYsU0FBTztBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQSxvRkFNNEUsQ0FBQyxlQUFlO0FBQUEsK0ZBQ0wsRUFBRTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBLEVBMEQvRixDQUFDLGVBQWU7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBLElBdUJkLEVBQUU7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUEsRUE2RkosUUFBUSxPQUFPLEdBQUc7QUFDcEI7IiwKICAibmFtZXMiOiBbXQp9Cg==

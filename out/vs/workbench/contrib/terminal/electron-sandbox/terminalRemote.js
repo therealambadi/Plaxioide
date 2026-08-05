@@ -1,0 +1,42 @@
+import { Schemas } from "../../../../base/common/network.js";
+import { localize2 } from "../../../../nls.js";
+import { INativeEnvironmentService } from "../../../../platform/environment/common/environment.js";
+import { IRemoteAuthorityResolverService } from "../../../../platform/remote/common/remoteAuthorityResolver.js";
+import { registerTerminalAction } from "../browser/terminalActions.js";
+import { TerminalCommandId } from "../common/terminal.js";
+import { IHistoryService } from "../../../services/history/common/history.js";
+function registerRemoteContributions() {
+  registerTerminalAction({
+    id: TerminalCommandId.NewLocal,
+    title: localize2("workbench.action.terminal.newLocal", "Create New Integrated Terminal (Local)"),
+    run: async (c, accessor) => {
+      const historyService = accessor.get(IHistoryService);
+      const remoteAuthorityResolverService = accessor.get(IRemoteAuthorityResolverService);
+      const nativeEnvironmentService = accessor.get(INativeEnvironmentService);
+      let cwd;
+      try {
+        const activeWorkspaceRootUri = historyService.getLastActiveWorkspaceRoot(Schemas.vscodeRemote);
+        if (activeWorkspaceRootUri) {
+          const canonicalUri = await remoteAuthorityResolverService.getCanonicalURI(activeWorkspaceRootUri);
+          if (canonicalUri.scheme === Schemas.file) {
+            cwd = canonicalUri;
+          }
+        }
+      } catch {
+      }
+      if (!cwd) {
+        cwd = nativeEnvironmentService.userHome;
+      }
+      const instance = await c.service.createTerminal({ cwd });
+      if (!instance) {
+        return Promise.resolve(void 0);
+      }
+      c.service.setActiveInstance(instance);
+      return c.groupService.showPanel(true);
+    }
+  });
+}
+export {
+  registerRemoteContributions
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvY29udHJpYi90ZXJtaW5hbC9lbGVjdHJvbi1zYW5kYm94L3Rlcm1pbmFsUmVtb3RlLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyIvKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxuICogIENvcHlyaWdodCAoYykgTWljcm9zb2Z0IENvcnBvcmF0aW9uLiBBbGwgcmlnaHRzIHJlc2VydmVkLlxuICogIExpY2Vuc2VkIHVuZGVyIHRoZSBNSVQgTGljZW5zZS4gU2VlIExpY2Vuc2UudHh0IGluIHRoZSBwcm9qZWN0IHJvb3QgZm9yIGxpY2Vuc2UgaW5mb3JtYXRpb24uXG4gKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tKi9cblxuaW1wb3J0IHsgU2NoZW1hcyB9IGZyb20gJy4uLy4uLy4uLy4uL2Jhc2UvY29tbW9uL25ldHdvcmsuanMnO1xuaW1wb3J0IHsgVVJJIH0gZnJvbSAnLi4vLi4vLi4vLi4vYmFzZS9jb21tb24vdXJpLmpzJztcbmltcG9ydCB7IGxvY2FsaXplMiB9IGZyb20gJy4uLy4uLy4uLy4uL25scy5qcyc7XG5pbXBvcnQgeyBJTmF0aXZlRW52aXJvbm1lbnRTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vZW52aXJvbm1lbnQvY29tbW9uL2Vudmlyb25tZW50LmpzJztcbmltcG9ydCB7IElSZW1vdGVBdXRob3JpdHlSZXNvbHZlclNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS9yZW1vdGUvY29tbW9uL3JlbW90ZUF1dGhvcml0eVJlc29sdmVyLmpzJztcbmltcG9ydCB7IHJlZ2lzdGVyVGVybWluYWxBY3Rpb24gfSBmcm9tICcuLi9icm93c2VyL3Rlcm1pbmFsQWN0aW9ucy5qcyc7XG5pbXBvcnQgeyBUZXJtaW5hbENvbW1hbmRJZCB9IGZyb20gJy4uL2NvbW1vbi90ZXJtaW5hbC5qcyc7XG5pbXBvcnQgeyBJSGlzdG9yeVNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi9zZXJ2aWNlcy9oaXN0b3J5L2NvbW1vbi9oaXN0b3J5LmpzJztcblxuZXhwb3J0IGZ1bmN0aW9uIHJlZ2lzdGVyUmVtb3RlQ29udHJpYnV0aW9ucygpIHtcblx0cmVnaXN0ZXJUZXJtaW5hbEFjdGlvbih7XG5cdFx0aWQ6IFRlcm1pbmFsQ29tbWFuZElkLk5ld0xvY2FsLFxuXHRcdHRpdGxlOiBsb2NhbGl6ZTIoJ3dvcmtiZW5jaC5hY3Rpb24udGVybWluYWwubmV3TG9jYWwnLCAnQ3JlYXRlIE5ldyBJbnRlZ3JhdGVkIFRlcm1pbmFsIChMb2NhbCknKSxcblx0XHRydW46IGFzeW5jIChjLCBhY2Nlc3NvcikgPT4ge1xuXHRcdFx0Y29uc3QgaGlzdG9yeVNlcnZpY2UgPSBhY2Nlc3Nvci5nZXQoSUhpc3RvcnlTZXJ2aWNlKTtcblx0XHRcdGNvbnN0IHJlbW90ZUF1dGhvcml0eVJlc29sdmVyU2VydmljZSA9IGFjY2Vzc29yLmdldChJUmVtb3RlQXV0aG9yaXR5UmVzb2x2ZXJTZXJ2aWNlKTtcblx0XHRcdGNvbnN0IG5hdGl2ZUVudmlyb25tZW50U2VydmljZSA9IGFjY2Vzc29yLmdldChJTmF0aXZlRW52aXJvbm1lbnRTZXJ2aWNlKTtcblx0XHRcdGxldCBjd2Q6IFVSSSB8IHVuZGVmaW5lZDtcblx0XHRcdHRyeSB7XG5cdFx0XHRcdGNvbnN0IGFjdGl2ZVdvcmtzcGFjZVJvb3RVcmkgPSBoaXN0b3J5U2VydmljZS5nZXRMYXN0QWN0aXZlV29ya3NwYWNlUm9vdChTY2hlbWFzLnZzY29kZVJlbW90ZSk7XG5cdFx0XHRcdGlmIChhY3RpdmVXb3Jrc3BhY2VSb290VXJpKSB7XG5cdFx0XHRcdFx0Y29uc3QgY2Fub25pY2FsVXJpID0gYXdhaXQgcmVtb3RlQXV0aG9yaXR5UmVzb2x2ZXJTZXJ2aWNlLmdldENhbm9uaWNhbFVSSShhY3RpdmVXb3Jrc3BhY2VSb290VXJpKTtcblx0XHRcdFx0XHRpZiAoY2Fub25pY2FsVXJpLnNjaGVtZSA9PT0gU2NoZW1hcy5maWxlKSB7XG5cdFx0XHRcdFx0XHRjd2QgPSBjYW5vbmljYWxVcmk7XG5cdFx0XHRcdFx0fVxuXHRcdFx0XHR9XG5cdFx0XHR9IGNhdGNoIHsgfVxuXHRcdFx0aWYgKCFjd2QpIHtcblx0XHRcdFx0Y3dkID0gbmF0aXZlRW52aXJvbm1lbnRTZXJ2aWNlLnVzZXJIb21lO1xuXHRcdFx0fVxuXHRcdFx0Y29uc3QgaW5zdGFuY2UgPSBhd2FpdCBjLnNlcnZpY2UuY3JlYXRlVGVybWluYWwoeyBjd2QgfSk7XG5cdFx0XHRpZiAoIWluc3RhbmNlKSB7XG5cdFx0XHRcdHJldHVybiBQcm9taXNlLnJlc29sdmUodW5kZWZpbmVkKTtcblx0XHRcdH1cblxuXHRcdFx0Yy5zZXJ2aWNlLnNldEFjdGl2ZUluc3RhbmNlKGluc3RhbmNlKTtcblx0XHRcdHJldHVybiBjLmdyb3VwU2VydmljZS5zaG93UGFuZWwodHJ1ZSk7XG5cdFx0fVxuXHR9KTtcbn1cbiJdLAogICJtYXBwaW5ncyI6ICJBQUtBLFNBQVMsZUFBZTtBQUV4QixTQUFTLGlCQUFpQjtBQUMxQixTQUFTLGlDQUFpQztBQUMxQyxTQUFTLHVDQUF1QztBQUNoRCxTQUFTLDhCQUE4QjtBQUN2QyxTQUFTLHlCQUF5QjtBQUNsQyxTQUFTLHVCQUF1QjtBQUV6QixTQUFTLDhCQUE4QjtBQUM3Qyx5QkFBdUI7QUFBQSxJQUN0QixJQUFJLGtCQUFrQjtBQUFBLElBQ3RCLE9BQU8sVUFBVSxzQ0FBc0Msd0NBQXdDO0FBQUEsSUFDL0YsS0FBSyxPQUFPLEdBQUcsYUFBYTtBQUMzQixZQUFNLGlCQUFpQixTQUFTLElBQUksZUFBZTtBQUNuRCxZQUFNLGlDQUFpQyxTQUFTLElBQUksK0JBQStCO0FBQ25GLFlBQU0sMkJBQTJCLFNBQVMsSUFBSSx5QkFBeUI7QUFDdkUsVUFBSTtBQUNKLFVBQUk7QUFDSCxjQUFNLHlCQUF5QixlQUFlLDJCQUEyQixRQUFRLFlBQVk7QUFDN0YsWUFBSSx3QkFBd0I7QUFDM0IsZ0JBQU0sZUFBZSxNQUFNLCtCQUErQixnQkFBZ0Isc0JBQXNCO0FBQ2hHLGNBQUksYUFBYSxXQUFXLFFBQVEsTUFBTTtBQUN6QyxrQkFBTTtBQUFBLFVBQ1A7QUFBQSxRQUNEO0FBQUEsTUFDRCxRQUFRO0FBQUEsTUFBRTtBQUNWLFVBQUksQ0FBQyxLQUFLO0FBQ1QsY0FBTSx5QkFBeUI7QUFBQSxNQUNoQztBQUNBLFlBQU0sV0FBVyxNQUFNLEVBQUUsUUFBUSxlQUFlLEVBQUUsSUFBSSxDQUFDO0FBQ3ZELFVBQUksQ0FBQyxVQUFVO0FBQ2QsZUFBTyxRQUFRLFFBQVEsTUFBUztBQUFBLE1BQ2pDO0FBRUEsUUFBRSxRQUFRLGtCQUFrQixRQUFRO0FBQ3BDLGFBQU8sRUFBRSxhQUFhLFVBQVUsSUFBSTtBQUFBLElBQ3JDO0FBQUEsRUFDRCxDQUFDO0FBQ0Y7IiwKICAibmFtZXMiOiBbXQp9Cg==

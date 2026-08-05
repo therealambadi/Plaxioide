@@ -1,0 +1,171 @@
+import { localize } from "../../../../../nls.js";
+import { TerminalSettingId } from "../../../../../platform/terminal/common/terminal.js";
+var TerminalSuggestSettingId = /* @__PURE__ */ ((TerminalSuggestSettingId2) => {
+  TerminalSuggestSettingId2["Enabled"] = "terminal.integrated.suggest.enabled";
+  TerminalSuggestSettingId2["QuickSuggestions"] = "terminal.integrated.suggest.quickSuggestions";
+  TerminalSuggestSettingId2["SuggestOnTriggerCharacters"] = "terminal.integrated.suggest.suggestOnTriggerCharacters";
+  TerminalSuggestSettingId2["RunOnEnter"] = "terminal.integrated.suggest.runOnEnter";
+  TerminalSuggestSettingId2["WindowsExecutableExtensions"] = "terminal.integrated.suggest.windowsExecutableExtensions";
+  TerminalSuggestSettingId2["Providers"] = "terminal.integrated.suggest.providers";
+  TerminalSuggestSettingId2["ShowStatusBar"] = "terminal.integrated.suggest.showStatusBar";
+  TerminalSuggestSettingId2["CdPath"] = "terminal.integrated.suggest.cdPath";
+  TerminalSuggestSettingId2["InlineSuggestion"] = "terminal.integrated.suggest.inlineSuggestion";
+  TerminalSuggestSettingId2["UpArrowNavigatesHistory"] = "terminal.integrated.suggest.upArrowNavigatesHistory";
+  return TerminalSuggestSettingId2;
+})(TerminalSuggestSettingId || {});
+const windowsDefaultExecutableExtensions = [
+  "exe",
+  // Executable file
+  "bat",
+  // Batch file
+  "cmd",
+  // Command script
+  "com",
+  // Command file
+  "msi",
+  // Windows Installer package
+  "ps1",
+  // PowerShell script
+  "vbs",
+  // VBScript file
+  "js",
+  // JScript file
+  "jar",
+  // Java Archive (requires Java runtime)
+  "py",
+  // Python script (requires Python interpreter)
+  "rb",
+  // Ruby script (requires Ruby interpreter)
+  "pl",
+  // Perl script (requires Perl interpreter)
+  "sh"
+  // Shell script (via WSL or third-party tools)
+];
+const terminalSuggestConfigSection = "terminal.integrated.suggest";
+const terminalSuggestConfiguration = {
+  ["terminal.integrated.suggest.enabled" /* Enabled */]: {
+    restricted: true,
+    markdownDescription: localize("suggest.enabled", "Enables terminal intellisense suggestions (preview) for supported shells ({0}) when {1} is set to {2}.\n\nIf shell integration is installed manually, {3} needs to be set to {4} before calling the shell integration script.", "PowerShell v7+, zsh, bash, fish", `\`#${TerminalSettingId.ShellIntegrationEnabled}#\``, "`true`", "`VSCODE_SUGGEST`", "`1`"),
+    type: "boolean",
+    default: false,
+    tags: ["preview"]
+  },
+  ["terminal.integrated.suggest.providers" /* Providers */]: {
+    restricted: true,
+    markdownDescription: localize("suggest.providers", "Providers are enabled by default. Omit them by setting the id of the provider to `false`."),
+    type: "object",
+    properties: {},
+    default: {
+      "terminal-suggest": true,
+      "pwsh-shell-integration": true
+    },
+    tags: ["preview"]
+  },
+  ["terminal.integrated.suggest.quickSuggestions" /* QuickSuggestions */]: {
+    restricted: true,
+    markdownDescription: localize("suggest.quickSuggestions", "Controls whether suggestions should automatically show up while typing. Also be aware of the {0}-setting which controls if suggestions are triggered by special characters.", `\`#${"terminal.integrated.suggest.suggestOnTriggerCharacters" /* SuggestOnTriggerCharacters */}#\``),
+    type: "object",
+    properties: {
+      commands: {
+        description: localize("suggest.quickSuggestions.commands", "Enable quick suggestions for commands, the first word in a command line input."),
+        type: "string",
+        enum: ["off", "on"]
+      },
+      arguments: {
+        description: localize("suggest.quickSuggestions.arguments", "Enable quick suggestions for arguments, anything after the first word in a command line input."),
+        type: "string",
+        enum: ["off", "on"]
+      },
+      unknown: {
+        description: localize("suggest.quickSuggestions.unknown", "Enable quick suggestions when it's unclear what the best suggestion is, if this is on files and folders will be suggested as a fallback."),
+        type: "string",
+        enum: ["off", "on"]
+      }
+    },
+    default: {
+      commands: "on",
+      arguments: "on",
+      unknown: "off"
+    },
+    tags: ["preview"]
+  },
+  ["terminal.integrated.suggest.suggestOnTriggerCharacters" /* SuggestOnTriggerCharacters */]: {
+    restricted: true,
+    markdownDescription: localize("suggest.suggestOnTriggerCharacters", "Controls whether suggestions should automatically show up when typing trigger characters."),
+    type: "boolean",
+    default: true,
+    tags: ["preview"]
+  },
+  ["terminal.integrated.suggest.runOnEnter" /* RunOnEnter */]: {
+    restricted: true,
+    markdownDescription: localize("suggest.runOnEnter", "Controls whether suggestions should run immediately when `Enter` (not `Tab`) is used to accept the result."),
+    enum: ["ignore", "never", "exactMatch", "exactMatchIgnoreExtension", "always"],
+    markdownEnumDescriptions: [
+      localize("runOnEnter.ignore", "Ignore suggestions and send the enter directly to the shell without completing. This is used as the default value so the suggest widget is as unobtrusive as possible."),
+      localize("runOnEnter.never", "Never run on `Enter`."),
+      localize("runOnEnter.exactMatch", "Run on `Enter` when the suggestion is typed in its entirety."),
+      localize("runOnEnter.exactMatchIgnoreExtension", "Run on `Enter` when the suggestion is typed in its entirety or when a file is typed without its extension included."),
+      localize("runOnEnter.always", "Always run on `Enter`.")
+    ],
+    default: "ignore",
+    tags: ["preview"]
+  },
+  ["terminal.integrated.suggest.windowsExecutableExtensions" /* WindowsExecutableExtensions */]: {
+    restricted: true,
+    markdownDescription: localize(
+      "terminalWindowsExecutableSuggestionSetting",
+      "A set of windows command executable extensions that will be included as suggestions in the terminal.\n\nMany executables are included by default, listed below:\n\n{0}.\n\nTo exclude an extension, set it to `false`\n\n. To include one not in the list, add it and set it to `true`.",
+      windowsDefaultExecutableExtensions.sort().map((extension) => `- ${extension}`).join("\n")
+    ),
+    type: "object",
+    default: {},
+    tags: ["preview"]
+  },
+  ["terminal.integrated.suggest.showStatusBar" /* ShowStatusBar */]: {
+    restricted: true,
+    markdownDescription: localize("suggest.showStatusBar", "Controls whether the terminal suggestions status bar should be shown."),
+    type: "boolean",
+    default: true,
+    tags: ["preview"]
+  },
+  ["terminal.integrated.suggest.cdPath" /* CdPath */]: {
+    restricted: true,
+    markdownDescription: localize("suggest.cdPath", "Controls whether to enable $CDPATH support which exposes children of the folders in the $CDPATH variable regardless of the current working directory. $CDPATH is expected to be semi colon-separated on Windows and colon-separated on other platforms."),
+    type: "string",
+    enum: ["off", "relative", "absolute"],
+    markdownEnumDescriptions: [
+      localize("suggest.cdPath.off", "Disable the feature."),
+      localize("suggest.cdPath.relative", "Enable the feature and use relative paths."),
+      localize("suggest.cdPath.absolute", "Enable the feature and use absolute paths. This is useful when the shell doesn't natively support `$CDPATH`.")
+    ],
+    default: "absolute",
+    tags: ["preview"]
+  },
+  ["terminal.integrated.suggest.inlineSuggestion" /* InlineSuggestion */]: {
+    restricted: true,
+    markdownDescription: localize("suggest.inlineSuggestion", "Controls whether the shell's inline suggestion should be detected and how it is scored."),
+    type: "string",
+    enum: ["off", "alwaysOnTopExceptExactMatch", "alwaysOnTop"],
+    markdownEnumDescriptions: [
+      localize("suggest.inlineSuggestion.off", "Disable the feature."),
+      localize("suggest.inlineSuggestion.alwaysOnTopExceptExactMatch", "Enable the feature and sort the inline suggestion without forcing it to be on top. This means that exact matches will be will be above the inline suggestion."),
+      localize("suggest.inlineSuggestion.alwaysOnTop", "Enable the feature and always put the inline suggestion on top.")
+    ],
+    default: "alwaysOnTop",
+    tags: ["preview"]
+  },
+  ["terminal.integrated.suggest.upArrowNavigatesHistory" /* UpArrowNavigatesHistory */]: {
+    restricted: true,
+    markdownDescription: localize("suggest.upArrowNavigatesHistory", "Determines whether the up arrow key navigates the command history when focus is on the first suggestion and navigation has not yet occurred. When set to false, the up arrow will move focus to the last suggestion instead."),
+    type: "boolean",
+    default: true,
+    tags: ["preview"]
+  }
+};
+export {
+  TerminalSuggestSettingId,
+  terminalSuggestConfigSection,
+  terminalSuggestConfiguration,
+  windowsDefaultExecutableExtensions
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvY29udHJpYi90ZXJtaW5hbENvbnRyaWIvc3VnZ2VzdC9jb21tb24vdGVybWluYWxTdWdnZXN0Q29uZmlndXJhdGlvbi50cyJdLAogICJzb3VyY2VzQ29udGVudCI6IFsiLyotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS1cbiAqICBDb3B5cmlnaHQgKGMpIE1pY3Jvc29mdCBDb3Jwb3JhdGlvbi4gQWxsIHJpZ2h0cyByZXNlcnZlZC5cbiAqICBMaWNlbnNlZCB1bmRlciB0aGUgTUlUIExpY2Vuc2UuIFNlZSBMaWNlbnNlLnR4dCBpbiB0aGUgcHJvamVjdCByb290IGZvciBsaWNlbnNlIGluZm9ybWF0aW9uLlxuICotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLSovXG5cbmltcG9ydCB0eXBlIHsgSVN0cmluZ0RpY3Rpb25hcnkgfSBmcm9tICcuLi8uLi8uLi8uLi8uLi9iYXNlL2NvbW1vbi9jb2xsZWN0aW9ucy5qcyc7XG5pbXBvcnQgeyBsb2NhbGl6ZSB9IGZyb20gJy4uLy4uLy4uLy4uLy4uL25scy5qcyc7XG5pbXBvcnQgdHlwZSB7IElDb25maWd1cmF0aW9uUHJvcGVydHlTY2hlbWEgfSBmcm9tICcuLi8uLi8uLi8uLi8uLi9wbGF0Zm9ybS9jb25maWd1cmF0aW9uL2NvbW1vbi9jb25maWd1cmF0aW9uUmVnaXN0cnkuanMnO1xuaW1wb3J0IHsgVGVybWluYWxTZXR0aW5nSWQgfSBmcm9tICcuLi8uLi8uLi8uLi8uLi9wbGF0Zm9ybS90ZXJtaW5hbC9jb21tb24vdGVybWluYWwuanMnO1xuXG5leHBvcnQgY29uc3QgZW51bSBUZXJtaW5hbFN1Z2dlc3RTZXR0aW5nSWQge1xuXHRFbmFibGVkID0gJ3Rlcm1pbmFsLmludGVncmF0ZWQuc3VnZ2VzdC5lbmFibGVkJyxcblx0UXVpY2tTdWdnZXN0aW9ucyA9ICd0ZXJtaW5hbC5pbnRlZ3JhdGVkLnN1Z2dlc3QucXVpY2tTdWdnZXN0aW9ucycsXG5cdFN1Z2dlc3RPblRyaWdnZXJDaGFyYWN0ZXJzID0gJ3Rlcm1pbmFsLmludGVncmF0ZWQuc3VnZ2VzdC5zdWdnZXN0T25UcmlnZ2VyQ2hhcmFjdGVycycsXG5cdFJ1bk9uRW50ZXIgPSAndGVybWluYWwuaW50ZWdyYXRlZC5zdWdnZXN0LnJ1bk9uRW50ZXInLFxuXHRXaW5kb3dzRXhlY3V0YWJsZUV4dGVuc2lvbnMgPSAndGVybWluYWwuaW50ZWdyYXRlZC5zdWdnZXN0LndpbmRvd3NFeGVjdXRhYmxlRXh0ZW5zaW9ucycsXG5cdFByb3ZpZGVycyA9ICd0ZXJtaW5hbC5pbnRlZ3JhdGVkLnN1Z2dlc3QucHJvdmlkZXJzJyxcblx0U2hvd1N0YXR1c0JhciA9ICd0ZXJtaW5hbC5pbnRlZ3JhdGVkLnN1Z2dlc3Quc2hvd1N0YXR1c0JhcicsXG5cdENkUGF0aCA9ICd0ZXJtaW5hbC5pbnRlZ3JhdGVkLnN1Z2dlc3QuY2RQYXRoJyxcblx0SW5saW5lU3VnZ2VzdGlvbiA9ICd0ZXJtaW5hbC5pbnRlZ3JhdGVkLnN1Z2dlc3QuaW5saW5lU3VnZ2VzdGlvbicsXG5cdFVwQXJyb3dOYXZpZ2F0ZXNIaXN0b3J5ID0gJ3Rlcm1pbmFsLmludGVncmF0ZWQuc3VnZ2VzdC51cEFycm93TmF2aWdhdGVzSGlzdG9yeScsXG59XG5cbmV4cG9ydCBjb25zdCB3aW5kb3dzRGVmYXVsdEV4ZWN1dGFibGVFeHRlbnNpb25zOiBzdHJpbmdbXSA9IFtcblx0J2V4ZScsICAgLy8gRXhlY3V0YWJsZSBmaWxlXG5cdCdiYXQnLCAgIC8vIEJhdGNoIGZpbGVcblx0J2NtZCcsICAgLy8gQ29tbWFuZCBzY3JpcHRcblx0J2NvbScsICAgLy8gQ29tbWFuZCBmaWxlXG5cblx0J21zaScsICAgLy8gV2luZG93cyBJbnN0YWxsZXIgcGFja2FnZVxuXG5cdCdwczEnLCAgIC8vIFBvd2VyU2hlbGwgc2NyaXB0XG5cblx0J3ZicycsICAgLy8gVkJTY3JpcHQgZmlsZVxuXHQnanMnLCAgICAvLyBKU2NyaXB0IGZpbGVcblx0J2phcicsICAgLy8gSmF2YSBBcmNoaXZlIChyZXF1aXJlcyBKYXZhIHJ1bnRpbWUpXG5cdCdweScsICAgIC8vIFB5dGhvbiBzY3JpcHQgKHJlcXVpcmVzIFB5dGhvbiBpbnRlcnByZXRlcilcblx0J3JiJywgICAgLy8gUnVieSBzY3JpcHQgKHJlcXVpcmVzIFJ1YnkgaW50ZXJwcmV0ZXIpXG5cdCdwbCcsICAgIC8vIFBlcmwgc2NyaXB0IChyZXF1aXJlcyBQZXJsIGludGVycHJldGVyKVxuXHQnc2gnLCAgICAvLyBTaGVsbCBzY3JpcHQgKHZpYSBXU0wgb3IgdGhpcmQtcGFydHkgdG9vbHMpXG5dO1xuXG5leHBvcnQgY29uc3QgdGVybWluYWxTdWdnZXN0Q29uZmlnU2VjdGlvbiA9ICd0ZXJtaW5hbC5pbnRlZ3JhdGVkLnN1Z2dlc3QnO1xuXG5leHBvcnQgaW50ZXJmYWNlIElUZXJtaW5hbFN1Z2dlc3RDb25maWd1cmF0aW9uIHtcblx0ZW5hYmxlZDogYm9vbGVhbjtcblx0cXVpY2tTdWdnZXN0aW9uczoge1xuXHRcdGNvbW1hbmRzOiAnb2ZmJyB8ICdvbic7XG5cdFx0YXJndW1lbnRzOiAnb2ZmJyB8ICdvbic7XG5cdFx0dW5rbm93bjogJ29mZicgfCAnb24nO1xuXHR9O1xuXHRzdWdnZXN0T25UcmlnZ2VyQ2hhcmFjdGVyczogYm9vbGVhbjtcblx0cnVuT25FbnRlcjogJ25ldmVyJyB8ICdleGFjdE1hdGNoJyB8ICdleGFjdE1hdGNoSWdub3JlRXh0ZW5zaW9uJyB8ICdhbHdheXMnO1xuXHR3aW5kb3dzRXhlY3V0YWJsZUV4dGVuc2lvbnM6IHsgW2tleTogc3RyaW5nXTogYm9vbGVhbiB9O1xuXHRwcm92aWRlcnM6IHtcblx0XHQndGVybWluYWwtc3VnZ2VzdCc6IGJvb2xlYW47XG5cdFx0J3B3c2gtc2hlbGwtaW50ZWdyYXRpb24nOiBib29sZWFuO1xuXHR9O1xuXHRzaG93U3RhdHVzQmFyOiBib29sZWFuO1xuXHRjZFBhdGg6ICdvZmYnIHwgJ3JlbGF0aXZlJyB8ICdhYnNvbHV0ZSc7XG5cdGlubGluZVN1Z2dlc3Rpb246ICdvZmYnIHwgJ2Fsd2F5c09uVG9wRXhjZXB0RXhhY3RNYXRjaCcgfCAnYWx3YXlzT25Ub3AnO1xufVxuXG5leHBvcnQgY29uc3QgdGVybWluYWxTdWdnZXN0Q29uZmlndXJhdGlvbjogSVN0cmluZ0RpY3Rpb25hcnk8SUNvbmZpZ3VyYXRpb25Qcm9wZXJ0eVNjaGVtYT4gPSB7XG5cdFtUZXJtaW5hbFN1Z2dlc3RTZXR0aW5nSWQuRW5hYmxlZF06IHtcblx0XHRyZXN0cmljdGVkOiB0cnVlLFxuXHRcdG1hcmtkb3duRGVzY3JpcHRpb246IGxvY2FsaXplKCdzdWdnZXN0LmVuYWJsZWQnLCBcIkVuYWJsZXMgdGVybWluYWwgaW50ZWxsaXNlbnNlIHN1Z2dlc3Rpb25zIChwcmV2aWV3KSBmb3Igc3VwcG9ydGVkIHNoZWxscyAoezB9KSB3aGVuIHsxfSBpcyBzZXQgdG8gezJ9LlxcblxcbklmIHNoZWxsIGludGVncmF0aW9uIGlzIGluc3RhbGxlZCBtYW51YWxseSwgezN9IG5lZWRzIHRvIGJlIHNldCB0byB7NH0gYmVmb3JlIGNhbGxpbmcgdGhlIHNoZWxsIGludGVncmF0aW9uIHNjcmlwdC5cIiwgJ1Bvd2VyU2hlbGwgdjcrLCB6c2gsIGJhc2gsIGZpc2gnLCBgXFxgIyR7VGVybWluYWxTZXR0aW5nSWQuU2hlbGxJbnRlZ3JhdGlvbkVuYWJsZWR9I1xcYGAsICdgdHJ1ZWAnLCAnYFZTQ09ERV9TVUdHRVNUYCcsICdgMWAnKSxcblx0XHR0eXBlOiAnYm9vbGVhbicsXG5cdFx0ZGVmYXVsdDogZmFsc2UsXG5cdFx0dGFnczogWydwcmV2aWV3J10sXG5cdH0sXG5cdFtUZXJtaW5hbFN1Z2dlc3RTZXR0aW5nSWQuUHJvdmlkZXJzXToge1xuXHRcdHJlc3RyaWN0ZWQ6IHRydWUsXG5cdFx0bWFya2Rvd25EZXNjcmlwdGlvbjogbG9jYWxpemUoJ3N1Z2dlc3QucHJvdmlkZXJzJywgXCJQcm92aWRlcnMgYXJlIGVuYWJsZWQgYnkgZGVmYXVsdC4gT21pdCB0aGVtIGJ5IHNldHRpbmcgdGhlIGlkIG9mIHRoZSBwcm92aWRlciB0byBgZmFsc2VgLlwiKSxcblx0XHR0eXBlOiAnb2JqZWN0Jyxcblx0XHRwcm9wZXJ0aWVzOiB7fSxcblx0XHRkZWZhdWx0OiB7XG5cdFx0XHQndGVybWluYWwtc3VnZ2VzdCc6IHRydWUsXG5cdFx0XHQncHdzaC1zaGVsbC1pbnRlZ3JhdGlvbic6IHRydWUsXG5cdFx0fSxcblx0XHR0YWdzOiBbJ3ByZXZpZXcnXSxcblx0fSxcblx0W1Rlcm1pbmFsU3VnZ2VzdFNldHRpbmdJZC5RdWlja1N1Z2dlc3Rpb25zXToge1xuXHRcdHJlc3RyaWN0ZWQ6IHRydWUsXG5cdFx0bWFya2Rvd25EZXNjcmlwdGlvbjogbG9jYWxpemUoJ3N1Z2dlc3QucXVpY2tTdWdnZXN0aW9ucycsIFwiQ29udHJvbHMgd2hldGhlciBzdWdnZXN0aW9ucyBzaG91bGQgYXV0b21hdGljYWxseSBzaG93IHVwIHdoaWxlIHR5cGluZy4gQWxzbyBiZSBhd2FyZSBvZiB0aGUgezB9LXNldHRpbmcgd2hpY2ggY29udHJvbHMgaWYgc3VnZ2VzdGlvbnMgYXJlIHRyaWdnZXJlZCBieSBzcGVjaWFsIGNoYXJhY3RlcnMuXCIsIGBcXGAjJHtUZXJtaW5hbFN1Z2dlc3RTZXR0aW5nSWQuU3VnZ2VzdE9uVHJpZ2dlckNoYXJhY3RlcnN9I1xcYGApLFxuXHRcdHR5cGU6ICdvYmplY3QnLFxuXHRcdHByb3BlcnRpZXM6IHtcblx0XHRcdGNvbW1hbmRzOiB7XG5cdFx0XHRcdGRlc2NyaXB0aW9uOiBsb2NhbGl6ZSgnc3VnZ2VzdC5xdWlja1N1Z2dlc3Rpb25zLmNvbW1hbmRzJywgJ0VuYWJsZSBxdWljayBzdWdnZXN0aW9ucyBmb3IgY29tbWFuZHMsIHRoZSBmaXJzdCB3b3JkIGluIGEgY29tbWFuZCBsaW5lIGlucHV0LicpLFxuXHRcdFx0XHR0eXBlOiAnc3RyaW5nJyxcblx0XHRcdFx0ZW51bTogWydvZmYnLCAnb24nXSxcblx0XHRcdH0sXG5cdFx0XHRhcmd1bWVudHM6IHtcblx0XHRcdFx0ZGVzY3JpcHRpb246IGxvY2FsaXplKCdzdWdnZXN0LnF1aWNrU3VnZ2VzdGlvbnMuYXJndW1lbnRzJywgJ0VuYWJsZSBxdWljayBzdWdnZXN0aW9ucyBmb3IgYXJndW1lbnRzLCBhbnl0aGluZyBhZnRlciB0aGUgZmlyc3Qgd29yZCBpbiBhIGNvbW1hbmQgbGluZSBpbnB1dC4nKSxcblx0XHRcdFx0dHlwZTogJ3N0cmluZycsXG5cdFx0XHRcdGVudW06IFsnb2ZmJywgJ29uJ10sXG5cdFx0XHR9LFxuXHRcdFx0dW5rbm93bjoge1xuXHRcdFx0XHRkZXNjcmlwdGlvbjogbG9jYWxpemUoJ3N1Z2dlc3QucXVpY2tTdWdnZXN0aW9ucy51bmtub3duJywgJ0VuYWJsZSBxdWljayBzdWdnZXN0aW9ucyB3aGVuIGl0XFwncyB1bmNsZWFyIHdoYXQgdGhlIGJlc3Qgc3VnZ2VzdGlvbiBpcywgaWYgdGhpcyBpcyBvbiBmaWxlcyBhbmQgZm9sZGVycyB3aWxsIGJlIHN1Z2dlc3RlZCBhcyBhIGZhbGxiYWNrLicpLFxuXHRcdFx0XHR0eXBlOiAnc3RyaW5nJyxcblx0XHRcdFx0ZW51bTogWydvZmYnLCAnb24nXSxcblx0XHRcdH0sXG5cdFx0fSxcblx0XHRkZWZhdWx0OiB7XG5cdFx0XHRjb21tYW5kczogJ29uJyxcblx0XHRcdGFyZ3VtZW50czogJ29uJyxcblx0XHRcdHVua25vd246ICdvZmYnLFxuXHRcdH0sXG5cdFx0dGFnczogWydwcmV2aWV3J11cblx0fSxcblx0W1Rlcm1pbmFsU3VnZ2VzdFNldHRpbmdJZC5TdWdnZXN0T25UcmlnZ2VyQ2hhcmFjdGVyc106IHtcblx0XHRyZXN0cmljdGVkOiB0cnVlLFxuXHRcdG1hcmtkb3duRGVzY3JpcHRpb246IGxvY2FsaXplKCdzdWdnZXN0LnN1Z2dlc3RPblRyaWdnZXJDaGFyYWN0ZXJzJywgXCJDb250cm9scyB3aGV0aGVyIHN1Z2dlc3Rpb25zIHNob3VsZCBhdXRvbWF0aWNhbGx5IHNob3cgdXAgd2hlbiB0eXBpbmcgdHJpZ2dlciBjaGFyYWN0ZXJzLlwiKSxcblx0XHR0eXBlOiAnYm9vbGVhbicsXG5cdFx0ZGVmYXVsdDogdHJ1ZSxcblx0XHR0YWdzOiBbJ3ByZXZpZXcnXVxuXHR9LFxuXHRbVGVybWluYWxTdWdnZXN0U2V0dGluZ0lkLlJ1bk9uRW50ZXJdOiB7XG5cdFx0cmVzdHJpY3RlZDogdHJ1ZSxcblx0XHRtYXJrZG93bkRlc2NyaXB0aW9uOiBsb2NhbGl6ZSgnc3VnZ2VzdC5ydW5PbkVudGVyJywgXCJDb250cm9scyB3aGV0aGVyIHN1Z2dlc3Rpb25zIHNob3VsZCBydW4gaW1tZWRpYXRlbHkgd2hlbiBgRW50ZXJgIChub3QgYFRhYmApIGlzIHVzZWQgdG8gYWNjZXB0IHRoZSByZXN1bHQuXCIpLFxuXHRcdGVudW06IFsnaWdub3JlJywgJ25ldmVyJywgJ2V4YWN0TWF0Y2gnLCAnZXhhY3RNYXRjaElnbm9yZUV4dGVuc2lvbicsICdhbHdheXMnXSxcblx0XHRtYXJrZG93bkVudW1EZXNjcmlwdGlvbnM6IFtcblx0XHRcdGxvY2FsaXplKCdydW5PbkVudGVyLmlnbm9yZScsIFwiSWdub3JlIHN1Z2dlc3Rpb25zIGFuZCBzZW5kIHRoZSBlbnRlciBkaXJlY3RseSB0byB0aGUgc2hlbGwgd2l0aG91dCBjb21wbGV0aW5nLiBUaGlzIGlzIHVzZWQgYXMgdGhlIGRlZmF1bHQgdmFsdWUgc28gdGhlIHN1Z2dlc3Qgd2lkZ2V0IGlzIGFzIHVub2J0cnVzaXZlIGFzIHBvc3NpYmxlLlwiKSxcblx0XHRcdGxvY2FsaXplKCdydW5PbkVudGVyLm5ldmVyJywgXCJOZXZlciBydW4gb24gYEVudGVyYC5cIiksXG5cdFx0XHRsb2NhbGl6ZSgncnVuT25FbnRlci5leGFjdE1hdGNoJywgXCJSdW4gb24gYEVudGVyYCB3aGVuIHRoZSBzdWdnZXN0aW9uIGlzIHR5cGVkIGluIGl0cyBlbnRpcmV0eS5cIiksXG5cdFx0XHRsb2NhbGl6ZSgncnVuT25FbnRlci5leGFjdE1hdGNoSWdub3JlRXh0ZW5zaW9uJywgXCJSdW4gb24gYEVudGVyYCB3aGVuIHRoZSBzdWdnZXN0aW9uIGlzIHR5cGVkIGluIGl0cyBlbnRpcmV0eSBvciB3aGVuIGEgZmlsZSBpcyB0eXBlZCB3aXRob3V0IGl0cyBleHRlbnNpb24gaW5jbHVkZWQuXCIpLFxuXHRcdFx0bG9jYWxpemUoJ3J1bk9uRW50ZXIuYWx3YXlzJywgXCJBbHdheXMgcnVuIG9uIGBFbnRlcmAuXCIpXG5cdFx0XSxcblx0XHRkZWZhdWx0OiAnaWdub3JlJyxcblx0XHR0YWdzOiBbJ3ByZXZpZXcnXVxuXHR9LFxuXHRbVGVybWluYWxTdWdnZXN0U2V0dGluZ0lkLldpbmRvd3NFeGVjdXRhYmxlRXh0ZW5zaW9uc106IHtcblx0XHRyZXN0cmljdGVkOiB0cnVlLFxuXHRcdG1hcmtkb3duRGVzY3JpcHRpb246IGxvY2FsaXplKFwidGVybWluYWxXaW5kb3dzRXhlY3V0YWJsZVN1Z2dlc3Rpb25TZXR0aW5nXCIsIFwiQSBzZXQgb2Ygd2luZG93cyBjb21tYW5kIGV4ZWN1dGFibGUgZXh0ZW5zaW9ucyB0aGF0IHdpbGwgYmUgaW5jbHVkZWQgYXMgc3VnZ2VzdGlvbnMgaW4gdGhlIHRlcm1pbmFsLlxcblxcbk1hbnkgZXhlY3V0YWJsZXMgYXJlIGluY2x1ZGVkIGJ5IGRlZmF1bHQsIGxpc3RlZCBiZWxvdzpcXG5cXG57MH0uXFxuXFxuVG8gZXhjbHVkZSBhbiBleHRlbnNpb24sIHNldCBpdCB0byBgZmFsc2VgXFxuXFxuLiBUbyBpbmNsdWRlIG9uZSBub3QgaW4gdGhlIGxpc3QsIGFkZCBpdCBhbmQgc2V0IGl0IHRvIGB0cnVlYC5cIixcblx0XHRcdHdpbmRvd3NEZWZhdWx0RXhlY3V0YWJsZUV4dGVuc2lvbnMuc29ydCgpLm1hcChleHRlbnNpb24gPT4gYC0gJHtleHRlbnNpb259YCkuam9pbignXFxuJyksXG5cdFx0KSxcblx0XHR0eXBlOiAnb2JqZWN0Jyxcblx0XHRkZWZhdWx0OiB7fSxcblx0XHR0YWdzOiBbJ3ByZXZpZXcnXVxuXHR9LFxuXHRbVGVybWluYWxTdWdnZXN0U2V0dGluZ0lkLlNob3dTdGF0dXNCYXJdOiB7XG5cdFx0cmVzdHJpY3RlZDogdHJ1ZSxcblx0XHRtYXJrZG93bkRlc2NyaXB0aW9uOiBsb2NhbGl6ZSgnc3VnZ2VzdC5zaG93U3RhdHVzQmFyJywgXCJDb250cm9scyB3aGV0aGVyIHRoZSB0ZXJtaW5hbCBzdWdnZXN0aW9ucyBzdGF0dXMgYmFyIHNob3VsZCBiZSBzaG93bi5cIiksXG5cdFx0dHlwZTogJ2Jvb2xlYW4nLFxuXHRcdGRlZmF1bHQ6IHRydWUsXG5cdFx0dGFnczogWydwcmV2aWV3J11cblx0fSxcblx0W1Rlcm1pbmFsU3VnZ2VzdFNldHRpbmdJZC5DZFBhdGhdOiB7XG5cdFx0cmVzdHJpY3RlZDogdHJ1ZSxcblx0XHRtYXJrZG93bkRlc2NyaXB0aW9uOiBsb2NhbGl6ZSgnc3VnZ2VzdC5jZFBhdGgnLCBcIkNvbnRyb2xzIHdoZXRoZXIgdG8gZW5hYmxlICRDRFBBVEggc3VwcG9ydCB3aGljaCBleHBvc2VzIGNoaWxkcmVuIG9mIHRoZSBmb2xkZXJzIGluIHRoZSAkQ0RQQVRIIHZhcmlhYmxlIHJlZ2FyZGxlc3Mgb2YgdGhlIGN1cnJlbnQgd29ya2luZyBkaXJlY3RvcnkuICRDRFBBVEggaXMgZXhwZWN0ZWQgdG8gYmUgc2VtaSBjb2xvbi1zZXBhcmF0ZWQgb24gV2luZG93cyBhbmQgY29sb24tc2VwYXJhdGVkIG9uIG90aGVyIHBsYXRmb3Jtcy5cIiksXG5cdFx0dHlwZTogJ3N0cmluZycsXG5cdFx0ZW51bTogWydvZmYnLCAncmVsYXRpdmUnLCAnYWJzb2x1dGUnXSxcblx0XHRtYXJrZG93bkVudW1EZXNjcmlwdGlvbnM6IFtcblx0XHRcdGxvY2FsaXplKCdzdWdnZXN0LmNkUGF0aC5vZmYnLCBcIkRpc2FibGUgdGhlIGZlYXR1cmUuXCIpLFxuXHRcdFx0bG9jYWxpemUoJ3N1Z2dlc3QuY2RQYXRoLnJlbGF0aXZlJywgXCJFbmFibGUgdGhlIGZlYXR1cmUgYW5kIHVzZSByZWxhdGl2ZSBwYXRocy5cIiksXG5cdFx0XHRsb2NhbGl6ZSgnc3VnZ2VzdC5jZFBhdGguYWJzb2x1dGUnLCBcIkVuYWJsZSB0aGUgZmVhdHVyZSBhbmQgdXNlIGFic29sdXRlIHBhdGhzLiBUaGlzIGlzIHVzZWZ1bCB3aGVuIHRoZSBzaGVsbCBkb2Vzbid0IG5hdGl2ZWx5IHN1cHBvcnQgYCRDRFBBVEhgLlwiKSxcblx0XHRdLFxuXHRcdGRlZmF1bHQ6ICdhYnNvbHV0ZScsXG5cdFx0dGFnczogWydwcmV2aWV3J11cblx0fSxcblx0W1Rlcm1pbmFsU3VnZ2VzdFNldHRpbmdJZC5JbmxpbmVTdWdnZXN0aW9uXToge1xuXHRcdHJlc3RyaWN0ZWQ6IHRydWUsXG5cdFx0bWFya2Rvd25EZXNjcmlwdGlvbjogbG9jYWxpemUoJ3N1Z2dlc3QuaW5saW5lU3VnZ2VzdGlvbicsIFwiQ29udHJvbHMgd2hldGhlciB0aGUgc2hlbGwncyBpbmxpbmUgc3VnZ2VzdGlvbiBzaG91bGQgYmUgZGV0ZWN0ZWQgYW5kIGhvdyBpdCBpcyBzY29yZWQuXCIpLFxuXHRcdHR5cGU6ICdzdHJpbmcnLFxuXHRcdGVudW06IFsnb2ZmJywgJ2Fsd2F5c09uVG9wRXhjZXB0RXhhY3RNYXRjaCcsICdhbHdheXNPblRvcCddLFxuXHRcdG1hcmtkb3duRW51bURlc2NyaXB0aW9uczogW1xuXHRcdFx0bG9jYWxpemUoJ3N1Z2dlc3QuaW5saW5lU3VnZ2VzdGlvbi5vZmYnLCBcIkRpc2FibGUgdGhlIGZlYXR1cmUuXCIpLFxuXHRcdFx0bG9jYWxpemUoJ3N1Z2dlc3QuaW5saW5lU3VnZ2VzdGlvbi5hbHdheXNPblRvcEV4Y2VwdEV4YWN0TWF0Y2gnLCBcIkVuYWJsZSB0aGUgZmVhdHVyZSBhbmQgc29ydCB0aGUgaW5saW5lIHN1Z2dlc3Rpb24gd2l0aG91dCBmb3JjaW5nIGl0IHRvIGJlIG9uIHRvcC4gVGhpcyBtZWFucyB0aGF0IGV4YWN0IG1hdGNoZXMgd2lsbCBiZSB3aWxsIGJlIGFib3ZlIHRoZSBpbmxpbmUgc3VnZ2VzdGlvbi5cIiksXG5cdFx0XHRsb2NhbGl6ZSgnc3VnZ2VzdC5pbmxpbmVTdWdnZXN0aW9uLmFsd2F5c09uVG9wJywgXCJFbmFibGUgdGhlIGZlYXR1cmUgYW5kIGFsd2F5cyBwdXQgdGhlIGlubGluZSBzdWdnZXN0aW9uIG9uIHRvcC5cIiksXG5cdFx0XSxcblx0XHRkZWZhdWx0OiAnYWx3YXlzT25Ub3AnLFxuXHRcdHRhZ3M6IFsncHJldmlldyddXG5cdH0sXG5cdFtUZXJtaW5hbFN1Z2dlc3RTZXR0aW5nSWQuVXBBcnJvd05hdmlnYXRlc0hpc3RvcnldOiB7XG5cdFx0cmVzdHJpY3RlZDogdHJ1ZSxcblx0XHRtYXJrZG93bkRlc2NyaXB0aW9uOiBsb2NhbGl6ZSgnc3VnZ2VzdC51cEFycm93TmF2aWdhdGVzSGlzdG9yeScsIFwiRGV0ZXJtaW5lcyB3aGV0aGVyIHRoZSB1cCBhcnJvdyBrZXkgbmF2aWdhdGVzIHRoZSBjb21tYW5kIGhpc3Rvcnkgd2hlbiBmb2N1cyBpcyBvbiB0aGUgZmlyc3Qgc3VnZ2VzdGlvbiBhbmQgbmF2aWdhdGlvbiBoYXMgbm90IHlldCBvY2N1cnJlZC4gV2hlbiBzZXQgdG8gZmFsc2UsIHRoZSB1cCBhcnJvdyB3aWxsIG1vdmUgZm9jdXMgdG8gdGhlIGxhc3Qgc3VnZ2VzdGlvbiBpbnN0ZWFkLlwiKSxcblx0XHR0eXBlOiAnYm9vbGVhbicsXG5cdFx0ZGVmYXVsdDogdHJ1ZSxcblx0XHR0YWdzOiBbJ3ByZXZpZXcnXVxuXHR9LFxufTtcblxuXG4iXSwKICAibWFwcGluZ3MiOiAiQUFNQSxTQUFTLGdCQUFnQjtBQUV6QixTQUFTLHlCQUF5QjtBQUUzQixJQUFXLDJCQUFYLGtCQUFXQSw4QkFBWDtBQUNOLEVBQUFBLDBCQUFBLGFBQVU7QUFDVixFQUFBQSwwQkFBQSxzQkFBbUI7QUFDbkIsRUFBQUEsMEJBQUEsZ0NBQTZCO0FBQzdCLEVBQUFBLDBCQUFBLGdCQUFhO0FBQ2IsRUFBQUEs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UyxxQkFBcUIsd0JBQXdCO0FBQUEsSUFDdkQ7QUFBQSxJQUNBLFNBQVM7QUFBQSxJQUNULE1BQU0sQ0FBQyxTQUFTO0FBQUEsRUFDakI7QUFBQSxFQUNBLENBQUMsMkZBQW9ELEdBQUc7QUFBQSxJQUN2RCxZQUFZO0FBQUEsSUFDWixxQkFBcUI7QUFBQSxNQUFTO0FBQUEsTUFBOEM7QUFBQSxNQUMzRSxtQ0FBbUMsS0FBSyxFQUFFLElBQUksZUFBYSxLQUFLLFNBQVMsRUFBRSxFQUFFLEtBQUssSUFBSTtBQUFBLElBQ3ZGO0FBQUEsSUFDQSxNQUFNO0FBQUEsSUFDTixTQUFTLENBQUM7QUFBQSxJQUNWLE1BQU0sQ0FBQyxTQUFTO0FBQUEsRUFDakI7QUFBQSxFQUNBLENBQUMsK0RBQXNDLEdBQUc7QUFBQSxJQUN6QyxZQUFZO0FBQUEsSUFDWixxQkFBcUIsU0FBUyx5QkFBeUIsdUVBQXVFO0FBQUEsSUFDOUgsTUFBTTtBQUFBLElBQ04sU0FBUztBQUFBLElBQ1QsTUFBTSxDQUFDLFNBQVM7QUFBQSxFQUNqQjtBQUFBLEVBQ0EsQ0FBQyxpREFBK0IsR0FBRztBQUFBLElBQ2xDLFlBQVk7QUFBQSxJQUNaLHFCQUFxQixTQUFTLGtCQUFrQix5UEFBeVA7QUFBQSxJQUN6UyxNQUFNO0FBQUEsSUFDTixNQUFNLENBQUMsT0FBTyxZQUFZLFVBQVU7QUFBQSxJQUNwQywwQkFBMEI7QUFBQSxNQUN6QixTQUFTLHNCQUFzQixzQkFBc0I7QUFBQSxNQUNyRCxTQUFTLDJCQUEyQiw0Q0FBNEM7QUFBQSxNQUNoRixTQUFTLDJCQUEyQiw4R0FBOEc7QUFBQSxJQUNuSjtBQUFBLElBQ0EsU0FBUztBQUFBLElBQ1QsTUFBTSxDQUFDLFNBQVM7QUFBQSxFQUNqQjtBQUFBLEVBQ0EsQ0FBQyxxRUFBeUMsR0FBRztBQUFBLElBQzVDLFlBQVk7QUFBQSxJQUNaLHFCQUFxQixTQUFTLDRCQUE0Qix5RkFBeUY7QUFBQSxJQUNuSixNQUFNO0FBQUEsSUFDTixNQUFNLENBQUMsT0FBTywrQkFBK0IsYUFBYTtBQUFBLElBQzFELDBCQUEwQjtBQUFBLE1BQ3pCLFNBQVMsZ0NBQWdDLHNCQUFzQjtBQUFBLE1BQy9ELFNBQVMsd0RBQXdELCtKQUErSjtBQUFBLE1BQ2hPLFNBQVMsd0NBQXdDLGlFQUFpRTtBQUFBLElBQ25IO0FBQUEsSUFDQSxTQUFTO0FBQUEsSUFDVCxNQUFNLENBQUMsU0FBUztBQUFBLEVBQ2pCO0FBQUEsRUFDQSxDQUFDLG1GQUFnRCxHQUFHO0FBQUEsSUFDbkQsWUFBWTtBQUFBLElBQ1oscUJBQXFCLFNBQVMsbUNBQW1DLDhOQUE4TjtBQUFBLElBQy9SLE1BQU07QUFBQSxJQUNOLFNBQVM7QUFBQSxJQUNULE1BQU0sQ0FBQyxTQUFTO0FBQUEsRUFDakI7QUFDRDsiLAogICJuYW1lcyI6IFsiVGVybWluYWxTdWdnZXN0U2V0dGluZ0lkIl0KfQo=

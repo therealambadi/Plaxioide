@@ -1,0 +1,43 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __decorateClass = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc(target, key) : target;
+  for (var i = decorators.length - 1, decorator; i >= 0; i--)
+    if (decorator = decorators[i])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp(target, key, result);
+  return result;
+};
+var __decorateParam = (index, decorator) => (target, key) => decorator(target, key, index);
+import { IWorkspaceContextService } from "../../../../platform/workspace/common/workspace.js";
+import { IStorageService } from "../../../../platform/storage/common/storage.js";
+import { IFileService } from "../../../../platform/files/common/files.js";
+import { IWorkspaceTrustManagementService } from "../../../../platform/workspace/common/workspaceTrust.js";
+import { isChatTransferredWorkspace, areWorkspaceFoldersEmpty } from "../../../services/workspaces/common/workspaceUtils.js";
+import { createDecorator } from "../../../../platform/instantiation/common/instantiation.js";
+const IChatTransferService = createDecorator("chatTransferService");
+let ChatTransferService = class {
+  constructor(workspaceService, storageService, fileService, workspaceTrustManagementService) {
+    this.workspaceService = workspaceService;
+    this.storageService = storageService;
+    this.fileService = fileService;
+    this.workspaceTrustManagementService = workspaceTrustManagementService;
+  }
+  async checkAndSetWorkspaceTrust() {
+    const workspace = this.workspaceService.getWorkspace();
+    if (isChatTransferredWorkspace(workspace, this.storageService) && await areWorkspaceFoldersEmpty(workspace, this.fileService)) {
+      await this.workspaceTrustManagementService.setWorkspaceTrust(true);
+    }
+  }
+};
+ChatTransferService = __decorateClass([
+  __decorateParam(0, IWorkspaceContextService),
+  __decorateParam(1, IStorageService),
+  __decorateParam(2, IFileService),
+  __decorateParam(3, IWorkspaceTrustManagementService)
+], ChatTransferService);
+export {
+  ChatTransferService,
+  IChatTransferService
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvY29udHJpYi9jaGF0L2NvbW1vbi9jaGF0VHJhbnNmZXJTZXJ2aWNlLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyIvKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxuICogIENvcHlyaWdodCAoYykgTWljcm9zb2Z0IENvcnBvcmF0aW9uLiBBbGwgcmlnaHRzIHJlc2VydmVkLlxuICogIExpY2Vuc2VkIHVuZGVyIHRoZSBNSVQgTGljZW5zZS4gU2VlIExpY2Vuc2UudHh0IGluIHRoZSBwcm9qZWN0IHJvb3QgZm9yIGxpY2Vuc2UgaW5mb3JtYXRpb24uXG4gKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tKi9cbmltcG9ydCB7IElXb3Jrc3BhY2VDb250ZXh0U2VydmljZSB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL3dvcmtzcGFjZS9jb21tb24vd29ya3NwYWNlLmpzJztcbmltcG9ydCB7IElTdG9yYWdlU2VydmljZSB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL3N0b3JhZ2UvY29tbW9uL3N0b3JhZ2UuanMnO1xuaW1wb3J0IHsgSUZpbGVTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vZmlsZXMvY29tbW9uL2ZpbGVzLmpzJztcbmltcG9ydCB7IElXb3Jrc3BhY2VUcnVzdE1hbmFnZW1lbnRTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vd29ya3NwYWNlL2NvbW1vbi93b3Jrc3BhY2VUcnVzdC5qcyc7XG5pbXBvcnQgeyBpc0NoYXRUcmFuc2ZlcnJlZFdvcmtzcGFjZSwgYXJlV29ya3NwYWNlRm9sZGVyc0VtcHR5IH0gZnJvbSAnLi4vLi4vLi4vc2VydmljZXMvd29ya3NwYWNlcy9jb21tb24vd29ya3NwYWNlVXRpbHMuanMnO1xuaW1wb3J0IHsgY3JlYXRlRGVjb3JhdG9yIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vaW5zdGFudGlhdGlvbi9jb21tb24vaW5zdGFudGlhdGlvbi5qcyc7XG5cbmV4cG9ydCBjb25zdCBJQ2hhdFRyYW5zZmVyU2VydmljZSA9IGNyZWF0ZURlY29yYXRvcjxJQ2hhdFRyYW5zZmVyU2VydmljZT4oJ2NoYXRUcmFuc2ZlclNlcnZpY2UnKTtcblxuZXhwb3J0IGludGVyZmFjZSBJQ2hhdFRyYW5zZmVyU2VydmljZSB7XG5cdHJlYWRvbmx5IF9zZXJ2aWNlQnJhbmQ6IHVuZGVmaW5lZDtcblxuXHRjaGVja0FuZFNldFdvcmtzcGFjZVRydXN0KCk6IFByb21pc2U8dm9pZD47XG59XG5cbmV4cG9ydCBjbGFzcyBDaGF0VHJhbnNmZXJTZXJ2aWNlIGltcGxlbWVudHMgSUNoYXRUcmFuc2ZlclNlcnZpY2Uge1xuXHRfc2VydmljZUJyYW5kOiB1bmRlZmluZWQ7XG5cblx0Y29uc3RydWN0b3IoXG5cdFx0QElXb3Jrc3BhY2VDb250ZXh0U2VydmljZSBwcml2YXRlIHJlYWRvbmx5IHdvcmtzcGFjZVNlcnZpY2U6IElXb3Jrc3BhY2VDb250ZXh0U2VydmljZSxcblx0XHRASVN0b3JhZ2VTZXJ2aWNlIHByaXZhdGUgcmVhZG9ubHkgc3RvcmFnZVNlcnZpY2U6IElTdG9yYWdlU2VydmljZSxcblx0XHRASUZpbGVTZXJ2aWNlIHByaXZhdGUgcmVhZG9ubHkgZmlsZVNlcnZpY2U6IElGaWxlU2VydmljZSxcblx0XHRASVdvcmtzcGFjZVRydXN0TWFuYWdlbWVudFNlcnZpY2UgcHJpdmF0ZSByZWFkb25seSB3b3Jrc3BhY2VUcnVzdE1hbmFnZW1lbnRTZXJ2aWNlOiBJV29ya3NwYWNlVHJ1c3RNYW5hZ2VtZW50U2VydmljZVxuXHQpIHsgfVxuXG5cdGFzeW5jIGNoZWNrQW5kU2V0V29ya3NwYWNlVHJ1c3QoKTogUHJvbWlzZTx2b2lkPiB7XG5cdFx0Y29uc3Qgd29ya3NwYWNlID0gdGhpcy53b3Jrc3BhY2VTZXJ2aWNlLmdldFdvcmtzcGFjZSgpO1xuXHRcdGlmIChpc0NoYXRUcmFuc2ZlcnJlZFdvcmtzcGFjZSh3b3Jrc3BhY2UsIHRoaXMuc3RvcmFnZVNlcnZpY2UpICYmIGF3YWl0IGFyZVdvcmtzcGFjZUZvbGRlcnNFbXB0eSh3b3Jrc3BhY2UsIHRoaXMuZmlsZVNlcnZpY2UpKSB7XG5cdFx0XHRhd2FpdCB0aGlzLndvcmtzcGFjZVRydXN0TWFuYWdlbWVudFNlcnZpY2Uuc2V0V29ya3NwYWNlVHJ1c3QodHJ1ZSk7XG5cdFx0fVxuXHR9XG59XG4iXSwKICAibWFwcGluZ3MiOiAiOzs7Ozs7Ozs7OztBQUlBLFNBQVMsZ0NBQWdDO0FBQ3pDLFNBQVMsdUJBQXVCO0FBQ2hDLFNBQVMsb0JBQW9CO0FBQzdCLFNBQVMsd0NBQXdDO0FBQ2pELFNBQVMsNEJBQTRCLGdDQUFnQztBQUNyRSxTQUFTLHVCQUF1QjtBQUV6QixNQUFNLHVCQUF1QixnQkFBc0MscUJBQXFCO0FBUXhGLElBQU0sc0JBQU4sTUFBMEQ7QUFBQSxFQUdoRSxZQUM0QyxrQkFDVCxnQkFDSCxhQUNvQixpQ0FDbEQ7QUFKMEM7QUFDVDtBQUNIO0FBQ29CO0FBQUEsRUFDaEQ7QUFBQSxFQUVKLE1BQU0sNEJBQTJDO0FBQ2hELFVBQU0sWUFBWSxLQUFLLGlCQUFpQixhQUFhO0FBQ3JELFFBQUksMkJBQTJCLFdBQVcsS0FBSyxjQUFjLEtBQUssTUFBTSx5QkFBeUIsV0FBVyxLQUFLLFdBQVcsR0FBRztBQUM5SCxZQUFNLEtBQUssZ0NBQWdDLGtCQUFrQixJQUFJO0FBQUEsSUFDbEU7QUFBQSxFQUNEO0FBQ0Q7QUFoQmEsc0JBQU47QUFBQSxFQUlKO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFBQSxFQUNBO0FBQUEsR0FQVTsiLAogICJuYW1lcyI6IFtdCn0K

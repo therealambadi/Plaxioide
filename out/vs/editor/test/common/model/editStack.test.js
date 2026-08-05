@@ -1,0 +1,24 @@
+import assert from "assert";
+import { ensureNoDisposablesAreLeakedInTestSuite } from "../../../../base/test/common/utils.js";
+import { Selection } from "../../../common/core/selection.js";
+import { TextChange } from "../../../common/core/textChange.js";
+import { EndOfLineSequence } from "../../../common/model.js";
+import { SingleModelEditStackData } from "../../../common/model/editStack.js";
+suite("EditStack", () => {
+  ensureNoDisposablesAreLeakedInTestSuite();
+  test("issue #118041: unicode character undo bug", () => {
+    const stackData = new SingleModelEditStackData(
+      1,
+      2,
+      EndOfLineSequence.LF,
+      EndOfLineSequence.LF,
+      [new Selection(10, 2, 10, 2)],
+      [new Selection(10, 1, 10, 1)],
+      [new TextChange(428, "\uFEFF", 428, "")]
+    );
+    const buff = stackData.serialize();
+    const actual = SingleModelEditStackData.deserialize(buff);
+    assert.deepStrictEqual(actual, stackData);
+  });
+});
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy9lZGl0b3IvdGVzdC9jb21tb24vbW9kZWwvZWRpdFN0YWNrLnRlc3QudHMiXSwKICAic291cmNlc0NvbnRlbnQiOiBbIi8qLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXG4gKiAgQ29weXJpZ2h0IChjKSBNaWNyb3NvZnQgQ29ycG9yYXRpb24uIEFsbCByaWdodHMgcmVzZXJ2ZWQuXG4gKiAgTGljZW5zZWQgdW5kZXIgdGhlIE1JVCBMaWNlbnNlLiBTZWUgTGljZW5zZS50eHQgaW4gdGhlIHByb2plY3Qgcm9vdCBmb3IgbGljZW5zZSBpbmZvcm1hdGlvbi5cbiAqLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0qL1xuXG5pbXBvcnQgYXNzZXJ0IGZyb20gJ2Fzc2VydCc7XG5pbXBvcnQgeyBlbnN1cmVOb0Rpc3Bvc2FibGVzQXJlTGVha2VkSW5UZXN0U3VpdGUgfSBmcm9tICcuLi8uLi8uLi8uLi9iYXNlL3Rlc3QvY29tbW9uL3V0aWxzLmpzJztcbmltcG9ydCB7IFNlbGVjdGlvbiB9IGZyb20gJy4uLy4uLy4uL2NvbW1vbi9jb3JlL3NlbGVjdGlvbi5qcyc7XG5pbXBvcnQgeyBUZXh0Q2hhbmdlIH0gZnJvbSAnLi4vLi4vLi4vY29tbW9uL2NvcmUvdGV4dENoYW5nZS5qcyc7XG5pbXBvcnQgeyBFbmRPZkxpbmVTZXF1ZW5jZSB9IGZyb20gJy4uLy4uLy4uL2NvbW1vbi9tb2RlbC5qcyc7XG5pbXBvcnQgeyBTaW5nbGVNb2RlbEVkaXRTdGFja0RhdGEgfSBmcm9tICcuLi8uLi8uLi9jb21tb24vbW9kZWwvZWRpdFN0YWNrLmpzJztcblxuc3VpdGUoJ0VkaXRTdGFjaycsICgpID0+IHtcblxuXHRlbnN1cmVOb0Rpc3Bvc2FibGVzQXJlTGVha2VkSW5UZXN0U3VpdGUoKTtcblxuXHR0ZXN0KCdpc3N1ZSAjMTE4MDQxOiB1bmljb2RlIGNoYXJhY3RlciB1bmRvIGJ1ZycsICgpID0+IHtcblx0XHRjb25zdCBzdGFja0RhdGEgPSBuZXcgU2luZ2xlTW9kZWxFZGl0U3RhY2tEYXRhKFxuXHRcdFx0MSxcblx0XHRcdDIsXG5cdFx0XHRFbmRPZkxpbmVTZXF1ZW5jZS5MRixcblx0XHRcdEVuZE9mTGluZVNlcXVlbmNlLkxGLFxuXHRcdFx0W25ldyBTZWxlY3Rpb24oMTAsIDIsIDEwLCAyKV0sXG5cdFx0XHRbbmV3IFNlbGVjdGlvbigxMCwgMSwgMTAsIDEpXSxcblx0XHRcdFtuZXcgVGV4dENoYW5nZSg0MjgsICdcdUZFRkYnLCA0MjgsICcnKV1cblx0XHQpO1xuXG5cdFx0Y29uc3QgYnVmZiA9IHN0YWNrRGF0YS5zZXJpYWxpemUoKTtcblx0XHRjb25zdCBhY3R1YWwgPSBTaW5nbGVNb2RlbEVkaXRTdGFja0RhdGEuZGVzZXJpYWxpemUoYnVmZik7XG5cblx0XHRhc3NlcnQuZGVlcFN0cmljdEVxdWFsKGFjdHVhbCwgc3RhY2tEYXRhKTtcblx0fSk7XG5cbn0pO1xuIl0sCiAgIm1hcHBpbmdzIjogIkFBS0EsT0FBTyxZQUFZO0FBQ25CLFNBQVMsK0NBQStDO0FBQ3hELFNBQVMsaUJBQWlCO0FBQzFCLFNBQVMsa0JBQWtCO0FBQzNCLFNBQVMseUJBQXlCO0FBQ2xDLFNBQVMsZ0NBQWdDO0FBRXpDLE1BQU0sYUFBYSxNQUFNO0FBRXhCLDBDQUF3QztBQUV4QyxPQUFLLDZDQUE2QyxNQUFNO0FBQ3ZELFVBQU0sWUFBWSxJQUFJO0FBQUEsTUFDckI7QUFBQSxNQUNBO0FBQUEsTUFDQSxrQkFBa0I7QUFBQSxNQUNsQixrQkFBa0I7QUFBQSxNQUNsQixDQUFDLElBQUksVUFBVSxJQUFJLEdBQUcsSUFBSSxDQUFDLENBQUM7QUFBQSxNQUM1QixDQUFDLElBQUksVUFBVSxJQUFJLEdBQUcsSUFBSSxDQUFDLENBQUM7QUFBQSxNQUM1QixDQUFDLElBQUksV0FBVyxLQUFLLFVBQUssS0FBSyxFQUFFLENBQUM7QUFBQSxJQUNuQztBQUVBLFVBQU0sT0FBTyxVQUFVLFVBQVU7QUFDakMsVUFBTSxTQUFTLHlCQUF5QixZQUFZLElBQUk7QUFFeEQsV0FBTyxnQkFBZ0IsUUFBUSxTQUFTO0FBQUEsRUFDekMsQ0FBQztBQUVGLENBQUM7IiwKICAibmFtZXMiOiBbXQp9Cg==

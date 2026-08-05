@@ -1,0 +1,33 @@
+import * as browser from "./browser.js";
+import { mainWindow } from "./window.js";
+import * as platform from "../common/platform.js";
+var KeyboardSupport = /* @__PURE__ */ ((KeyboardSupport2) => {
+  KeyboardSupport2[KeyboardSupport2["Always"] = 0] = "Always";
+  KeyboardSupport2[KeyboardSupport2["FullScreen"] = 1] = "FullScreen";
+  KeyboardSupport2[KeyboardSupport2["None"] = 2] = "None";
+  return KeyboardSupport2;
+})(KeyboardSupport || {});
+const BrowserFeatures = {
+  clipboard: {
+    writeText: platform.isNative || document.queryCommandSupported && document.queryCommandSupported("copy") || !!(navigator && navigator.clipboard && navigator.clipboard.writeText),
+    readText: platform.isNative || !!(navigator && navigator.clipboard && navigator.clipboard.readText)
+  },
+  keyboard: (() => {
+    if (platform.isNative || browser.isStandalone()) {
+      return 0 /* Always */;
+    }
+    if (navigator.keyboard || browser.isSafari) {
+      return 1 /* FullScreen */;
+    }
+    return 2 /* None */;
+  })(),
+  // 'ontouchstart' in window always evaluates to true with typescript's modern typings. This causes `window` to be
+  // `never` later in `window.navigator`. That's why we need the explicit `window as Window` cast
+  touch: "ontouchstart" in mainWindow || navigator.maxTouchPoints > 0,
+  pointerEvents: mainWindow.PointerEvent && ("ontouchstart" in mainWindow || navigator.maxTouchPoints > 0)
+};
+export {
+  BrowserFeatures,
+  KeyboardSupport
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy9iYXNlL2Jyb3dzZXIvY2FuSVVzZS50cyJdLAogICJzb3VyY2VzQ29udGVudCI6IFsiLyotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS1cbiAqICBDb3B5cmlnaHQgKGMpIE1pY3Jvc29mdCBDb3Jwb3JhdGlvbi4gQWxsIHJpZ2h0cyByZXNlcnZlZC5cbiAqICBMaWNlbnNlZCB1bmRlciB0aGUgTUlUIExpY2Vuc2UuIFNlZSBMaWNlbnNlLnR4dCBpbiB0aGUgcHJvamVjdCByb290IGZvciBsaWNlbnNlIGluZm9ybWF0aW9uLlxuICotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLSovXG5cbmltcG9ydCAqIGFzIGJyb3dzZXIgZnJvbSAnLi9icm93c2VyLmpzJztcbmltcG9ydCB7IG1haW5XaW5kb3cgfSBmcm9tICcuL3dpbmRvdy5qcyc7XG5pbXBvcnQgKiBhcyBwbGF0Zm9ybSBmcm9tICcuLi9jb21tb24vcGxhdGZvcm0uanMnO1xuXG5leHBvcnQgY29uc3QgZW51bSBLZXlib2FyZFN1cHBvcnQge1xuXHRBbHdheXMsXG5cdEZ1bGxTY3JlZW4sXG5cdE5vbmVcbn1cblxuLyoqXG4gKiBCcm93c2VyIGZlYXR1cmUgd2UgY2FuIHN1cHBvcnQgaW4gY3VycmVudCBwbGF0Zm9ybSwgYnJvd3NlciBhbmQgZW52aXJvbm1lbnQuXG4gKi9cbmV4cG9ydCBjb25zdCBCcm93c2VyRmVhdHVyZXMgPSB7XG5cdGNsaXBib2FyZDoge1xuXHRcdHdyaXRlVGV4dDogKFxuXHRcdFx0cGxhdGZvcm0uaXNOYXRpdmVcblx0XHRcdHx8IChkb2N1bWVudC5xdWVyeUNvbW1hbmRTdXBwb3J0ZWQgJiYgZG9jdW1lbnQucXVlcnlDb21tYW5kU3VwcG9ydGVkKCdjb3B5JykpXG5cdFx0XHR8fCAhIShuYXZpZ2F0b3IgJiYgbmF2aWdhdG9yLmNsaXBib2FyZCAmJiBuYXZpZ2F0b3IuY2xpcGJvYXJkLndyaXRlVGV4dClcblx0XHQpLFxuXHRcdHJlYWRUZXh0OiAoXG5cdFx0XHRwbGF0Zm9ybS5pc05hdGl2ZVxuXHRcdFx0fHwgISEobmF2aWdhdG9yICYmIG5hdmlnYXRvci5jbGlwYm9hcmQgJiYgbmF2aWdhdG9yLmNsaXBib2FyZC5yZWFkVGV4dClcblx0XHQpXG5cdH0sXG5cdGtleWJvYXJkOiAoKCkgPT4ge1xuXHRcdGlmIChwbGF0Zm9ybS5pc05hdGl2ZSB8fCBicm93c2VyLmlzU3RhbmRhbG9uZSgpKSB7XG5cdFx0XHRyZXR1cm4gS2V5Ym9hcmRTdXBwb3J0LkFsd2F5cztcblx0XHR9XG5cblx0XHRpZiAoKDxhbnk+bmF2aWdhdG9yKS5rZXlib2FyZCB8fCBicm93c2VyLmlzU2FmYXJpKSB7XG5cdFx0XHRyZXR1cm4gS2V5Ym9hcmRTdXBwb3J0LkZ1bGxTY3JlZW47XG5cdFx0fVxuXG5cdFx0cmV0dXJuIEtleWJvYXJkU3VwcG9ydC5Ob25lO1xuXHR9KSgpLFxuXG5cdC8vICdvbnRvdWNoc3RhcnQnIGluIHdpbmRvdyBhbHdheXMgZXZhbHVhdGVzIHRvIHRydWUgd2l0aCB0eXBlc2NyaXB0J3MgbW9kZXJuIHR5cGluZ3MuIFRoaXMgY2F1c2VzIGB3aW5kb3dgIHRvIGJlXG5cdC8vIGBuZXZlcmAgbGF0ZXIgaW4gYHdpbmRvdy5uYXZpZ2F0b3JgLiBUaGF0J3Mgd2h5IHdlIG5lZWQgdGhlIGV4cGxpY2l0IGB3aW5kb3cgYXMgV2luZG93YCBjYXN0XG5cdHRvdWNoOiAnb250b3VjaHN0YXJ0JyBpbiBtYWluV2luZG93IHx8IG5hdmlnYXRvci5tYXhUb3VjaFBvaW50cyA+IDAsXG5cdHBvaW50ZXJFdmVudHM6IG1haW5XaW5kb3cuUG9pbnRlckV2ZW50ICYmICgnb250b3VjaHN0YXJ0JyBpbiBtYWluV2luZG93IHx8IG5hdmlnYXRvci5tYXhUb3VjaFBvaW50cyA+IDApXG59O1xuIl0sCiAgIm1hcHBpbmdzIjogIkFBS0EsWUFBWSxhQUFhO0FBQ3pCLFNBQVMsa0JBQWtCO0FBQzNCLFlBQVksY0FBYztBQUVuQixJQUFXLGtCQUFYLGtCQUFXQSxxQkFBWDtBQUNOLEVBQUFBLGtDQUFBO0FBQ0EsRUFBQUEsa0NBQUE7QUFDQSxFQUFBQSxrQ0FBQTtBQUhpQixTQUFBQTtBQUFBLEdBQUE7QUFTWCxNQUFNLGtCQUFrQjtBQUFBLEVBQzlCLFdBQVc7QUFBQSxJQUNWLFdBQ0MsU0FBUyxZQUNMLFNBQVMseUJBQXlCLFNBQVMsc0JBQXNCLE1BQU0sS0FDeEUsQ0FBQyxFQUFFLGFBQWEsVUFBVSxhQUFhLFVBQVUsVUFBVTtBQUFBLElBRS9ELFVBQ0MsU0FBUyxZQUNOLENBQUMsRUFBRSxhQUFhLFVBQVUsYUFBYSxVQUFVLFVBQVU7QUFBQSxFQUVoRTtBQUFBLEVBQ0EsV0FBVyxNQUFNO0FBQ2hCLFFBQUksU0FBUyxZQUFZLFFBQVEsYUFBYSxHQUFHO0FBQ2hELGFBQU87QUFBQSxJQUNSO0FBRUEsUUFBVSxVQUFXLFlBQVksUUFBUSxVQUFVO0FBQ2xELGFBQU87QUFBQSxJQUNSO0FBRUEsV0FBTztBQUFBLEVBQ1IsR0FBRztBQUFBO0FBQUE7QUFBQSxFQUlILE9BQU8sa0JBQWtCLGNBQWMsVUFBVSxpQkFBaUI7QUFBQSxFQUNsRSxlQUFlLFdBQVcsaUJBQWlCLGtCQUFrQixjQUFjLFVBQVUsaUJBQWlCO0FBQ3ZHOyIsCiAgIm5hbWVzIjogWyJLZXlib2FyZFN1cHBvcnQiXQp9Cg==

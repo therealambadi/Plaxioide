@@ -1,0 +1,39 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __decorateClass = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc(target, key) : target;
+  for (var i = decorators.length - 1, decorator; i >= 0; i--)
+    if (decorator = decorators[i])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp(target, key, result);
+  return result;
+};
+var __decorateParam = (index, decorator) => (target, key) => decorator(target, key, index);
+import { mainWindow } from "../../../../base/browser/window.js";
+import { IEnvironmentService } from "../../../../platform/environment/common/environment.js";
+import { IFileService } from "../../../../platform/files/common/files.js";
+import { ILogService } from "../../../../platform/log/common/log.js";
+import { BrowserWindowDriver } from "../browser/driver.js";
+import { ILifecycleService } from "../../lifecycle/common/lifecycle.js";
+let NativeWindowDriver = class extends BrowserWindowDriver {
+  constructor(helper, fileService, environmentService, lifecycleService, logService) {
+    super(fileService, environmentService, lifecycleService, logService);
+    this.helper = helper;
+  }
+  exitApplication() {
+    return this.helper.exitApplication();
+  }
+};
+NativeWindowDriver = __decorateClass([
+  __decorateParam(1, IFileService),
+  __decorateParam(2, IEnvironmentService),
+  __decorateParam(3, ILifecycleService),
+  __decorateParam(4, ILogService)
+], NativeWindowDriver);
+function registerWindowDriver(instantiationService, helper) {
+  Object.assign(mainWindow, { driver: instantiationService.createInstance(NativeWindowDriver, helper) });
+}
+export {
+  registerWindowDriver
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvc2VydmljZXMvZHJpdmVyL2VsZWN0cm9uLXNhbmRib3gvZHJpdmVyLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyIvKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxuICogIENvcHlyaWdodCAoYykgTWljcm9zb2Z0IENvcnBvcmF0aW9uLiBBbGwgcmlnaHRzIHJlc2VydmVkLlxuICogIExpY2Vuc2VkIHVuZGVyIHRoZSBNSVQgTGljZW5zZS4gU2VlIExpY2Vuc2UudHh0IGluIHRoZSBwcm9qZWN0IHJvb3QgZm9yIGxpY2Vuc2UgaW5mb3JtYXRpb24uXG4gKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tKi9cblxuaW1wb3J0IHsgbWFpbldpbmRvdyB9IGZyb20gJy4uLy4uLy4uLy4uL2Jhc2UvYnJvd3Nlci93aW5kb3cuanMnO1xuaW1wb3J0IHsgSUVudmlyb25tZW50U2VydmljZSB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL2Vudmlyb25tZW50L2NvbW1vbi9lbnZpcm9ubWVudC5qcyc7XG5pbXBvcnQgeyBJRmlsZVNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS9maWxlcy9jb21tb24vZmlsZXMuanMnO1xuaW1wb3J0IHsgSUluc3RhbnRpYXRpb25TZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vaW5zdGFudGlhdGlvbi9jb21tb24vaW5zdGFudGlhdGlvbi5qcyc7XG5pbXBvcnQgeyBJTG9nU2VydmljZSB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL2xvZy9jb21tb24vbG9nLmpzJztcbmltcG9ydCB7IEJyb3dzZXJXaW5kb3dEcml2ZXIgfSBmcm9tICcuLi9icm93c2VyL2RyaXZlci5qcyc7XG5pbXBvcnQgeyBJTGlmZWN5Y2xlU2VydmljZSB9IGZyb20gJy4uLy4uL2xpZmVjeWNsZS9jb21tb24vbGlmZWN5Y2xlLmpzJztcblxuaW50ZXJmYWNlIElOYXRpdmVXaW5kb3dEcml2ZXJIZWxwZXIge1xuXHRleGl0QXBwbGljYXRpb24oKTogUHJvbWlzZTx2b2lkPjtcbn1cblxuY2xhc3MgTmF0aXZlV2luZG93RHJpdmVyIGV4dGVuZHMgQnJvd3NlcldpbmRvd0RyaXZlciB7XG5cblx0Y29uc3RydWN0b3IoXG5cdFx0cHJpdmF0ZSByZWFkb25seSBoZWxwZXI6IElOYXRpdmVXaW5kb3dEcml2ZXJIZWxwZXIsXG5cdFx0QElGaWxlU2VydmljZSBmaWxlU2VydmljZTogSUZpbGVTZXJ2aWNlLFxuXHRcdEBJRW52aXJvbm1lbnRTZXJ2aWNlIGVudmlyb25tZW50U2VydmljZTogSUVudmlyb25tZW50U2VydmljZSxcblx0XHRASUxpZmVjeWNsZVNlcnZpY2UgbGlmZWN5Y2xlU2VydmljZTogSUxpZmVjeWNsZVNlcnZpY2UsXG5cdFx0QElMb2dTZXJ2aWNlIGxvZ1NlcnZpY2U6IElMb2dTZXJ2aWNlXG5cdCkge1xuXHRcdHN1cGVyKGZpbGVTZXJ2aWNlLCBlbnZpcm9ubWVudFNlcnZpY2UsIGxpZmVjeWNsZVNlcnZpY2UsIGxvZ1NlcnZpY2UpO1xuXHR9XG5cblx0b3ZlcnJpZGUgZXhpdEFwcGxpY2F0aW9uKCk6IFByb21pc2U8dm9pZD4ge1xuXHRcdHJldHVybiB0aGlzLmhlbHBlci5leGl0QXBwbGljYXRpb24oKTtcblx0fVxufVxuXG5leHBvcnQgZnVuY3Rpb24gcmVnaXN0ZXJXaW5kb3dEcml2ZXIoaW5zdGFudGlhdGlvblNlcnZpY2U6IElJbnN0YW50aWF0aW9uU2VydmljZSwgaGVscGVyOiBJTmF0aXZlV2luZG93RHJpdmVySGVscGVyKTogdm9pZCB7XG5cdE9iamVjdC5hc3NpZ24obWFpbldpbmRvdywgeyBkcml2ZXI6IGluc3RhbnRpYXRpb25TZXJ2aWNlLmNyZWF0ZUluc3RhbmNlKE5hdGl2ZVdpbmRvd0RyaXZlciwgaGVscGVyKSB9KTtcbn1cbiJdLAogICJtYXBwaW5ncyI6ICI7Ozs7Ozs7Ozs7O0FBS0EsU0FBUyxrQkFBa0I7QUFDM0IsU0FBUywyQkFBMkI7QUFDcEMsU0FBUyxvQkFBb0I7QUFFN0IsU0FBUyxtQkFBbUI7QUFDNUIsU0FBUywyQkFBMkI7QUFDcEMsU0FBUyx5QkFBeUI7QUFNbEMsSUFBTSxxQkFBTixjQUFpQyxvQkFBb0I7QUFBQSxFQUVwRCxZQUNrQixRQUNILGFBQ08sb0JBQ0Ysa0JBQ04sWUFDWjtBQUNELFVBQU0sYUFBYSxvQkFBb0Isa0JBQWtCLFVBQVU7QUFObEQ7QUFBQSxFQU9sQjtBQUFBLEVBRVMsa0JBQWlDO0FBQ3pDLFdBQU8sS0FBSyxPQUFPLGdCQUFnQjtBQUFBLEVBQ3BDO0FBQ0Q7QUFmTSxxQkFBTjtBQUFBLEVBSUc7QUFBQSxFQUNBO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFBQSxHQVBHO0FBaUJDLFNBQVMscUJBQXFCLHNCQUE2QyxRQUF5QztBQUMxSCxTQUFPLE9BQU8sWUFBWSxFQUFFLFFBQVEscUJBQXFCLGVBQWUsb0JBQW9CLE1BQU0sRUFBRSxDQUFDO0FBQ3RHOyIsCiAgIm5hbWVzIjogW10KfQo=

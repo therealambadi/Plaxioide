@@ -1,0 +1,33 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __decorateClass = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc(target, key) : target;
+  for (var i = decorators.length - 1, decorator; i >= 0; i--)
+    if (decorator = decorators[i])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp(target, key, result);
+  return result;
+};
+var __decorateParam = (index, decorator) => (target, key) => decorator(target, key, index);
+import { Disposable } from "../../../../base/common/lifecycle.js";
+import { ACCESSIBLE_VIEW_SHOWN_STORAGE_PREFIX } from "../../../../platform/accessibility/common/accessibility.js";
+import { createDecorator } from "../../../../platform/instantiation/common/instantiation.js";
+import { IStorageService, StorageScope } from "../../../../platform/storage/common/storage.js";
+const IAccessibleViewInformationService = createDecorator("accessibleViewInformationService");
+let AccessibleViewInformationService = class extends Disposable {
+  constructor(_storageService) {
+    super();
+    this._storageService = _storageService;
+  }
+  hasShownAccessibleView(viewId) {
+    return this._storageService.getBoolean(`${ACCESSIBLE_VIEW_SHOWN_STORAGE_PREFIX}${viewId}`, StorageScope.APPLICATION, false) === true;
+  }
+};
+AccessibleViewInformationService = __decorateClass([
+  __decorateParam(0, IStorageService)
+], AccessibleViewInformationService);
+export {
+  AccessibleViewInformationService,
+  IAccessibleViewInformationService
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvc2VydmljZXMvYWNjZXNzaWJpbGl0eS9jb21tb24vYWNjZXNzaWJsZVZpZXdJbmZvcm1hdGlvblNlcnZpY2UudHMiXSwKICAic291cmNlc0NvbnRlbnQiOiBbIi8qLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXG4gKiAgQ29weXJpZ2h0IChjKSBNaWNyb3NvZnQgQ29ycG9yYXRpb24uIEFsbCByaWdodHMgcmVzZXJ2ZWQuXG4gKiAgTGljZW5zZWQgdW5kZXIgdGhlIE1JVCBMaWNlbnNlLiBTZWUgTGljZW5zZS50eHQgaW4gdGhlIHByb2plY3Qgcm9vdCBmb3IgbGljZW5zZSBpbmZvcm1hdGlvbi5cbiAqLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0qL1xuXG5pbXBvcnQgeyBEaXNwb3NhYmxlIH0gZnJvbSAnLi4vLi4vLi4vLi4vYmFzZS9jb21tb24vbGlmZWN5Y2xlLmpzJztcbmltcG9ydCB7IEFDQ0VTU0lCTEVfVklFV19TSE9XTl9TVE9SQUdFX1BSRUZJWCB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL2FjY2Vzc2liaWxpdHkvY29tbW9uL2FjY2Vzc2liaWxpdHkuanMnO1xuaW1wb3J0IHsgY3JlYXRlRGVjb3JhdG9yIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vaW5zdGFudGlhdGlvbi9jb21tb24vaW5zdGFudGlhdGlvbi5qcyc7XG5pbXBvcnQgeyBJU3RvcmFnZVNlcnZpY2UsIFN0b3JhZ2VTY29wZSB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL3N0b3JhZ2UvY29tbW9uL3N0b3JhZ2UuanMnO1xuXG5leHBvcnQgaW50ZXJmYWNlIElBY2Nlc3NpYmxlVmlld0luZm9ybWF0aW9uU2VydmljZSB7XG5cdF9zZXJ2aWNlQnJhbmQ6IHVuZGVmaW5lZDtcblx0aGFzU2hvd25BY2Nlc3NpYmxlVmlldyh2aWV3SWQ6IHN0cmluZyk6IGJvb2xlYW47XG59XG5cbmV4cG9ydCBjb25zdCBJQWNjZXNzaWJsZVZpZXdJbmZvcm1hdGlvblNlcnZpY2UgPSBjcmVhdGVEZWNvcmF0b3I8SUFjY2Vzc2libGVWaWV3SW5mb3JtYXRpb25TZXJ2aWNlPignYWNjZXNzaWJsZVZpZXdJbmZvcm1hdGlvblNlcnZpY2UnKTtcblxuZXhwb3J0IGNsYXNzIEFjY2Vzc2libGVWaWV3SW5mb3JtYXRpb25TZXJ2aWNlIGV4dGVuZHMgRGlzcG9zYWJsZSBpbXBsZW1lbnRzIElBY2Nlc3NpYmxlVmlld0luZm9ybWF0aW9uU2VydmljZSB7XG5cdGRlY2xhcmUgcmVhZG9ubHkgX3NlcnZpY2VCcmFuZDogdW5kZWZpbmVkO1xuXHRjb25zdHJ1Y3RvcihASVN0b3JhZ2VTZXJ2aWNlIHByaXZhdGUgcmVhZG9ubHkgX3N0b3JhZ2VTZXJ2aWNlOiBJU3RvcmFnZVNlcnZpY2UpIHtcblx0XHRzdXBlcigpO1xuXHR9XG5cdGhhc1Nob3duQWNjZXNzaWJsZVZpZXcodmlld0lkOiBzdHJpbmcpOiBib29sZWFuIHtcblx0XHRyZXR1cm4gdGhpcy5fc3RvcmFnZVNlcnZpY2UuZ2V0Qm9vbGVhbihgJHtBQ0NFU1NJQkxFX1ZJRVdfU0hPV05fU1RPUkFHRV9QUkVGSVh9JHt2aWV3SWR9YCwgU3RvcmFnZVNjb3BlLkFQUExJQ0FUSU9OLCBmYWxzZSkgPT09IHRydWU7XG5cdH1cbn1cbiJdLAogICJtYXBwaW5ncyI6ICI7Ozs7Ozs7Ozs7O0FBS0EsU0FBUyxrQkFBa0I7QUFDM0IsU0FBUyw0Q0FBNEM7QUFDckQsU0FBUyx1QkFBdUI7QUFDaEMsU0FBUyxpQkFBaUIsb0JBQW9CO0FBT3ZDLE1BQU0sb0NBQW9DLGdCQUFtRCxrQ0FBa0M7QUFFL0gsSUFBTSxtQ0FBTixjQUErQyxXQUF3RDtBQUFBLEVBRTdHLFlBQThDLGlCQUFrQztBQUMvRSxVQUFNO0FBRHVDO0FBQUEsRUFFOUM7QUFBQSxFQUNBLHVCQUF1QixRQUF5QjtBQUMvQyxXQUFPLEtBQUssZ0JBQWdCLFdBQVcsR0FBRyxvQ0FBb0MsR0FBRyxNQUFNLElBQUksYUFBYSxhQUFhLEtBQUssTUFBTTtBQUFBLEVBQ2pJO0FBQ0Q7QUFSYSxtQ0FBTjtBQUFBLEVBRU87QUFBQSxHQUZEOyIsCiAgIm5hbWVzIjogW10KfQo=

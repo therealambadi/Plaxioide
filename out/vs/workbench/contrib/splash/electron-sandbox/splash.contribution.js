@@ -1,0 +1,31 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __decorateClass = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc(target, key) : target;
+  for (var i = decorators.length - 1, decorator; i >= 0; i--)
+    if (decorator = decorators[i])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp(target, key, result);
+  return result;
+};
+var __decorateParam = (index, decorator) => (target, key) => decorator(target, key, index);
+import { WorkbenchPhase, registerWorkbenchContribution2 } from "../../../common/contributions.js";
+import { ISplashStorageService } from "../browser/splash.js";
+import { INativeHostService } from "../../../../platform/native/common/native.js";
+import { InstantiationType, registerSingleton } from "../../../../platform/instantiation/common/extensions.js";
+import { PartsSplash } from "../browser/partsSplash.js";
+let SplashStorageService = class {
+  constructor(nativeHostService) {
+    this.saveWindowSplash = nativeHostService.saveWindowSplash.bind(nativeHostService);
+  }
+};
+SplashStorageService = __decorateClass([
+  __decorateParam(0, INativeHostService)
+], SplashStorageService);
+registerSingleton(ISplashStorageService, SplashStorageService, InstantiationType.Delayed);
+registerWorkbenchContribution2(
+  PartsSplash.ID,
+  PartsSplash,
+  WorkbenchPhase.BlockStartup
+);
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvY29udHJpYi9zcGxhc2gvZWxlY3Ryb24tc2FuZGJveC9zcGxhc2guY29udHJpYnV0aW9uLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyIvKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxuICogIENvcHlyaWdodCAoYykgTWljcm9zb2Z0IENvcnBvcmF0aW9uLiBBbGwgcmlnaHRzIHJlc2VydmVkLlxuICogIExpY2Vuc2VkIHVuZGVyIHRoZSBNSVQgTGljZW5zZS4gU2VlIExpY2Vuc2UudHh0IGluIHRoZSBwcm9qZWN0IHJvb3QgZm9yIGxpY2Vuc2UgaW5mb3JtYXRpb24uXG4gKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tKi9cblxuaW1wb3J0IHsgV29ya2JlbmNoUGhhc2UsIHJlZ2lzdGVyV29ya2JlbmNoQ29udHJpYnV0aW9uMiB9IGZyb20gJy4uLy4uLy4uL2NvbW1vbi9jb250cmlidXRpb25zLmpzJztcbmltcG9ydCB7IElTcGxhc2hTdG9yYWdlU2VydmljZSB9IGZyb20gJy4uL2Jyb3dzZXIvc3BsYXNoLmpzJztcbmltcG9ydCB7IElOYXRpdmVIb3N0U2VydmljZSB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL25hdGl2ZS9jb21tb24vbmF0aXZlLmpzJztcbmltcG9ydCB7IEluc3RhbnRpYXRpb25UeXBlLCByZWdpc3RlclNpbmdsZXRvbiB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL2luc3RhbnRpYXRpb24vY29tbW9uL2V4dGVuc2lvbnMuanMnO1xuaW1wb3J0IHsgUGFydHNTcGxhc2ggfSBmcm9tICcuLi9icm93c2VyL3BhcnRzU3BsYXNoLmpzJztcbmltcG9ydCB7IElQYXJ0c1NwbGFzaCB9IGZyb20gJy4uLy4uLy4uLy4uL3BsYXRmb3JtL3RoZW1lL2NvbW1vbi90aGVtZVNlcnZpY2UuanMnO1xuXG5jbGFzcyBTcGxhc2hTdG9yYWdlU2VydmljZSBpbXBsZW1lbnRzIElTcGxhc2hTdG9yYWdlU2VydmljZSB7XG5cblx0X3NlcnZpY2VCcmFuZDogdW5kZWZpbmVkO1xuXG5cdHJlYWRvbmx5IHNhdmVXaW5kb3dTcGxhc2g6IChzcGxhc2g6IElQYXJ0c1NwbGFzaCkgPT4gUHJvbWlzZTx2b2lkPjtcblxuXHRjb25zdHJ1Y3RvcihASU5hdGl2ZUhvc3RTZXJ2aWNlIG5hdGl2ZUhvc3RTZXJ2aWNlOiBJTmF0aXZlSG9zdFNlcnZpY2UpIHtcblx0XHR0aGlzLnNhdmVXaW5kb3dTcGxhc2ggPSBuYXRpdmVIb3N0U2VydmljZS5zYXZlV2luZG93U3BsYXNoLmJpbmQobmF0aXZlSG9zdFNlcnZpY2UpO1xuXHR9XG59XG5cbnJlZ2lzdGVyU2luZ2xldG9uKElTcGxhc2hTdG9yYWdlU2VydmljZSwgU3BsYXNoU3RvcmFnZVNlcnZpY2UsIEluc3RhbnRpYXRpb25UeXBlLkRlbGF5ZWQpO1xuXG5yZWdpc3RlcldvcmtiZW5jaENvbnRyaWJ1dGlvbjIoXG5cdFBhcnRzU3BsYXNoLklELFxuXHRQYXJ0c1NwbGFzaCxcblx0V29ya2JlbmNoUGhhc2UuQmxvY2tTdGFydHVwXG4pO1xuIl0sCiAgIm1hcHBpbmdzIjogIjs7Ozs7Ozs7Ozs7QUFLQSxTQUFTLGdCQUFnQixzQ0FBc0M7QUFDL0QsU0FBUyw2QkFBNkI7QUFDdEMsU0FBUywwQkFBMEI7QUFDbkMsU0FBUyxtQkFBbUIseUJBQXlCO0FBQ3JELFNBQVMsbUJBQW1CO0FBRzVCLElBQU0sdUJBQU4sTUFBNEQ7QUFBQSxFQU0zRCxZQUFnQyxtQkFBdUM7QUFDdEUsU0FBSyxtQkFBbUIsa0JBQWtCLGlCQUFpQixLQUFLLGlCQUFpQjtBQUFBLEVBQ2xGO0FBQ0Q7QUFUTSx1QkFBTjtBQUFBLEVBTWM7QUFBQSxHQU5SO0FBV04sa0JBQWtCLHVCQUF1QixzQkFBc0Isa0JBQWtCLE9BQU87QUFFeEY7QUFBQSxFQUNDLFlBQVk7QUFBQSxFQUNaO0FBQUEsRUFDQSxlQUFlO0FBQ2hCOyIsCiAgIm5hbWVzIjogW10KfQo=

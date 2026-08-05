@@ -1,0 +1,54 @@
+import { isWeb, isWindows } from "../../../base/common/platform.js";
+import { localize } from "../../../nls.js";
+import { ConfigurationScope, Extensions as ConfigurationExtensions } from "../../configuration/common/configurationRegistry.js";
+import { Registry } from "../../registry/common/platform.js";
+const configurationRegistry = Registry.as(ConfigurationExtensions.Configuration);
+configurationRegistry.registerConfiguration({
+  id: "update",
+  order: 15,
+  title: localize("updateConfigurationTitle", "Update"),
+  type: "object",
+  properties: {
+    "update.mode": {
+      type: "string",
+      enum: ["none", "manual", "start", "default"],
+      default: "default",
+      scope: ConfigurationScope.APPLICATION,
+      description: localize("updateMode", "Configure whether you receive automatic updates. Requires a restart after change. The updates are fetched from a Microsoft online service."),
+      tags: ["usesOnlineServices"],
+      enumDescriptions: [
+        localize("none", "Disable updates."),
+        localize("manual", "Disable automatic background update checks. Updates will be available if you manually check for updates."),
+        localize("start", "Check for updates only on startup. Disable automatic background update checks."),
+        localize("default", "Enable automatic update checks. Code will check for updates automatically and periodically.")
+      ],
+      policy: {
+        name: "UpdateMode",
+        minimumVersion: "1.67"
+      }
+    },
+    "update.channel": {
+      type: "string",
+      default: "default",
+      scope: ConfigurationScope.APPLICATION,
+      description: localize("updateMode", "Configure whether you receive automatic updates. Requires a restart after change. The updates are fetched from a Microsoft online service."),
+      deprecationMessage: localize("deprecated", "This setting is deprecated, please use '{0}' instead.", "update.mode")
+    },
+    "update.enableWindowsBackgroundUpdates": {
+      type: "boolean",
+      default: true,
+      scope: ConfigurationScope.APPLICATION,
+      title: localize("enableWindowsBackgroundUpdatesTitle", "Enable Background Updates on Windows"),
+      description: localize("enableWindowsBackgroundUpdates", "Enable to download and install new VS Code versions in the background on Windows."),
+      included: isWindows && !isWeb
+    },
+    "update.showReleaseNotes": {
+      type: "boolean",
+      default: true,
+      scope: ConfigurationScope.APPLICATION,
+      description: localize("showReleaseNotes", "Show Release Notes after an update. The Release Notes are fetched from a Microsoft online service."),
+      tags: ["usesOnlineServices"]
+    }
+  }
+});
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy9wbGF0Zm9ybS91cGRhdGUvY29tbW9uL3VwZGF0ZS5jb25maWcuY29udHJpYnV0aW9uLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyIvKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxuICogIENvcHlyaWdodCAoYykgTWljcm9zb2Z0IENvcnBvcmF0aW9uLiBBbGwgcmlnaHRzIHJlc2VydmVkLlxuICogIExpY2Vuc2VkIHVuZGVyIHRoZSBNSVQgTGljZW5zZS4gU2VlIExpY2Vuc2UudHh0IGluIHRoZSBwcm9qZWN0IHJvb3QgZm9yIGxpY2Vuc2UgaW5mb3JtYXRpb24uXG4gKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tKi9cblxuaW1wb3J0IHsgaXNXZWIsIGlzV2luZG93cyB9IGZyb20gJy4uLy4uLy4uL2Jhc2UvY29tbW9uL3BsYXRmb3JtLmpzJztcbmltcG9ydCB7IGxvY2FsaXplIH0gZnJvbSAnLi4vLi4vLi4vbmxzLmpzJztcbmltcG9ydCB7IENvbmZpZ3VyYXRpb25TY29wZSwgRXh0ZW5zaW9ucyBhcyBDb25maWd1cmF0aW9uRXh0ZW5zaW9ucywgSUNvbmZpZ3VyYXRpb25SZWdpc3RyeSB9IGZyb20gJy4uLy4uL2NvbmZpZ3VyYXRpb24vY29tbW9uL2NvbmZpZ3VyYXRpb25SZWdpc3RyeS5qcyc7XG5pbXBvcnQgeyBSZWdpc3RyeSB9IGZyb20gJy4uLy4uL3JlZ2lzdHJ5L2NvbW1vbi9wbGF0Zm9ybS5qcyc7XG5cbmNvbnN0IGNvbmZpZ3VyYXRpb25SZWdpc3RyeSA9IFJlZ2lzdHJ5LmFzPElDb25maWd1cmF0aW9uUmVnaXN0cnk+KENvbmZpZ3VyYXRpb25FeHRlbnNpb25zLkNvbmZpZ3VyYXRpb24pO1xuY29uZmlndXJhdGlvblJlZ2lzdHJ5LnJlZ2lzdGVyQ29uZmlndXJhdGlvbih7XG5cdGlkOiAndXBkYXRlJyxcblx0b3JkZXI6IDE1LFxuXHR0aXRsZTogbG9jYWxpemUoJ3VwZGF0ZUNvbmZpZ3VyYXRpb25UaXRsZScsIFwiVXBkYXRlXCIpLFxuXHR0eXBlOiAnb2JqZWN0Jyxcblx0cHJvcGVydGllczoge1xuXHRcdCd1cGRhdGUubW9kZSc6IHtcblx0XHRcdHR5cGU6ICdzdHJpbmcnLFxuXHRcdFx0ZW51bTogWydub25lJywgJ21hbnVhbCcsICdzdGFydCcsICdkZWZhdWx0J10sXG5cdFx0XHRkZWZhdWx0OiAnZGVmYXVsdCcsXG5cdFx0XHRzY29wZTogQ29uZmlndXJhdGlvblNjb3BlLkFQUExJQ0FUSU9OLFxuXHRcdFx0ZGVzY3JpcHRpb246IGxvY2FsaXplKCd1cGRhdGVNb2RlJywgXCJDb25maWd1cmUgd2hldGhlciB5b3UgcmVjZWl2ZSBhdXRvbWF0aWMgdXBkYXRlcy4gUmVxdWlyZXMgYSByZXN0YXJ0IGFmdGVyIGNoYW5nZS4gVGhlIHVwZGF0ZXMgYXJlIGZldGNoZWQgZnJvbSBhIE1pY3Jvc29mdCBvbmxpbmUgc2VydmljZS5cIiksXG5cdFx0XHR0YWdzOiBbJ3VzZXNPbmxpbmVTZXJ2aWNlcyddLFxuXHRcdFx0ZW51bURlc2NyaXB0aW9uczogW1xuXHRcdFx0XHRsb2NhbGl6ZSgnbm9uZScsIFwiRGlzYWJsZSB1cGRhdGVzLlwiKSxcblx0XHRcdFx0bG9jYWxpemUoJ21hbnVhbCcsIFwiRGlzYWJsZSBhdXRvbWF0aWMgYmFja2dyb3VuZCB1cGRhdGUgY2hlY2tzLiBVcGRhdGVzIHdpbGwgYmUgYXZhaWxhYmxlIGlmIHlvdSBtYW51YWxseSBjaGVjayBmb3IgdXBkYXRlcy5cIiksXG5cdFx0XHRcdGxvY2FsaXplKCdzdGFydCcsIFwiQ2hlY2sgZm9yIHVwZGF0ZXMgb25seSBvbiBzdGFydHVwLiBEaXNhYmxlIGF1dG9tYXRpYyBiYWNrZ3JvdW5kIHVwZGF0ZSBjaGVja3MuXCIpLFxuXHRcdFx0XHRsb2NhbGl6ZSgnZGVmYXVsdCcsIFwiRW5hYmxlIGF1dG9tYXRpYyB1cGRhdGUgY2hlY2tzLiBDb2RlIHdpbGwgY2hlY2sgZm9yIHVwZGF0ZXMgYXV0b21hdGljYWxseSBhbmQgcGVyaW9kaWNhbGx5LlwiKVxuXHRcdFx0XSxcblx0XHRcdHBvbGljeToge1xuXHRcdFx0XHRuYW1lOiAnVXBkYXRlTW9kZScsXG5cdFx0XHRcdG1pbmltdW1WZXJzaW9uOiAnMS42NycsXG5cdFx0XHR9XG5cdFx0fSxcblx0XHQndXBkYXRlLmNoYW5uZWwnOiB7XG5cdFx0XHR0eXBlOiAnc3RyaW5nJyxcblx0XHRcdGRlZmF1bHQ6ICdkZWZhdWx0Jyxcblx0XHRcdHNjb3BlOiBDb25maWd1cmF0aW9uU2NvcGUuQVBQTElDQVRJT04sXG5cdFx0XHRkZXNjcmlwdGlvbjogbG9jYWxpemUoJ3VwZGF0ZU1vZGUnLCBcIkNvbmZpZ3VyZSB3aGV0aGVyIHlvdSByZWNlaXZlIGF1dG9tYXRpYyB1cGRhdGVzLiBSZXF1aXJlcyBhIHJlc3RhcnQgYWZ0ZXIgY2hhbmdlLiBUaGUgdXBkYXRlcyBhcmUgZmV0Y2hlZCBmcm9tIGEgTWljcm9zb2Z0IG9ubGluZSBzZXJ2aWNlLlwiKSxcblx0XHRcdGRlcHJlY2F0aW9uTWVzc2FnZTogbG9jYWxpemUoJ2RlcHJlY2F0ZWQnLCBcIlRoaXMgc2V0dGluZyBpcyBkZXByZWNhdGVkLCBwbGVhc2UgdXNlICd7MH0nIGluc3RlYWQuXCIsICd1cGRhdGUubW9kZScpXG5cdFx0fSxcblx0XHQndXBkYXRlLmVuYWJsZVdpbmRvd3NCYWNrZ3JvdW5kVXBkYXRlcyc6IHtcblx0XHRcdHR5cGU6ICdib29sZWFuJyxcblx0XHRcdGRlZmF1bHQ6IHRydWUsXG5cdFx0XHRzY29wZTogQ29uZmlndXJhdGlvblNjb3BlLkFQUExJQ0FUSU9OLFxuXHRcdFx0dGl0bGU6IGxvY2FsaXplKCdlbmFibGVXaW5kb3dzQmFja2dyb3VuZFVwZGF0ZXNUaXRsZScsIFwiRW5hYmxlIEJhY2tncm91bmQgVXBkYXRlcyBvbiBXaW5kb3dzXCIpLFxuXHRcdFx0ZGVzY3JpcHRpb246IGxvY2FsaXplKCdlbmFibGVXaW5kb3dzQmFja2dyb3VuZFVwZGF0ZXMnLCBcIkVuYWJsZSB0byBkb3dubG9hZCBhbmQgaW5zdGFsbCBuZXcgVlMgQ29kZSB2ZXJzaW9ucyBpbiB0aGUgYmFja2dyb3VuZCBvbiBXaW5kb3dzLlwiKSxcblx0XHRcdGluY2x1ZGVkOiBpc1dpbmRvd3MgJiYgIWlzV2ViXG5cdFx0fSxcblx0XHQndXBkYXRlLnNob3dSZWxlYXNlTm90ZXMnOiB7XG5cdFx0XHR0eXBlOiAnYm9vbGVhbicsXG5cdFx0XHRkZWZhdWx0OiB0cnVlLFxuXHRcdFx0c2NvcGU6IENvbmZpZ3VyYXRpb25TY29wZS5BUFBMSUNBVElPTixcblx0XHRcdGRlc2NyaXB0aW9uOiBsb2NhbGl6ZSgnc2hvd1JlbGVhc2VOb3RlcycsIFwiU2hvdyBSZWxlYXNlIE5vdGVzIGFmdGVyIGFuIHVwZGF0ZS4gVGhlIFJlbGVhc2UgTm90ZXMgYXJlIGZldGNoZWQgZnJvbSBhIE1pY3Jvc29mdCBvbmxpbmUgc2VydmljZS5cIiksXG5cdFx0XHR0YWdzOiBbJ3VzZXNPbmxpbmVTZXJ2aWNlcyddXG5cdFx0fVxuXHR9XG59KTtcbiJdLAogICJtYXBwaW5ncyI6ICJBQUtBLFNBQVMsT0FBTyxpQkFBaUI7QUFDakMsU0FBUyxnQkFBZ0I7QUFDekIsU0FBUyxvQkFBb0IsY0FBYywrQkFBdUQ7QUFDbEcsU0FBUyxnQkFBZ0I7QUFFekIsTUFBTSx3QkFBd0IsU0FBUyxHQUEyQix3QkFBd0IsYUFBYTtBQUN2RyxzQkFBc0Isc0JBQXNCO0FBQUEsRUFDM0MsSUFBSTtBQUFBLEVBQ0osT0FBTztBQUFBLEVBQ1AsT0FBTyxTQUFTLDRCQUE0QixRQUFRO0FBQUEsRUFDcEQsTUFBTTtBQUFBLEVBQ04sWUFBWTtBQUFBLElBQ1gsZUFBZTtBQUFBLE1BQ2QsTUFBTTtBQUFBLE1BQ04sTUFBTSxDQUFDLFFBQVEsVUFBVSxTQUFTLFNBQVM7QUFBQSxNQUMzQyxTQUFTO0FBQUEsTUFDVCxPQUFPLG1CQUFtQjtBQUFBLE1BQzFCLGFBQWEsU0FBUyxjQUFjLDRJQUE0STtBQUFBLE1BQ2hMLE1BQU0sQ0FBQyxvQkFBb0I7QUFBQSxNQUMzQixrQkFBa0I7QUFBQSxRQUNqQixTQUFTLFFBQVEsa0JBQWtCO0FBQUEsUUFDbkMsU0FBUyxVQUFVLDBHQUEwRztBQUFBLFFBQzdILFNBQVMsU0FBUyxnRkFBZ0Y7QUFBQSxRQUNsRyxTQUFTLFdBQVcsNkZBQTZGO0FBQUEsTUFDbEg7QUFBQSxNQUNBLFFBQVE7QUFBQSxRQUNQLE1BQU07QUFBQSxRQUNOLGdCQUFnQjtBQUFBLE1BQ2pCO0FBQUEsSUFDRDtBQUFBLElBQ0Esa0JBQWtCO0FBQUEsTUFDakIsTUFBTTtBQUFBLE1BQ04sU0FBUztBQUFBLE1BQ1QsT0FBTyxtQkFBbUI7QUFBQSxNQUMxQixhQUFhLFNBQVMsY0FBYyw0SUFBNEk7QUFBQSxNQUNoTCxvQkFBb0IsU0FBUyxjQUFjLHlEQUF5RCxhQUFhO0FBQUEsSUFDbEg7QUFBQSxJQUNBLHlDQUF5QztBQUFBLE1BQ3hDLE1BQU07QUFBQSxNQUNOLFNBQVM7QUFBQSxNQUNULE9BQU8sbUJBQW1CO0FBQUEsTUFDMUIsT0FBTyxTQUFTLHVDQUF1QyxzQ0FBc0M7QUFBQSxNQUM3RixhQUFhLFNBQVMsa0NBQWtDLG1GQUFtRjtBQUFBLE1BQzNJLFVBQVUsYUFBYSxDQUFDO0FBQUEsSUFDekI7QUFBQSxJQUNBLDJCQUEyQjtBQUFBLE1BQzFCLE1BQU07QUFBQSxNQUNOLFNBQVM7QUFBQSxNQUNULE9BQU8sbUJBQW1CO0FBQUEsTUFDMUIsYUFBYSxTQUFTLG9CQUFvQixvR0FBb0c7QUFBQSxNQUM5SSxNQUFNLENBQUMsb0JBQW9CO0FBQUEsSUFDNUI7QUFBQSxFQUNEO0FBQ0QsQ0FBQzsiLAogICJuYW1lcyI6IFtdCn0K

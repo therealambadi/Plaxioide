@@ -1,0 +1,40 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __decorateClass = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc(target, key) : target;
+  for (var i = decorators.length - 1, decorator; i >= 0; i--)
+    if (decorator = decorators[i])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp(target, key, result);
+  return result;
+};
+var __decorateParam = (index, decorator) => (target, key) => decorator(target, key, index);
+import { IModelService } from "../../../../editor/common/services/model.js";
+import { ModelService } from "../../../../editor/common/services/modelService.js";
+import { ITextResourcePropertiesService } from "../../../../editor/common/services/textResourceConfiguration.js";
+import { IConfigurationService } from "../../../../platform/configuration/common/configuration.js";
+import { InstantiationType, registerSingleton } from "../../../../platform/instantiation/common/extensions.js";
+import { IUndoRedoService } from "../../../../platform/undoRedo/common/undoRedo.js";
+import { IPathService } from "../../path/common/pathService.js";
+import { IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
+let WorkbenchModelService = class extends ModelService {
+  constructor(configurationService, resourcePropertiesService, undoRedoService, _pathService, instantiationService) {
+    super(configurationService, resourcePropertiesService, undoRedoService, instantiationService);
+    this._pathService = _pathService;
+  }
+  _schemaShouldMaintainUndoRedoElements(resource) {
+    return super._schemaShouldMaintainUndoRedoElements(resource) || resource.scheme === this._pathService.defaultUriScheme;
+  }
+};
+WorkbenchModelService = __decorateClass([
+  __decorateParam(0, IConfigurationService),
+  __decorateParam(1, ITextResourcePropertiesService),
+  __decorateParam(2, IUndoRedoService),
+  __decorateParam(3, IPathService),
+  __decorateParam(4, IInstantiationService)
+], WorkbenchModelService);
+registerSingleton(IModelService, WorkbenchModelService, InstantiationType.Delayed);
+export {
+  WorkbenchModelService
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvc2VydmljZXMvbW9kZWwvY29tbW9uL21vZGVsU2VydmljZS50cyJdLAogICJzb3VyY2VzQ29udGVudCI6IFsiLyotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS1cbiAqICBDb3B5cmlnaHQgKGMpIE1pY3Jvc29mdCBDb3Jwb3JhdGlvbi4gQWxsIHJpZ2h0cyByZXNlcnZlZC5cbiAqICBMaWNlbnNlZCB1bmRlciB0aGUgTUlUIExpY2Vuc2UuIFNlZSBMaWNlbnNlLnR4dCBpbiB0aGUgcHJvamVjdCByb290IGZvciBsaWNlbnNlIGluZm9ybWF0aW9uLlxuICotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLSovXG5cbmltcG9ydCB7IFVSSSB9IGZyb20gJy4uLy4uLy4uLy4uL2Jhc2UvY29tbW9uL3VyaS5qcyc7XG5pbXBvcnQgeyBJTW9kZWxTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vZWRpdG9yL2NvbW1vbi9zZXJ2aWNlcy9tb2RlbC5qcyc7XG5pbXBvcnQgeyBNb2RlbFNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9lZGl0b3IvY29tbW9uL3NlcnZpY2VzL21vZGVsU2VydmljZS5qcyc7XG5pbXBvcnQgeyBJVGV4dFJlc291cmNlUHJvcGVydGllc1NlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9lZGl0b3IvY29tbW9uL3NlcnZpY2VzL3RleHRSZXNvdXJjZUNvbmZpZ3VyYXRpb24uanMnO1xuaW1wb3J0IHsgSUNvbmZpZ3VyYXRpb25TZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vY29uZmlndXJhdGlvbi9jb21tb24vY29uZmlndXJhdGlvbi5qcyc7XG5pbXBvcnQgeyBJbnN0YW50aWF0aW9uVHlwZSwgcmVnaXN0ZXJTaW5nbGV0b24gfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS9pbnN0YW50aWF0aW9uL2NvbW1vbi9leHRlbnNpb25zLmpzJztcbmltcG9ydCB7IElVbmRvUmVkb1NlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS91bmRvUmVkby9jb21tb24vdW5kb1JlZG8uanMnO1xuaW1wb3J0IHsgSVBhdGhTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vcGF0aC9jb21tb24vcGF0aFNlcnZpY2UuanMnO1xuaW1wb3J0IHsgSUluc3RhbnRpYXRpb25TZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vaW5zdGFudGlhdGlvbi9jb21tb24vaW5zdGFudGlhdGlvbi5qcyc7XG5cbmV4cG9ydCBjbGFzcyBXb3JrYmVuY2hNb2RlbFNlcnZpY2UgZXh0ZW5kcyBNb2RlbFNlcnZpY2Uge1xuXHRjb25zdHJ1Y3Rvcihcblx0XHRASUNvbmZpZ3VyYXRpb25TZXJ2aWNlIGNvbmZpZ3VyYXRpb25TZXJ2aWNlOiBJQ29uZmlndXJhdGlvblNlcnZpY2UsXG5cdFx0QElUZXh0UmVzb3VyY2VQcm9wZXJ0aWVzU2VydmljZSByZXNvdXJjZVByb3BlcnRpZXNTZXJ2aWNlOiBJVGV4dFJlc291cmNlUHJvcGVydGllc1NlcnZpY2UsXG5cdFx0QElVbmRvUmVkb1NlcnZpY2UgdW5kb1JlZG9TZXJ2aWNlOiBJVW5kb1JlZG9TZXJ2aWNlLFxuXHRcdEBJUGF0aFNlcnZpY2UgcHJpdmF0ZSByZWFkb25seSBfcGF0aFNlcnZpY2U6IElQYXRoU2VydmljZSxcblx0XHRASUluc3RhbnRpYXRpb25TZXJ2aWNlIGluc3RhbnRpYXRpb25TZXJ2aWNlOiBJSW5zdGFudGlhdGlvblNlcnZpY2UsXG5cdCkge1xuXHRcdHN1cGVyKGNvbmZpZ3VyYXRpb25TZXJ2aWNlLCByZXNvdXJjZVByb3BlcnRpZXNTZXJ2aWNlLCB1bmRvUmVkb1NlcnZpY2UsIGluc3RhbnRpYXRpb25TZXJ2aWNlKTtcblx0fVxuXG5cdHByb3RlY3RlZCBvdmVycmlkZSBfc2NoZW1hU2hvdWxkTWFpbnRhaW5VbmRvUmVkb0VsZW1lbnRzKHJlc291cmNlOiBVUkkpIHtcblx0XHRyZXR1cm4gKFxuXHRcdFx0c3VwZXIuX3NjaGVtYVNob3VsZE1haW50YWluVW5kb1JlZG9FbGVtZW50cyhyZXNvdXJjZSlcblx0XHRcdHx8IHJlc291cmNlLnNjaGVtZSA9PT0gdGhpcy5fcGF0aFNlcnZpY2UuZGVmYXVsdFVyaVNjaGVtZVxuXHRcdCk7XG5cdH1cbn1cblxucmVnaXN0ZXJTaW5nbGV0b24oSU1vZGVsU2VydmljZSwgV29ya2JlbmNoTW9kZWxTZXJ2aWNlLCBJbnN0YW50aWF0aW9uVHlwZS5EZWxheWVkKTtcbiJdLAogICJtYXBwaW5ncyI6ICI7Ozs7Ozs7Ozs7O0FBTUEsU0FBUyxxQkFBcUI7QUFDOUIsU0FBUyxvQkFBb0I7QUFDN0IsU0FBUyxzQ0FBc0M7QUFDL0MsU0FBUyw2QkFBNkI7QUFDdEMsU0FBUyxtQkFBbUIseUJBQXlCO0FBQ3JELFNBQVMsd0JBQXdCO0FBQ2pDLFNBQVMsb0JBQW9CO0FBQzdCLFNBQVMsNkJBQTZCO0FBRS9CLElBQU0sd0JBQU4sY0FBb0MsYUFBYTtBQUFBLEVBQ3ZELFlBQ3dCLHNCQUNTLDJCQUNkLGlCQUNhLGNBQ1Isc0JBQ3RCO0FBQ0QsVUFBTSxzQkFBc0IsMkJBQTJCLGlCQUFpQixvQkFBb0I7QUFIN0Q7QUFBQSxFQUloQztBQUFBLEVBRW1CLHNDQUFzQyxVQUFlO0FBQ3ZFLFdBQ0MsTUFBTSxzQ0FBc0MsUUFBUSxLQUNqRCxTQUFTLFdBQVcsS0FBSyxhQUFhO0FBQUEsRUFFM0M7QUFDRDtBQWpCYSx3QkFBTjtBQUFBLEVBRUo7QUFBQSxFQUNBO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFBQSxFQUNBO0FBQUEsR0FOVTtBQW1CYixrQkFBa0IsZUFBZSx1QkFBdUIsa0JBQWtCLE9BQU87IiwKICAibmFtZXMiOiBbXQp9Cg==

@@ -1,0 +1,36 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __decorateClass = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc(target, key) : target;
+  for (var i = decorators.length - 1, decorator; i >= 0; i--)
+    if (decorator = decorators[i])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp(target, key, result);
+  return result;
+};
+var __decorateParam = (index, decorator) => (target, key) => decorator(target, key, index);
+import { WebWorkerDescriptor } from "../../../../base/browser/webWorkerFactory.js";
+import { FileAccess } from "../../../../base/common/network.js";
+import { EditorWorkerService } from "../../../../editor/browser/services/editorWorkerService.js";
+import { ILanguageConfigurationService } from "../../../../editor/common/languages/languageConfigurationRegistry.js";
+import { ILanguageFeaturesService } from "../../../../editor/common/services/languageFeatures.js";
+import { IModelService } from "../../../../editor/common/services/model.js";
+import { ITextResourceConfigurationService } from "../../../../editor/common/services/textResourceConfiguration.js";
+import { ILogService } from "../../../../platform/log/common/log.js";
+let WorkbenchEditorWorkerService = class extends EditorWorkerService {
+  constructor(modelService, configurationService, logService, languageConfigurationService, languageFeaturesService) {
+    const workerDescriptor = new WebWorkerDescriptor(FileAccess.asBrowserUri("vs/editor/common/services/editorWebWorkerMain.js"), "TextEditorWorker");
+    super(workerDescriptor, modelService, configurationService, logService, languageConfigurationService, languageFeaturesService);
+  }
+};
+WorkbenchEditorWorkerService = __decorateClass([
+  __decorateParam(0, IModelService),
+  __decorateParam(1, ITextResourceConfigurationService),
+  __decorateParam(2, ILogService),
+  __decorateParam(3, ILanguageConfigurationService),
+  __decorateParam(4, ILanguageFeaturesService)
+], WorkbenchEditorWorkerService);
+export {
+  WorkbenchEditorWorkerService
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvY29udHJpYi9jb2RlRWRpdG9yL2Jyb3dzZXIvd29ya2JlbmNoRWRpdG9yV29ya2VyU2VydmljZS50cyJdLAogICJzb3VyY2VzQ29udGVudCI6IFsiLyotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS1cbiAqICBDb3B5cmlnaHQgKGMpIE1pY3Jvc29mdCBDb3Jwb3JhdGlvbi4gQWxsIHJpZ2h0cyByZXNlcnZlZC5cbiAqICBMaWNlbnNlZCB1bmRlciB0aGUgTUlUIExpY2Vuc2UuIFNlZSBMaWNlbnNlLnR4dCBpbiB0aGUgcHJvamVjdCByb290IGZvciBsaWNlbnNlIGluZm9ybWF0aW9uLlxuICotLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLSovXG5cbmltcG9ydCB7IFdlYldvcmtlckRlc2NyaXB0b3IgfSBmcm9tICcuLi8uLi8uLi8uLi9iYXNlL2Jyb3dzZXIvd2ViV29ya2VyRmFjdG9yeS5qcyc7XG5pbXBvcnQgeyBGaWxlQWNjZXNzIH0gZnJvbSAnLi4vLi4vLi4vLi4vYmFzZS9jb21tb24vbmV0d29yay5qcyc7XG5pbXBvcnQgeyBFZGl0b3JXb3JrZXJTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vZWRpdG9yL2Jyb3dzZXIvc2VydmljZXMvZWRpdG9yV29ya2VyU2VydmljZS5qcyc7XG5pbXBvcnQgeyBJTGFuZ3VhZ2VDb25maWd1cmF0aW9uU2VydmljZSB9IGZyb20gJy4uLy4uLy4uLy4uL2VkaXRvci9jb21tb24vbGFuZ3VhZ2VzL2xhbmd1YWdlQ29uZmlndXJhdGlvblJlZ2lzdHJ5LmpzJztcbmltcG9ydCB7IElMYW5ndWFnZUZlYXR1cmVzU2VydmljZSB9IGZyb20gJy4uLy4uLy4uLy4uL2VkaXRvci9jb21tb24vc2VydmljZXMvbGFuZ3VhZ2VGZWF0dXJlcy5qcyc7XG5pbXBvcnQgeyBJTW9kZWxTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vLi4vLi4vZWRpdG9yL2NvbW1vbi9zZXJ2aWNlcy9tb2RlbC5qcyc7XG5pbXBvcnQgeyBJVGV4dFJlc291cmNlQ29uZmlndXJhdGlvblNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9lZGl0b3IvY29tbW9uL3NlcnZpY2VzL3RleHRSZXNvdXJjZUNvbmZpZ3VyYXRpb24uanMnO1xuaW1wb3J0IHsgSUxvZ1NlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS9sb2cvY29tbW9uL2xvZy5qcyc7XG5cbmV4cG9ydCBjbGFzcyBXb3JrYmVuY2hFZGl0b3JXb3JrZXJTZXJ2aWNlIGV4dGVuZHMgRWRpdG9yV29ya2VyU2VydmljZSB7XG5cdGNvbnN0cnVjdG9yKFxuXHRcdEBJTW9kZWxTZXJ2aWNlIG1vZGVsU2VydmljZTogSU1vZGVsU2VydmljZSxcblx0XHRASVRleHRSZXNvdXJjZUNvbmZpZ3VyYXRpb25TZXJ2aWNlIGNvbmZpZ3VyYXRpb25TZXJ2aWNlOiBJVGV4dFJlc291cmNlQ29uZmlndXJhdGlvblNlcnZpY2UsXG5cdFx0QElMb2dTZXJ2aWNlIGxvZ1NlcnZpY2U6IElMb2dTZXJ2aWNlLFxuXHRcdEBJTGFuZ3VhZ2VDb25maWd1cmF0aW9uU2VydmljZSBsYW5ndWFnZUNvbmZpZ3VyYXRpb25TZXJ2aWNlOiBJTGFuZ3VhZ2VDb25maWd1cmF0aW9uU2VydmljZSxcblx0XHRASUxhbmd1YWdlRmVhdHVyZXNTZXJ2aWNlIGxhbmd1YWdlRmVhdHVyZXNTZXJ2aWNlOiBJTGFuZ3VhZ2VGZWF0dXJlc1NlcnZpY2UsXG5cdCkge1xuXHRcdGNvbnN0IHdvcmtlckRlc2NyaXB0b3IgPSBuZXcgV2ViV29ya2VyRGVzY3JpcHRvcihGaWxlQWNjZXNzLmFzQnJvd3NlclVyaSgndnMvZWRpdG9yL2NvbW1vbi9zZXJ2aWNlcy9lZGl0b3JXZWJXb3JrZXJNYWluLmpzJyksICdUZXh0RWRpdG9yV29ya2VyJyk7XG5cdFx0c3VwZXIod29ya2VyRGVzY3JpcHRvciwgbW9kZWxTZXJ2aWNlLCBjb25maWd1cmF0aW9uU2VydmljZSwgbG9nU2VydmljZSwgbGFuZ3VhZ2VDb25maWd1cmF0aW9uU2VydmljZSwgbGFuZ3VhZ2VGZWF0dXJlc1NlcnZpY2UpO1xuXHR9XG59XG4iXSwKICAibWFwcGluZ3MiOiAiOzs7Ozs7Ozs7OztBQUtBLFNBQVMsMkJBQTJCO0FBQ3BDLFNBQVMsa0JBQWtCO0FBQzNCLFNBQVMsMkJBQTJCO0FBQ3BDLFNBQVMscUNBQXFDO0FBQzlDLFNBQVMsZ0NBQWdDO0FBQ3pDLFNBQVMscUJBQXFCO0FBQzlCLFNBQVMseUNBQXlDO0FBQ2xELFNBQVMsbUJBQW1CO0FBRXJCLElBQU0sK0JBQU4sY0FBMkMsb0JBQW9CO0FBQUEsRUFDckUsWUFDZ0IsY0FDb0Isc0JBQ3RCLFlBQ2tCLDhCQUNMLHlCQUN6QjtBQUNELFVBQU0sbUJBQW1CLElBQUksb0JBQW9CLFdBQVcsYUFBYSxrREFBa0QsR0FBRyxrQkFBa0I7QUFDaEosVUFBTSxrQkFBa0IsY0FBYyxzQkFBc0IsWUFBWSw4QkFBOEIsdUJBQXVCO0FBQUEsRUFDOUg7QUFDRDtBQVhhLCtCQUFOO0FBQUEsRUFFSjtBQUFBLEVBQ0E7QUFBQSxFQUNBO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFBQSxHQU5VOyIsCiAgIm5hbWVzIjogW10KfQo=

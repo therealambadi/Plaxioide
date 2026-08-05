@@ -1,0 +1,31 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __decorateClass = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc(target, key) : target;
+  for (var i = decorators.length - 1, decorator; i >= 0; i--)
+    if (decorator = decorators[i])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp(target, key, result);
+  return result;
+};
+var __decorateParam = (index, decorator) => (target, key) => decorator(target, key, index);
+import { InstantiationType, registerSingleton } from "../../../../platform/instantiation/common/extensions.js";
+import { IRemoteAgentService } from "../../remote/common/remoteAgentService.js";
+import { INativeWorkbenchEnvironmentService } from "../../environment/electron-sandbox/environmentService.js";
+import { IPathService, AbstractPathService } from "../common/pathService.js";
+import { IWorkspaceContextService } from "../../../../platform/workspace/common/workspace.js";
+let NativePathService = class extends AbstractPathService {
+  constructor(remoteAgentService, environmentService, contextService) {
+    super(environmentService.userHome, remoteAgentService, environmentService, contextService);
+  }
+};
+NativePathService = __decorateClass([
+  __decorateParam(0, IRemoteAgentService),
+  __decorateParam(1, INativeWorkbenchEnvironmentService),
+  __decorateParam(2, IWorkspaceContextService)
+], NativePathService);
+registerSingleton(IPathService, NativePathService, InstantiationType.Delayed);
+export {
+  NativePathService
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsiL1VzZXJzL2FtYmFkaS9EZXNrdG9wL3BsYy1tYWluL3NyYy92cy93b3JrYmVuY2gvc2VydmljZXMvcGF0aC9lbGVjdHJvbi1zYW5kYm94L3BhdGhTZXJ2aWNlLnRzIl0sCiAgInNvdXJjZXNDb250ZW50IjogWyIvKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxuICogIENvcHlyaWdodCAoYykgTWljcm9zb2Z0IENvcnBvcmF0aW9uLiBBbGwgcmlnaHRzIHJlc2VydmVkLlxuICogIExpY2Vuc2VkIHVuZGVyIHRoZSBNSVQgTGljZW5zZS4gU2VlIExpY2Vuc2UudHh0IGluIHRoZSBwcm9qZWN0IHJvb3QgZm9yIGxpY2Vuc2UgaW5mb3JtYXRpb24uXG4gKi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tKi9cblxuaW1wb3J0IHsgSW5zdGFudGlhdGlvblR5cGUsIHJlZ2lzdGVyU2luZ2xldG9uIH0gZnJvbSAnLi4vLi4vLi4vLi4vcGxhdGZvcm0vaW5zdGFudGlhdGlvbi9jb21tb24vZXh0ZW5zaW9ucy5qcyc7XG5pbXBvcnQgeyBJUmVtb3RlQWdlbnRTZXJ2aWNlIH0gZnJvbSAnLi4vLi4vcmVtb3RlL2NvbW1vbi9yZW1vdGVBZ2VudFNlcnZpY2UuanMnO1xuaW1wb3J0IHsgSU5hdGl2ZVdvcmtiZW5jaEVudmlyb25tZW50U2VydmljZSB9IGZyb20gJy4uLy4uL2Vudmlyb25tZW50L2VsZWN0cm9uLXNhbmRib3gvZW52aXJvbm1lbnRTZXJ2aWNlLmpzJztcbmltcG9ydCB7IElQYXRoU2VydmljZSwgQWJzdHJhY3RQYXRoU2VydmljZSB9IGZyb20gJy4uL2NvbW1vbi9wYXRoU2VydmljZS5qcyc7XG5pbXBvcnQgeyBJV29ya3NwYWNlQ29udGV4dFNlcnZpY2UgfSBmcm9tICcuLi8uLi8uLi8uLi9wbGF0Zm9ybS93b3Jrc3BhY2UvY29tbW9uL3dvcmtzcGFjZS5qcyc7XG5cbmV4cG9ydCBjbGFzcyBOYXRpdmVQYXRoU2VydmljZSBleHRlbmRzIEFic3RyYWN0UGF0aFNlcnZpY2Uge1xuXG5cdGNvbnN0cnVjdG9yKFxuXHRcdEBJUmVtb3RlQWdlbnRTZXJ2aWNlIHJlbW90ZUFnZW50U2VydmljZTogSVJlbW90ZUFnZW50U2VydmljZSxcblx0XHRASU5hdGl2ZVdvcmtiZW5jaEVudmlyb25tZW50U2VydmljZSBlbnZpcm9ubWVudFNlcnZpY2U6IElOYXRpdmVXb3JrYmVuY2hFbnZpcm9ubWVudFNlcnZpY2UsXG5cdFx0QElXb3Jrc3BhY2VDb250ZXh0U2VydmljZSBjb250ZXh0U2VydmljZTogSVdvcmtzcGFjZUNvbnRleHRTZXJ2aWNlXG5cdCkge1xuXHRcdHN1cGVyKGVudmlyb25tZW50U2VydmljZS51c2VySG9tZSwgcmVtb3RlQWdlbnRTZXJ2aWNlLCBlbnZpcm9ubWVudFNlcnZpY2UsIGNvbnRleHRTZXJ2aWNlKTtcblx0fVxufVxuXG5yZWdpc3RlclNpbmdsZXRvbihJUGF0aFNlcnZpY2UsIE5hdGl2ZVBhdGhTZXJ2aWNlLCBJbnN0YW50aWF0aW9uVHlwZS5EZWxheWVkKTtcbiJdLAogICJtYXBwaW5ncyI6ICI7Ozs7Ozs7Ozs7O0FBS0EsU0FBUyxtQkFBbUIseUJBQXlCO0FBQ3JELFNBQVMsMkJBQTJCO0FBQ3BDLFNBQVMsMENBQTBDO0FBQ25ELFNBQVMsY0FBYywyQkFBMkI7QUFDbEQsU0FBUyxnQ0FBZ0M7QUFFbEMsSUFBTSxvQkFBTixjQUFnQyxvQkFBb0I7QUFBQSxFQUUxRCxZQUNzQixvQkFDZSxvQkFDVixnQkFDekI7QUFDRCxVQUFNLG1CQUFtQixVQUFVLG9CQUFvQixvQkFBb0IsY0FBYztBQUFBLEVBQzFGO0FBQ0Q7QUFUYSxvQkFBTjtBQUFBLEVBR0o7QUFBQSxFQUNBO0FBQUEsRUFDQTtBQUFBLEdBTFU7QUFXYixrQkFBa0IsY0FBYyxtQkFBbUIsa0JBQWtCLE9BQU87IiwKICAibmFtZXMiOiBbXQp9Cg==
